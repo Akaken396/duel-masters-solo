@@ -70,7 +70,7 @@
 
     // パック単位：パックの記号から、カード番号 001, 002, … を順に読む（番号が続けて見つからなくなったら終了）
     var pm = location.hash.match(/dmsolo-pack=([a-z0-9]+)/i);
-    var links0 = q('a[href*="/card/detail/?id="]');
+    var links0 = q('[data-href*="/card/detail/?id="], a[href*="/card/detail/?id="]');
     var pack = pm ? pm[1] : (!links0.length ? prompt('取り込むパックの記号を入れてください（例: dm26ex4, dm26rp1）') : null);
     if (pack) {
       pack = pack.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -103,7 +103,12 @@
     // 一覧ページ：カード詳細へのリンクを集める（ページ送りがあれば全ページ）
     var seen = {}, links = [];
     var addLinks = function (root, base) {
-      q('a[href*="/card/detail/?id="]', root).forEach(function (a) { var u = new URL(a.getAttribute('href'), base).href; if (!seen[u]) { seen[u] = 1; links.push(u); } });
+      // 公式の一覧はカード画像の data-href にリンクが入っている（普通のリンクも拾う）
+      q('[data-href*="/card/detail/?id="], a[href*="/card/detail/?id="]', root).forEach(function (a) {
+        var raw = a.getAttribute('data-href') || a.getAttribute('href');
+        var u = new URL(raw, base).href;
+        if (!seen[u]) { seen[u] = 1; links.push(u); }
+      });
     };
     addLinks(document, location.href);
     if (!links.length) { alert('このページにはカードが見つかりません。カード詳細ページか、カード一覧（検索結果）ページで押してください。'); return; }
