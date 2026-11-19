@@ -33,7 +33,7 @@
     return t;
   }
 
-  const WHEN_J = { allyAttack: '味方の攻撃時の能力', allyLeft: '味方が離れた時の能力', tapped: 'タップした時の能力', untapped: 'アンタップした時の能力', evolveSource: 'シンカパワー', tapAbility: 'タップ能力', battleLose: 'バトルに負けた時の能力', left: '離れた時の能力', attacked: '攻撃された時の能力', summonOnly: '召喚で出た時の能力', battleWin: 'バトルに勝った時の能力', oppTurnStart: '相手のターンのはじめの能力', broke: 'ブレイクした時の能力', summon: '出た時の能力', attack: '攻撃する時の能力', destroyed: '破壊された時の能力', turnStart: 'ターンのはじめの能力', turnEnd: 'ターンの終わりの能力', shieldAdded: 'シールドが置かれた時の能力', exLifeLost: 'EXライフが離れた時の能力', block: 'ブロックした時の能力', sealsGone: '封印が外れた時の能力' };
+  const WHEN_J = { attackEnd: '攻撃の終わりの能力', beforeBreak: 'ブレイクの前の能力', unblocked: 'ブロックされなかった時の能力', allyAttack: '味方の攻撃時の能力', allyLeft: '味方が離れた時の能力', tapped: 'タップした時の能力', untapped: 'アンタップした時の能力', evolveSource: 'シンカパワー', tapAbility: 'タップ能力', battleLose: 'バトルに負けた時の能力', left: '離れた時の能力', attacked: '攻撃された時の能力', summonOnly: '召喚で出た時の能力', battleWin: 'バトルに勝った時の能力', oppTurnStart: '相手のターンのはじめの能力', broke: 'ブレイクした時の能力', summon: '出た時の能力', attack: '攻撃する時の能力', destroyed: '破壊された時の能力', turnStart: 'ターンのはじめの能力', turnEnd: 'ターンの終わりの能力', shieldAdded: 'シールドが置かれた時の能力', exLifeLost: 'EXライフが離れた時の能力', block: 'ブロックした時の能力', sealsGone: '封印が外れた時の能力' };
 
   class GameOver extends Error {
     constructor(winner, reason) {
@@ -106,10 +106,11 @@
       let out = base;
       this._granting = true;
       try {
-        for (const src of this.p[card.owner].battle) {
+        for (const src of this.permanents(card.owner)) {
           const g = this.kwBase(src).grant;
           if (!g || (g.others && src === card)) continue;
           if (g.who && !((card.def.races || []).join('/') + card.def.name).includes(g.who.replace(/(クリーチャー|カード)$/, ''))) continue;
+          if (g.civ && !(card.def.civs || []).includes(g.civ)) continue;
           for (const nm of g.names) {
             const hit = G.Keywords && G.Keywords.match(nm, nm);
             if (hit && hit.e.set) {
@@ -125,6 +126,15 @@
       for (const tg of this.p[card.owner].tempGrants || []) {
         if (tg.until < this.turn || (tg.uids && !tg.uids.includes(card.uid))) continue;
         for (const nm of tg.names) {
+          const hit = G.Keywords && G.Keywords.match(nm, nm);
+          if (hit && hit.e.set) {
+            if (out === base) out = { ...base };
+            hit.e.set(out, hit.m, nm);
+          }
+        }
+      }
+      if (base.selfBuff) {
+        for (const nm of base.selfBuff.names) {
           const hit = G.Keywords && G.Keywords.match(nm, nm);
           if (hit && hit.e.set) {
             if (out === base) out = { ...base };
@@ -212,6 +222,20 @@
       }
       return true;
     }
+    // 条件の比較
+    condOk(pi, c) {
+      const me = this.p[pi];
+      const op = this.p[1 - pi];
+      const cr = (pl) => pl.battle.filter((x) => this.isCreature(x)).length;
+      if (c.shieldsMore && !(me.shields.length > op.shields.length)) return false;
+      if (c.creaturesMore && !(cr(me) > cr(op))) return false;
+      if (c.oppManaMore && !(op.mana.length > me.mana.length)) return false;
+      if (c.shieldsLE != null && !(me.shields.length <= c.shieldsLE)) return false;
+      if (c.shieldsGE != null && !(me.shields.length >= c.shieldsGE)) return false;
+      if (c.powerGE != null && !me.battle.some((x) => this.isCreature(x) && this.power(x) >= c.powerGE)) return false;
+      return true;
+    }
+
     // 手札を捨てる（相手の効果で、相手のターンに捨てられる時は、かわりに場に出せるカードがある）
     async discardCard(c, byPi) {
       if (!c || this.zoneOf(c) !== 'hand') return;
@@ -329,6 +353,12 @@
       if (card.def.power == null || !this.isCreature(card)) return 0;
       const hp = card.hyper && parsed(card.def).kw.hyperPower;
       let extra = this.powerExtra(card);
+      const meP = this.p[card.owner];
+      for (const tp of meP.tempPowers || []) if (tp.until >= this.turn && tp.except !== card.uid) extra += tp.n;
+      for (const tg of meP.tempGrants || []) if (tg.power && tg.until >= this.turn && (!tg.uids || tg.uids.includes(card.uid))) extra += tg.power;
+      const kb = parsed(card.def).kw;
+      if (kb.aloneBuff && meP.battle.filter((c) => this.isCreature(c)).length === 1) extra += kb.aloneBuff;
+      if (kb.selfBuff) extra += kb.selfBuff.n;
       for (const src of this.p[card.owner].battle) {
         const tp = this.kwBase(src).teamPower;
         if (!tp || (tp.others && src === card)) continue;
@@ -437,7 +467,7 @@
         }
         delete card.sealCards;
         // 場を離れたら、場にいた間の状態を消す
-        for (const k of ['seals', 'exLife', 'forceShield', 'noLeaveUntil', 'frozenUntil', 'noAttackTurn', 'modesUsed', 'flipped', 'usedTurn', 'ignoreName', 'hyper', 'hyperUntil', 'jdUntil', 'returnAtEnd', 'badEnd', 'spellShieldUntil', 'blocking', 'protectUntil', 'allyUsed', 'winAllUntil', 'firstAttackDone', 'lockedUntil', 'unblockableTurn']) delete card[k];
+        for (const k of ['seals', 'exLife', 'forceShield', 'noLeaveUntil', 'frozenUntil', 'noAttackTurn', 'modesUsed', 'flipped', 'usedTurn', 'ignoreName', 'hyper', 'hyperUntil', 'jdUntil', 'returnAtEnd', 'badEnd', 'spellShieldUntil', 'blocking', 'protectUntil', 'allyUsed', 'winAllUntil', 'firstAttackDone', 'lockedUntil', 'unblockableTurn', 'noDestroyUntil']) delete card[k];
       }
       if (zone === 'grave') this.graveThisTurn = true;
       if (zone === 'deck' && top) owner.deck.unshift(card);
@@ -608,6 +638,17 @@
     }
 
     async endTurnEffects() {
+      const me = this.p[this.active];
+      for (const c of me.battle) if (c.tapped && this.kw(c).untapAtEnd) {
+        c.tapped = false;
+        this.log(`「${c.def.name}」はターンの終わりにアンタップした`);
+      }
+      for (const eu of (me.endUntaps || []).filter((x) => x.turn === this.turn)) {
+        const r = await this.pickCards(this.active, me.battle.filter((c) => this.isCreature(c) && c.tapped), eu.n, true, 'ターンの終わりにアンタップするクリーチャー', 'recover');
+        for (const c of r) c.tapped = false;
+        if (r.length) this.log(`${me.name}はクリーチャーを${r.length}体アンタップした`);
+      }
+      me.endUntaps = (me.endUntaps || []).filter((x) => x.turn !== this.turn);
       for (const pl of this.p) {
         for (const c of [...pl.battle]) {
           if (c.returnAtEnd) {
@@ -765,6 +806,13 @@
       }
       if (def.type === 'spell') for (const src of this.permanents(1 - pi)) cost += this.kw(src).spellTax || 0;
       if (k.costIfCount && this.countOwn(pi, k.costIfCount.what) >= k.costIfCount.n) cost -= k.costIfCount.minus;
+      if (k.costPerShield) cost += Math.floor(me.shields.length / k.costPerShield.per) * k.costPerShield.n;
+      if (def.type === 'spell') {
+        for (const q of [0, 1]) for (const src of this.permanents(q)) {
+          const gt = this.kw(src).globalSpellTax;
+          if (gt && !(def.civs || []).includes(gt.exceptCiv)) cost += gt.n;
+        }
+      }
       if (k.tamaEvoDiscount && this.pendingEvoBase && this.pendingEvoBase.def.type === 'tamaseed') cost -= k.tamaEvoDiscount;
       if (k.costPer) {
         const pl = k.costPer.side === 'opp' ? this.p[1 - pi] : me;
@@ -883,6 +931,7 @@
 
     // ロック（一音の妖精など）で使えないか
     locked(pi, def) {
+      if (parsed(def).kw.summonAfterSpell && !((this.spellsThisTurn || [0, 0])[pi] > 0)) return true;
       const sl = this.p[pi].summonLock;
       if (sl && sl.until >= this.turn && !NON_CREATURE.includes(def.type) && (+def.cost || 0) <= sl.maxCost) return true;
       for (const lk of this.p[pi].locks || []) {
@@ -1282,6 +1331,13 @@
           faceUp = true;
         }
         if (k.destroyToMana) toZone = 'mana';
+        if (k.destroyTo) {
+          if (k.destroyTo === 'shields') toZone = 'shields';
+          else if (k.destroyTo === 'deckTop') ((toZone = 'deck'), (o.moveOpt = { top: true }));
+          else if (k.destroyTo === 'deckBottom') ((toZone = 'deck'), (o.moveOpt = { top: false }));
+          else if (k.destroyTo === 'deckShuffle') ((toZone = 'deck'), (o.shuffleAfter = true));
+          else toZone = k.destroyTo;
+        }
         if (k.destroyToManaIf && this.p[card.owner].battle.some((c) => c !== card && this.isCreature(c) && (c.def.civs || []).includes(k.destroyToManaIf))) toZone = 'mana';
         for (const src of this.permanents(card.owner)) {
           const sc = this.sc(src);
@@ -1297,6 +1353,7 @@
         this.log(`「${card.def.name}」はシールド・ゴーで表向きのシールドになった`);
       }
       for (const u of under) this.moveTo(u, toZone === 'shields' ? 'grave' : toZone, o.moveOpt);
+      if (o.shuffleAfter) shuffle(this.p[card.owner].deck, this.rng);
       if (this.hasAbility(card, 'left')) await this.trigger(card, 'left', card.owner, card.def, null, { defer: !!o.destroy });
       if (this.isCreature(card)) await this.allyEvent(card, card.owner, 'allyLeft');
       return true;
@@ -1312,6 +1369,7 @@
 
     // 自分のシールドゾーンにカードが置かれた時の誘発
     async shieldAdded(pi) {
+      this.p[pi].shieldAddedTurn = this.turn;
       for (const h of [...this.p[pi].hand]) {
         if (!parsed(h.def).kw.enterOnShieldAdd || this.zoneOf(h) !== 'hand') continue;
         if (await this.yesNo(pi, `シールドが増えたので「${h.def.name}」を手札から出しますか？`, h)) {
@@ -1404,6 +1462,10 @@
             continue;
           }
         }
+        if (ab.cond && !this.condOk(controller, ab.cond)) {
+          this.log(`「${def.name}」: 条件を満たしていない`);
+          continue;
+        }
         if (ab.cond && ab.cond.count && this.countOwn(controller, ab.cond.count.what) < ab.cond.count.n) {
           this.log(`「${def.name}」: 「${ab.cond.count.what}が${ab.cond.count.n}以上」の条件を満たしていない`);
           continue;
@@ -1454,7 +1516,8 @@
       let pool = [];
       if (a.side === 'opp' || a.side === 'any') pool.push(...this.opp(pi).battle);
       if (a.side === 'self' || a.side === 'any') pool.push(...this.p[pi].battle);
-      pool = pool.filter((c) => this.isCreature(c));
+      if (!a.any) pool = pool.filter((c) => this.isCreature(c));
+      if (a.civs && a.civs.length) pool = pool.filter((c) => (c.def.civs || []).some((x) => a.civs.includes(x)));
       if (a.maxPower != null) pool = pool.filter((c) => this.power(c) <= a.maxPower);
       if (a.maxCost != null) pool = pool.filter((c) => (+c.def.cost || 0) <= a.maxCost);
       if (a.act === 'tap') pool = pool.filter((c) => !c.tapped);
@@ -1465,6 +1528,9 @@
 
     async pickCards(pi, pool, n, optional, prompt, kind = 'target', act) {
       pool = pool.filter((c) => this.selectable(c, pi));
+      const forced = pool.filter((c) => c.owner !== pi && this.zoneOf(c) === 'battle' && this.kw(c).forceChoose);
+      // 「可能ならこのクリーチャーを選ぶ」：選べるなら、それを選ばなければならない
+      if (forced.length && kind === 'target') pool = forced.length >= n ? forced : forced.concat(pool.filter((c) => !forced.includes(c)));
       if (!pool.length) return [];
       const max = Math.min(n, pool.length);
       const ids = await this.choose(pi, {
@@ -1590,7 +1656,8 @@
         case 'graveToHand':
         case 'manaToHand': {
           const zone = a.act === 'graveToHand' ? 'grave' : 'mana';
-          let pool = me[zone].slice();
+          let pool = [...me[zone], ...(a.alsoGrave && zone === 'mana' ? me.grave : [])];
+          if (a.civ) pool = pool.filter((c) => (c.def.civs || []).includes(a.civ));
           if (a.creatureOnly) pool = pool.filter((c) => !NON_CREATURE.includes(c.def.type));
           if (a.spellOnly) pool = pool.filter((c) => c.def.type === 'spell');
           if (a.maxCost != null) pool = pool.filter((c) => (+c.def.cost || 0) <= a.maxCost);
@@ -1715,8 +1782,9 @@
         case 'selfGuard':
           if (this.zoneOf(src) === 'battle') {
             if (a.kind === 'noLeave') src.noLeaveUntil = this.nextTurnOf(pi) - 1;
+            else if (a.kind === 'noDestroy') src.noDestroyUntil = this.nextTurnOf(pi) - 1;
             else src.jdUntil = this.nextTurnOf(pi) - 1;
-            this.log(`「${src.def.name}」は次の自分のターンのはじめまで${a.kind === 'noLeave' ? '離れない' : '相手に選ばれない'}`);
+            this.log(`「${src.def.name}」は次の自分のターンのはじめまで${a.kind === 'noLeave' ? '離れない' : a.kind === 'noDestroy' ? '破壊されない' : '相手に選ばれない'}`);
           }
           break;
         case 'toShield': {
@@ -1730,6 +1798,43 @@
           }
           break;
         }
+        case 'ownShieldToGrave': {
+          const r = await this.pickCards(pi, me.shields.slice(), a.n, false, `${nm}: 墓地に置く自分のシールド`, 'discard');
+          for (const c of r) this.moveTo(c, 'grave');
+          if (r.length) {
+            this.log(`${me.name}はシールドを${r.length}つ墓地に置いた`);
+            await this.shieldsLeft(pi);
+          }
+          break;
+        }
+        case 'shieldToDeckDraw': {
+          if (me.shields.length < a.n) break;
+          if (a.optional && !(await this.yesNo(pi, `${nm}: シールドを${a.n}枚山札の下に置いて、${a.draw}枚引きますか？`, src))) break;
+          const r = await this.pickCards(pi, me.shields.slice(), a.n, false, '山札の下に置くシールド', 'discard');
+          for (const c of r) this.moveTo(c, 'deck', { top: false });
+          this.draw(pi, a.draw);
+          this.log(`${me.name}はシールドを${r.length}枚山札の下に置き、${a.draw}枚引いた`);
+          await this.shieldsLeft(pi);
+          break;
+        }
+        case 'protectDestroy': {
+          const r = await this.pickCards(pi, me.battle.filter((c) => this.isCreature(c)), a.n, false, `${nm}: 破壊されなくする自分のクリーチャー`, 'recover');
+          for (const c of r) {
+            c.noDestroyUntil = this.nextTurnOf(pi) - 1;
+            this.log(`「${c.def.name}」は次の自分のターンのはじめまで破壊されない`);
+          }
+          break;
+        }
+        case 'teamTempPower':
+          me.tempPowers = me.tempPowers || [];
+          me.tempPowers.push({ n: a.n, until: this.nextTurnOf(pi) - 1, except: a.others ? src.uid : null });
+          this.log(`次の自分のターンのはじめまで、${me.name}の${a.others ? '他の' : ''}クリーチャーのパワー+${a.n}`);
+          break;
+        case 'untapAtEnd':
+          me.endUntaps = me.endUntaps || [];
+          me.endUntaps.push({ n: a.n, turn: this.turn });
+          this.log(`このターンの終わりに、${me.name}のクリーチャーを${a.n}体アンタップする`);
+          break;
         case 'drawPer': {
           const cnt = Math.floor(this.countOwn(pi, a.what) / a.per) * a.n;
           if (!cnt) {
@@ -1893,7 +1998,7 @@
             uids = r.map((c) => c.uid);
           }
           me.tempGrants = me.tempGrants || [];
-          me.tempGrants.push({ names: a.names, until: this.nextTurnOf(pi) - 1, uids });
+          me.tempGrants.push({ names: a.names, until: this.nextTurnOf(pi) - 1, uids, power: a.power || 0 });
           this.log(`次の自分のターンのはじめまで、${a.all ? '自分のクリーチャーすべて' : '選んだクリーチャー'}に${a.names.map((x) => '「' + x + '」').join('と')}`);
           break;
         }
@@ -1948,6 +2053,10 @@
       const gone = [];
       for (const c of cards) {
         if (this.zoneOf(c) !== 'battle') continue;
+        if ((c.noDestroyUntil || 0) >= this.turn) {
+          this.log(`「${c.def.name}」は破壊されない`);
+          continue;
+        }
         if (!(await this.leave(c, 'grave', { destroy: true, byOpp: o.byOpp }))) continue;
         this.log(`「${c.def.name}」は破壊された${this.zoneOf(c) === 'mana' ? '（マナゾーンへ）' : ''}`);
         gone.push(c);
@@ -1966,6 +2075,8 @@
       if (card.noAttackTurn === this.turn) return [];
       if ((card.lockedUntil || 0) >= this.turn) return [];
       if (k.attackNeedGrave && this.p[pi].grave.length < k.attackNeedGrave) return [];
+      const lackCreatures = k.attackNeedCreatures && this.p[pi].battle.filter((c) => this.isCreature(c)).length < k.attackNeedCreatures.n;
+      if (lackCreatures && !k.attackNeedCreatures.playerOnly) return [];
       if (card.enteredTurn === this.turn && this.permanents(1 - pi).some((s) => this.kw(s).oppNoAttackOnEntry)) return [];
       for (const src of this.permanents(1 - pi)) {
         const sc = this.sc(src);
@@ -1974,12 +2085,16 @@
       const op = this.opp(pi);
       const t = [];
       const canHit = (c) => this.isCreature(c) && !((c.jdUntil || 0) >= this.turn);
+      // 「可能ならこのクリーチャーを攻撃する」
+      const forced = op.battle.filter((c) => canHit(c) && this.kw(c).forceAttack && (c.tapped || k.attackUntapped || card.sick));
       if (card.sick) {
         if (k.machFighter && card.enteredTurn === this.turn) t.push(...op.battle.filter(canHit));
         return t;
       }
-      if (!k.cantAttackPlayer) t.push('player');
+      const noPlayer = k.cantAttackPlayer || lackCreatures || (k.playerAttackNeedShieldAdded && this.p[pi].shieldAddedTurn !== this.turn);
+      if (!noPlayer) t.push('player');
       t.push(...op.battle.filter((c) => canHit(c) && (c.tapped || k.attackUntapped)));
+      if (forced.length) return t.filter((x) => x !== 'player' && forced.includes(x));
       return t;
     }
 
@@ -2099,15 +2214,22 @@
               } finally {
                 bl.blocking = false;
               }
+              if (this.zoneOf(bl) === 'battle' && this.kw(bl).untapAfterBlock) {
+                bl.tapped = false;
+                this.log(`「${bl.def.name}」はバトルの後でアンタップした`);
+              }
               return true;
             }
           }
         }
         if (tgtCard === 'player') {
+          if (this.hasAbility(card, 'unblocked')) await this.trigger(card, 'unblocked', pi);
+          if (this.zoneOf(card) !== 'battle') return true;
           if (op.shields.length === 0) {
             this.log(`「${card.def.name}」のダイレクトアタック！`);
             this.win(pi, 'ダイレクトアタック');
           }
+          if (this.hasAbility(card, 'beforeBreak')) await this.trigger(card, 'beforeBreak', pi);
           await this.breakShields(pi, this.breakCount(card), card);
         } else if (this.zoneOf(tgtCard) === 'battle') {
           await this.battle(card, tgtCard);
@@ -2122,6 +2244,8 @@
 
     // 攻撃の終わりの効果
     async attackEnd(card, pi) {
+      if (this.zoneOf(card) !== 'battle') return;
+      if (this.hasAbility(card, 'attackEnd')) await this.trigger(card, 'attackEnd', pi);
       if (this.zoneOf(card) !== 'battle') return;
       for (const src of this.permanents(1 - pi)) {
         const nc = this.kw(src).attackEndDestroyNot;
