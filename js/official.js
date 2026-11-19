@@ -296,7 +296,15 @@
       imageUrl: data.image || imageFromUrl(data.url),
       twin: null,
     };
-    if (other) card.twin = { name: other.name.trim(), cost: num(other.cost) ?? 0, text: other.text || '', type: mapType(other.type) };
+    if (other) {
+      card.twin = { name: other.name.trim(), cost: num(other.cost) ?? 0, text: other.text || '', type: mapType(other.type) };
+      // 裏面（覚醒・龍解など）のパワー・種族・文明も残す
+      if (mapType(other.type) === 'creature' && num(other.power) != null) card.twin.power = num(other.power);
+      const tr = String(other.race || '').split(/[\/／]+/).map((r) => r.trim()).filter(Boolean);
+      if (tr.length) card.twin.races = tr;
+      const tc = String(other.civil || '').split(/[\/／・\s]+/).map((c) => CIV[c]).filter(Boolean);
+      if (tc.length) card.twin.civs = tc;
+    }
     return card;
   }
 

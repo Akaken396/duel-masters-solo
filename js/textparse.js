@@ -26,6 +26,7 @@
       .replace(/(。|、)\s*その「S・トリガー」は使えない(。)?/g, '。')
       .replace(/。。/g, '。')
       .replace(/代わりに/g, 'かわりに')
+      .replace(/^(覚醒|龍解|ループ覚醒|覚醒リンク|龍解リンク|超覚醒)\s*[-－：:―—‐]\s*/gm, '')
       .replace(/唱えること(が|は)できない/g, '唱えられない')
       .replace(/パワー(を|は)\s*[_?−‐]\s*(\d)/g, 'パワー$1-$2')
       .replace(/パワー(を|は)(-|\+)(\d+)\s+(する|され)/g, 'パワー$1$2$3$4')
@@ -210,6 +211,18 @@
     return f;
   }
 
+  // 超次元ゾーンから出すカードの条件（コスト・文明・種族）
+  function hyperCond(t) {
+    const o = {};
+    t = String(t || '');
+    let m;
+    if ((m = t.match(/コスト(\d+)以下/))) o.maxCost = +m[1];
+    const cv = t.match(/(光|水|闇|火|自然)((または|か|、)(光|水|闇|火|自然))?の/);
+    if (cv && !/マナゾーンにあるカードと同じ文明/.test(t)) o.civs = [cv[1], cv[4]].filter(Boolean).map((x) => ({ 光: 'light', 水: 'water', 闇: 'darkness', 火: 'fire', 自然: 'nature' }[x]));
+    const r = t.replace(/コスト(\d+)以下の(、)?/, '').replace(/(光|水|闇|火|自然)((または|か|、)(光|水|闇|火|自然))?の/, '').replace(/自分のマナゾーンにあるカードと同じ文明を持つ(、)?/, '').replace(/[、・]$/, '').trim();
+    if (r) o.race = r;
+    return o;
+  }
   function countOf(s) {
     const m = s.match(/(\d+)(体|枚|つ)/);
     return m ? +m[1] : 1;
@@ -227,6 +240,14 @@
     // 「自分の○○をN体（つ）タップしてもよい」：コストとして自分のクリーチャーをタップ
     if ((m = s.match(/^(自分の|バトルゾーンの)(他の)?(、)?([^、。]*?)を(\d+)(体|つ)(、)?タップ(する|してもよい)$/)) && !/相手/.test(s))
       return { act: 'tapOwnCost', who: m[4].replace(/(・)?クリーチャー$/, ''), others: !!m[2], n: +m[5], optional: m[8] !== 'する' };
+    // 覚醒・龍解（裏返す）
+    if ((m = s.replace(/コスト(の|が)大きいほうに|《[^》]+》(の)?(ほう|側)に/, '').match(/^(この(クリーチャー|ドラグハート|カード)を)(、)?(コスト(の|が)大きいほうに|クリーチャー側に|ドラグハート・クリーチャー側に|フォートレス側に|ウエポン側に|《[^》]+》(の)?(ほう|側)に)?裏返(す|してもよい|し、アンタップする|し、アンタップしてもよい)$/))) return { act: 'flipSelf', optional: /もよい/.test(m[m.length - 1]), untap: /アンタップ/.test(m[m.length - 1]) };
+    // GR召喚・超次元ゾーン
+    if ((m = s.match(/^(自分は)?GR召喚(を(\d+)回)?する$/))) return { act: 'grSummon', n: m[3] ? +m[3] : 1 };
+    if ((m = s.match(/^自分の超次元ゾーンから好きな数の(.*?)(サイキック・クリーチャー|ドラグハート)をコストの合計が(\d+)以下になるように選び、(バトルゾーンに)?出す$/)))
+      return { act: 'hyperPut', kind: m[2] === 'ドラグハート' ? 'dragheart' : 'psychic', sumCost: +m[3], ...hyperCond(m[1]) };
+    if ((m = s.match(/^(.*?)(サイキック・クリーチャー|ドラグハート・ウエポン|ドラグハート・フォートレス|ドラグハート|エレメント|カード)を(\d+)(体|枚|つ)(まで)?、?(自分の)?超次元ゾーンから(バトルゾーンに)?出(す|してもよい|し、このクリーチャーに装備する)$/)) && !/手札|山札/.test(m[1]))
+      return { act: 'hyperPut', kind: /サイキック/.test(m[2]) ? 'psychic' : /ドラグハート/.test(m[2]) ? 'dragheart' : 'any', n: +m[3], optional: !!m[5] || m[8] === 'してもよい', ...hyperCond(m[1]) };
     // 選んで別のゾーンへ（破壊ではない）
     if (!/各プレイヤー|でもない|につき|自身の|^相手は|(?<!進化|多色)ではない|でない/.test(s) && (m = s.match(/^(バトルゾーンにある)?(相手の|自分の)?(、)?((?:[^。、]|、(?=コスト|進化|パワー|多色|タップ|アンタップ))*?)(カード|クリーチャー|エレメント)を(すべて|(\d+)(枚|体|つ)(まで)?選び)、(裏向きにして、?|表向きにして、?)?(新しいシールドとして)?(、)?(持ち主の)?(墓地|マナゾーン|山札の下|シールドゾーン|シールド)に(裏向きにして|表向きにして)?(置く|加える|置いてもよい)$/)) && !/手札|山札の上|マナゾーンにある|墓地にある/.test(m[4]))
       return { act: 'moveTarget', side: m[2] === '相手の' ? 'opp' : m[2] === '自分の' ? 'self' : 'any', all: m[6] === 'すべて', n: m[7] ? +m[7] : 0, optional: !!m[9] || /てもよい/.test(s), any: m[5] !== 'クリーチャー', to: /シールド/.test(m[14]) ? 'shields' : { 墓地: 'grave', マナゾーン: 'mana', 山札の下: 'deckBottom' }[m[14]], ...targetFilter(s) };
@@ -576,6 +597,7 @@
     const c = {};
     let mm;
     ct = ct.replace(/(であれば|ならば|なら|あれば|場合|の場合)$/, '').replace(/ければ$/, 'い');
+    if (/^これを装備したクリーチャーがタップ(されて|して)い(れば)?$/.test(ct)) return { equippedTapped: true };
     if ((mm = ct.match(/^自分のシールドが(\d+)(つ|枚)以下(で)?$/))) c.shieldsLE = +mm[1];
     else if ((mm = ct.match(/^自分のシールドが(\d+)(つ|枚)以上$/))) c.shieldsGE = +mm[1];
     else if (/^自分のシールドが1(つ|枚)もない$|^自分のシールドがない$/.test(ct)) c.shieldsLE = 0;
@@ -647,7 +669,7 @@
     const pf = body.match(/^自分と相手のクリーチャーを1体ずつ選(ぶ|んでもよい)。その2体をバトルさせる。?/);
     if (pf) return [{ act: 'pairFight', optional: pf[1] !== 'ぶ' }, ...afterActs(body.slice(pf[0].length))];
     // 「条件なら、効果」
-    const cdm = body.match(/^([^、。]+?(であれば|ならば|なら|あれば|ければ|場合))、(.+)$/);
+    const cdm = body.match(/^([^、。]+?(であれば|ならば|なら|あれば|ければ|いれば|場合))、(.+)$/);
     if (cdm) {
       const cond = parseCondText(cdm[1]);
       if (cond) {
@@ -1082,6 +1104,9 @@
     moveTarget: (a) => `${{ opp: '相手の', self: '自分の', any: '' }[a.side]}${a.all ? 'すべて' : a.n + '枚'}を${{ grave: '墓地', mana: 'マナ', shields: 'シールド', deckBottom: '山札の下' }[a.to]}へ`,
     handToMana: (a) => `手札${a.n}枚をマナへ`,
     oppTeamPower: (a) => `相手のクリーチャーすべてのパワー${a.n}`,
+    flipSelf: () => '裏返す（覚醒・龍解）',
+    grSummon: (a) => `GR召喚${a.n > 1 ? '×' + a.n : ''}`,
+    hyperPut: (a) => `超次元ゾーンから${a.sumCost != null ? 'コスト合計' + a.sumCost + '以下' : (a.maxCost != null ? 'コスト' + a.maxCost + '以下の' : '') + a.n + '枚'}出す`,
     pickTarget: (a) => `${{ opp: '相手の', self: '自分の', any: '' }[a.side]}クリーチャーを${a.n}体選ぶ`,
     powerLast: (a) => `そのクリーチャーのパワー${a.n > 0 ? '+' : ''}${a.n}`,
     lockLast: () => 'そのクリーチャーは次のターンまで攻撃もブロックもできない',

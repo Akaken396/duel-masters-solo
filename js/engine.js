@@ -4,8 +4,28 @@
   const TP = G.TextParse || (typeof require !== 'undefined' ? require('./textparse.js') : null);
 
   const CIV_LABEL = { light: '光', water: '水', darkness: '闇', fire: '火', nature: '自然', zero: 'ゼロ' };
-  const ZONES = ['deck', 'hand', 'mana', 'shields', 'battle', 'grave'];
-  const ZONE_LABEL = { deck: '山札', hand: '手札', mana: 'マナ', shields: 'シールド', battle: 'バトルゾーン', grave: '墓地' };
+  const ZONES = ['deck', 'hand', 'mana', 'shields', 'battle', 'grave', 'hyper', 'gr'];
+  // 山札に入れず、超次元ゾーン／超GRに置くカード（サイキック・ドラグハート／GRクリーチャー）
+  const HOME_RE = /(サイキック・クリーチャー|ドラグハート|サイキック)は(、)?(山札には含め|自身の超次元|自分の超次元)/;
+  function homeZone(def) {
+    if (!def) return null;
+    if (def._home !== undefined) return def._home;
+    const t = def.text || '';
+    let h = null;
+    if (def.type !== 'spell' && HOME_RE.test(t) && ((def.twin && def.twin.type !== 'spell') || /^時空の/.test(def.name) || /ループ覚醒|龍解|このドラグハート|これを装備した/.test(t))) h = 'hyper';
+    else if (/GRクリーチャーは(、)?山札には含め/.test(t) && (/ GR$/.test(def.name) || !/GR召喚/.test(t))) h = 'gr';
+    try {
+      Object.defineProperty(def, '_home', { value: h, enumerable: false, configurable: true });
+    } catch (e) {
+      /* 凍結されたオブジェクト */
+    }
+    return h;
+  }
+  // ドラグハートのウエポン・フォートレス（クリーチャーではない）
+  function isDragheartItem(def) {
+    return homeZone(def) === 'hyper' && def.power == null;
+  }
+  const ZONE_LABEL = { deck: '山札', hand: '手札', mana: 'マナ', shields: 'シールド', battle: 'バトルゾーン', grave: '墓地', hyper: '超次元ゾーン', gr: '超GR' };
 
   // 種類: creature / spell / tamaseed（タマシード） / castle（城）
   const NON_CREATURE = ['spell', 'tamaseed', 'castle', 'field'];
@@ -86,12 +106,14 @@
         idx: i,
         name: opts.names?.[i] ?? (i === 0 ? 'あなた' : 'AI'),
         isAI: !!opts.ai?.[i],
-        deck: opts.decks[i].map((def) => this.mk(def, i)),
+        deck: opts.decks[i].filter((def) => !homeZone(def)).map((def) => this.mk(def, i)),
         hand: [],
         mana: [],
         shields: [],
         battle: [],
         grave: [],
+        hyper: opts.decks[i].filter((def) => homeZone(def) === 'hyper').map((def) => this.mk(def, i)),
+        gr: opts.decks[i].filter((def) => homeZone(def) === 'gr').map((def) => this.mk(def, i)),
       }));
     }
 
@@ -230,6 +252,27 @@
       if ((card.spellShieldUntil || 0) >= this.turn && this.currentSource && this.currentSource.type === 'spell') return false;
       return true;
     }
+    // 覚醒・龍解：裏面にする
+    flipCard(card) {
+      if (card.frontDef) return false;
+      const d = card.def;
+      const t = d.twin;
+      if (!t || t.type === 'spell') return false;
+      let power = t.power != null ? +t.power : null;
+      if (power == null && (t.type || 'creature') === 'creature') {
+        power = +d.power || 0;
+        this.log(`「${d.name}」の裏面のパワーが登録されていないので、表面のパワーで扱う（公式から取り込み直すと直る）`);
+      }
+      card.frontDef = d;
+      card.def = { id: d.id + '#back', name: t.name || d.name, civs: t.civs && t.civs.length ? t.civs : d.civs, cost: +t.cost || d.cost, type: t.type || 'creature', power, races: t.races || d.races || [], text: t.text || '', evolution: '', officialUrl: d.officialUrl, imageUrl: d.imageUrl, twin: null };
+      if (card.equippedTo) card.equippedTo = null;
+      return true;
+    }
+    unflip(card) {
+      if (!card.frontDef) return;
+      card.def = card.frontDef;
+      delete card.frontDef;
+    }
     // 「可能なら毎ターン攻撃する」
     mustAttack(card) {
       if (this.kw(card).mustAttack === 'self') return true;
@@ -267,6 +310,10 @@
     // 常在の条件（マナ武装・数・シールドなど）
     condOk2(pi, c, card) {
       const me = this.p[pi];
+      if (c.equippedTapped) {
+        const h = card && card.equippedTo && me.battle.find((x) => x.uid === card.equippedTo);
+        if (!h || !h.tapped) return false;
+      }
       if (c.myTurn && this.active !== pi) return false;
       if (c.oppTurn && this.active === pi) return false;
       if (c.inBattle) {
@@ -426,7 +473,7 @@
       return parsed(def).manual;
     }
     isCreature(card) {
-      return !NON_CREATURE.includes(card.def.type);
+      return !NON_CREATURE.includes(card.def.type) && !isDragheartItem(card.def);
     }
 
     power(card) {
@@ -526,6 +573,15 @@
     // カードを owner の指定ゾーンへ移す（ルール無視の基本操作）
     moveTo(card, zone, o) {
       o = o || {};
+      // サイキック・ドラグハートは超次元ゾーンへ、GRクリーチャーは超GRの下へ戻る
+      const home = homeZone(card.frontDef || card.def);
+      if (card.frontDef && zone !== 'battle') this.unflip(card);
+      if (home && zone !== 'battle' && zone !== home) {
+        if (zone !== home) this.log(`「${card.def.name}」は${home === 'hyper' ? '超次元ゾーン' : '超GRの下'}に戻った`);
+        zone = home;
+        o = { ...o, top: home === 'hyper' };
+        card.flipped = false;
+      }
       const top = o.top !== false;
       const tapped = !!o.tapped;
       const f = this.find(card.uid);
@@ -673,7 +729,10 @@
     async run() {
       try {
         const [a, b] = this.p;
-        for (const pl of [a, b]) shuffle(pl.deck, this.rng);
+        for (const pl of [a, b]) {
+          shuffle(pl.deck, this.rng);
+          shuffle(pl.gr, this.rng);
+        }
         for (const pl of [a, b]) {
           for (let i = 0; i < 5; i++) this.moveTo(pl.deck[0], 'shields');
           for (let i = 0; i < 5; i++) this.moveTo(pl.deck[0], 'hand');
@@ -1184,6 +1243,7 @@
     graveUse(pi, card) {
       if (this.active !== pi || card.owner !== pi) return null;
       if (this.zoneOf(card) === 'mana') return parsed(card.def).kw.manaSummon ? card : null;
+      if (this.zoneOf(card) === 'hyper') return parsed(card.def).kw.hyperSummon ? card : null;
       if (this.zoneOf(card) !== 'grave') return null;
       if (parsed(card.def).kw.graveSummon) return card;
       for (const src of this.permanents(pi)) {
@@ -1511,6 +1571,11 @@
 
     // バトルゾーンから離す。離れなかったら false
     async leave(card, toZone, o = {}) {
+      if (card.frontDef && this.zoneOf(card) === 'battle' && parsed(card.def).kw.release) {
+        this.unflip(card);
+        this.log(`解除：「${card.def.name}」は離れるかわりに表に戻った`);
+        return false;
+      }
       if (this.zoneOf(card) !== 'battle') return false;
       const sp = this.kw(card).stayIfPower;
       if (sp != null && this.power(card) > sp) {
@@ -1623,6 +1688,10 @@
         this.log(`「${card.def.name}」はシールド・ゴーで表向きのシールドになった`);
       }
       for (const u of under) this.moveTo(u, toZone === 'shields' ? 'grave' : toZone, o.moveOpt);
+      for (const pl of this.p) for (const w of pl.battle.filter((x) => x.equippedTo === card.uid)) {
+        w.equippedTo = null;
+        this.moveTo(w, 'hyper');
+      }
       if (o.shuffleAfter) shuffle(this.p[card.owner].deck, this.rng);
       if (this.hasAbility(card, 'left')) await this.trigger(card, 'left', card.owner, card.def, null, { defer: !!o.destroy });
       if (this.isCreature(card)) await this.allyEvent(card, card.owner, 'allyLeft');
@@ -2197,6 +2266,65 @@
           this.log(`${op.name}のクリーチャーすべてのパワーがこのターン${a.n}`);
           const dead = op.battle.filter((c) => this.isCreature(c) && this.power(c) <= 0);
           if (dead.length) await this.destroyMany(dead);
+          break;
+        }
+        case 'hyperPut': {
+          // 超次元ゾーンから出す（サイキック・クリーチャー／ドラグハート）
+          let pool = me.hyper.filter((c) => {
+            if (a.kind === 'psychic' && isDragheartItem(c.def)) return false;
+            if (a.kind === 'dragheart' && !/ドラグハート/.test(c.def.text || '')) return false;
+            if (a.maxCost != null && (+c.def.cost || 0) > a.maxCost) return false;
+            if (a.civs && a.civs.length && !(c.def.civs || []).some((x) => a.civs.includes(x))) return false;
+            if (a.race && !((c.def.races || []).join('/') + c.def.name).includes(a.race)) return false;
+            return true;
+          });
+          let chosen = [];
+          if (a.sumCost != null) {
+            let left = a.sumCost;
+            const cand = pool.slice();
+            for (;;) {
+              const ok = cand.filter((c) => !chosen.includes(c) && (+c.def.cost || 0) <= left);
+              if (!ok.length) break;
+              const r = await this.pickCards(pi, ok, 1, true, `${nm}: 超次元ゾーンから出すカード（残りコスト${left}）`, 'recover');
+              if (!r.length) break;
+              chosen.push(r[0]);
+              left -= +r[0].def.cost || 0;
+            }
+          } else chosen = await this.pickCards(pi, pool, a.n, a.optional || !pool.length, `${nm}: 超次元ゾーンから出すカード`, 'recover');
+          if (!pool.length) this.log(`${nm}: 超次元ゾーンに出せるカードがない`);
+          for (const c of chosen) {
+            await this.enterBattle(c, pi, 'other');
+            if (isDragheartItem(c.def) && /ウエポン|これを装備した/.test(c.def.text || '') && this.zoneOf(c) === 'battle') {
+              const holder = src && this.zoneOf(src) === 'battle' && this.isCreature(src) ? src : (await this.pickCards(pi, me.battle.filter((x) => this.isCreature(x)), 1, false, `「${c.def.name}」を装備するクリーチャー`, 'recover'))[0];
+              if (holder) {
+                c.equippedTo = holder.uid;
+                this.log(`「${c.def.name}」を「${holder.def.name}」に装備した`);
+              }
+            }
+          }
+          break;
+        }
+        case 'grSummon': {
+          for (let i = 0; i < (a.n || 1); i++) {
+            const c = me.gr.shift();
+            if (!c) {
+              this.log(`${me.name}の超GRにカードがない`);
+              break;
+            }
+            me.gr.push(c); // いったん戻してから出す
+            this.log(`${me.name}はGR召喚した`);
+            await this.enterBattle(c, pi, 'gr');
+          }
+          break;
+        }
+        case 'flipSelf': {
+          if (!src || this.zoneOf(src) !== 'battle' || src.frontDef) break;
+          if (a.optional && !(await this.yesNo(pi, `${nm}を裏返しますか？`, src))) break;
+          const before = src.def.name;
+          if (this.flipCard(src)) {
+            if (a.untap) src.tapped = false;
+            this.log(`${nm}を裏返した → 「${src.def.name}」${src.def.name === before ? '（裏面）' : ''}`);
+          }
           break;
         }
         case 'pickTarget': {
@@ -3124,6 +3252,7 @@
     }
   }
 
-  G.Engine = { Game, GameOver, parsed, twinDef, CIV_LABEL, ZONE_LABEL, TYPE_LABEL, NON_CREATURE, shuffle };
+  G.homeZone = homeZone;
+  G.Engine = { Game, GameOver, parsed, twinDef, CIV_LABEL, ZONE_LABEL, TYPE_LABEL, NON_CREATURE, shuffle, homeZone };
   if (typeof module !== 'undefined') module.exports = G.Engine;
 })(typeof globalThis !== 'undefined' ? globalThis : window);

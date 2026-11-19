@@ -71,7 +71,7 @@
           if (worthPlaying(g, pi, { def: t })) cand.push({ c, twin: true, cost: +t.cost || 0, v: 0 });
         }
       }
-      for (const c of [...me.grave, ...me.mana]) {
+      for (const c of [...me.grave, ...me.mana, ...(me.hyper || [])]) {
         if (g.canPlayFromGrave(pi, c) && worthPlaying(g, pi, c)) cand.push({ c, grave: true, cost: +c.def.cost || 0, v: value(g, c) });
       }
       if (!cand.length) return;

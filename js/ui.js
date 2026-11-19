@@ -215,7 +215,12 @@
         for (const e of r.entries) if (!parsed(e.def).kw.noCopyLimit) per[e.def.name] = (per[e.def.name] || 0) + e.n;
         const over = Object.entries(per).filter(([, n]) => n > 4);
         const bad = [];
-        if (r.count !== 40) bad.push(`デッキは40枚ちょうどです（今は${r.count}枚）`);
+        const mainN = r.defs.filter((d) => !Engine.homeZone(d)).length;
+        const hyN = r.defs.filter((d) => Engine.homeZone(d) === 'hyper').length;
+        const grN = r.defs.filter((d) => Engine.homeZone(d) === 'gr').length;
+        if (mainN !== 40) bad.push(`デッキ（超次元・超GRを除く）は40枚ちょうどです（今は${mainN}枚）`);
+        if (hyN > 8) bad.push(`超次元ゾーンは8枚までです（今は${hyN}枚）`);
+        if (grN && grN !== 12) bad.push(`超GRは12枚ちょうどです（今は${grN}枚）`);
         if (over.length) bad.push('同じ名前のカードは4枚までです：' + over.map(([k, n]) => `${k}×${n}`).join('、'));
         if (r.unknown.length) bad.push('未登録のカード：' + r.unknown.join('、'));
         if (bad.length) return alert(`「${d.name}」は競技ルールを満たしていません。\n` + bad.join('\n') + '\n\n（チェックを外すと、このまま遊べます）');
@@ -386,6 +391,21 @@
     grave.e.append(el('div', { class: 'count', text: pl.grave.length }));
     grave.e.addEventListener('click', () => graveModal(pi));
     row.append(sh.e, mana.e, deck.e, grave.e);
+    // 超次元ゾーン・超GR（使うデッキの時だけ表示）
+    if ((pl.hyper || []).length || g.p.some((x) => (x.hyper || []).length) || pl.battle.some((c) => Engine.homeZone(c.def) === 'hyper')) {
+      const hz = zone('pile', `超次元`);
+      hz.c.append(el('div', { class: 'muted', text: '表向き' }));
+      hz.e.append(el('div', { class: 'count', text: pl.hyper.length }));
+      hz.e.addEventListener('click', () => pileModal(pi, 'hyper'));
+      row.append(hz.e);
+    }
+    if ((pl.gr || []).length || g.p.some((x) => (x.gr || []).length)) {
+      const gz = zone('pile', `超GR`);
+      gz.c.append(cardBack());
+      gz.e.append(el('div', { class: 'count', text: pl.gr.length }));
+      gz.e.addEventListener('click', () => pileModal(pi, 'gr'));
+      row.append(gz.e);
+    }
 
     // 手札
     const hand = zone('hand', `手札 ${pl.hand.length}`);
@@ -549,7 +569,7 @@
         e.addEventListener('contextmenu', (ev) => {
           manualMenu(ev, c, z);
         });
-        const usable = (z === 'grave' || z === 'mana') && g.winner == null && isHuman(pi) && g.active === pi && !g.busy && g.canPlayFromGrave(pi, c);
+        const usable = (z === 'grave' || z === 'mana' || z === 'hyper') && g.winner == null && isHuman(pi) && g.active === pi && !g.busy && g.canPlayFromGrave(pi, c);
         if (usable) {
           e.classList.add('click', 'can');
           e.addEventListener('click', () => {
@@ -569,7 +589,7 @@
       if (!modal.hidden) draw();
     };
     openModal(
-      el('h3', { text: `${pl.name}の${z === 'grave' ? '墓地' : '山札'}（${pl[z].length}枚）　右クリックで移動` }),
+      el('h3', { text: `${pl.name}の${{ grave: '墓地', deck: '山札', hyper: '超次元ゾーン', gr: '超GR', mana: 'マナゾーン' }[z] || z}（${pl[z].length}枚）　右クリックで移動` }),
       box,
       el('div', { class: 'acts' }, el('button', { text: '閉じる', onclick: () => ((g.opts.onChange = prev), closeModal(), render()) }))
     );
@@ -749,7 +769,12 @@
     const r = parseDeckList($('#deck-text').value);
     const out = $('#deck-check');
     out.innerHTML = '';
-    out.append(el('span', { class: r.count === 40 ? 'good' : 'warn', text: `${r.count}枚` + (r.count === 40 ? '' : '（40枚が基本です）') }));
+    const mainN = r.defs.filter((d) => !Engine.homeZone(d)).length;
+    const hyN = r.defs.filter((d) => Engine.homeZone(d) === 'hyper').length;
+    const grN = r.defs.filter((d) => Engine.homeZone(d) === 'gr').length;
+    out.append(el('span', { class: mainN === 40 ? 'good' : 'warn', text: `${mainN}枚` + (mainN === 40 ? '' : '（40枚が基本です）') }));
+    if (hyN) out.append(`　超次元ゾーン: ${hyN}枚`);
+    if (grN) out.append(`　超GR: ${grN}枚`);
     const civ = {};
     let trig = 0;
     for (const def of r.defs) {
