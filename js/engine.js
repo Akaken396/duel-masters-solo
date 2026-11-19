@@ -670,6 +670,7 @@
       if (f) f.player[f.zone].splice(f.index, 1);
       const from = f ? f.zone : null;
       const owner = this.p[card.owner];
+      if (from === 'mana' && zone !== 'mana') delete card.faceDown;
       if (zone !== 'battle' || from !== 'battle') {
         card.tapped = tapped;
         card.tempPower = 0;
@@ -1196,7 +1197,7 @@
       if (avail.length < cost) return null;
       const chosen = [];
       const rainbow = this.permanents(pi).some((s) => this.kw(s).rainbowMana);
-      const civsOf = (m) => (rainbow ? ['light', 'water', 'darkness', 'fire', 'nature'] : m.def.civs || []);
+      const civsOf = (m) => (rainbow ? ['light', 'water', 'darkness', 'fire', 'nature'] : m.faceDown ? [] : m.def.civs || []);
       // 必要な文明を1枚ずつ確保（文明数が少ないカードから）
       const sorted = [...avail].sort((a, b) => civsOf(a).length - civsOf(b).length);
       const covered = new Set();
@@ -1737,6 +1738,25 @@
           return false;
         }
       }
+      // 「破壊される時、墓地に置くかわりに〜の下に置いてもよい」
+      if (o.destroy) {
+        const opts = [];
+        for (const ur of this.kw(card).underRepl || []) if (ur.self) opts.push({ ur, src: card });
+        for (const s of this.p[card.owner].battle) if (s !== card) for (const ur of this.kw(s).underRepl || []) if (!ur.self && this.fitLook(card, G.TextParse.lookCond(ur.who))) opts.push({ ur, src: s });
+        for (const { ur, src } of opts) {
+          const hosts = ur.self ? this.p[card.owner].battle.filter((c) => c !== card && this.isCreature(c) && (!ur.host || this.fitLook(c, G.TextParse.lookCond(ur.host.replace(/NEOクリーチャー|NEO/, ''))) && (!/NEO|進化/.test(ur.host) || this.evoKind(c.def) || c.under?.length))) : [src];
+          if (!hosts.length) continue;
+          if (!(await this.yesNo(card.owner, `「${card.def.name}」を墓地に置くかわりに${ur.self ? 'クリーチャー' : '「' + src.def.name + '」'}の下に置きますか？`, card))) continue;
+          const host = hosts.length === 1 ? hosts[0] : (await this.pickCards(card.owner, hosts, 1, false, `「${card.def.name}」を下に置くクリーチャー`, 'recover'))[0];
+          const pl = this.p[card.owner];
+          pl.battle.splice(pl.battle.indexOf(card), 1);
+          host.under = [...(host.under || []), card, ...(card.under || [])];
+          card.under = null;
+          card.tapped = false;
+          this.log(`「${card.def.name}」は破壊されるかわりに「${host.def.name}」の下に置かれた`);
+          return false;
+        }
+      }
       let faceUp = false;
       if (o.destroy) {
         const own = this.sc(card);
@@ -2110,7 +2130,9 @@
             if (a.random) c = op.hand[Math.floor(this.rng() * op.hand.length)];
             else if (a.byMe) {
               // 相手の手札を見て自分が選ぶ
-              const r = await this.pickCards(pi, op.hand.slice(), 1, !!a.optional, `${nm}: 相手の手札から捨てさせるカード`, 'target');
+              if (i === 0) this.log(`${op.name}の手札：${op.hand.map((x) => x.def.name).join('、')}`);
+              const pool = op.hand.filter((x) => !a.cond || this.fitLook(x, a.cond));
+              const r = await this.pickCards(pi, pool, 1, !!a.optional, `${nm}: 相手の手札から捨てさせるカード`, 'target');
               c = r[0];
               if (!c) break;
             } else {
@@ -2403,6 +2425,45 @@
             me.gr.push(c); // いったん戻してから出す
             this.log(`${me.name}はGR召喚した`);
             await this.enterBattle(c, pi, 'gr');
+          }
+          break;
+        }
+        case 'teamBuff': {
+          const until = a.until === 'next' ? this.nextTurnOf(pi) - 1 : this.turn;
+          let pool = me.battle.filter((c) => this.isCreature(c) && (!a.others || c !== src));
+          if (a.who) {
+            const cd = G.TextParse.lookCond(a.who);
+            pool = pool.filter((c) => this.fitLook(c, cd));
+          }
+          const tg = a.all ? pool : await this.pickCards(pi, pool, a.n, false, `${nm}: 強化する自分のクリーチャー`, 'recover');
+          if (!tg.length) break;
+          me.tempGrants = me.tempGrants || [];
+          // all の時は後から出たクリーチャーにも効くよう uids を付けない（このターン中）
+          me.tempGrants.push({ names: a.names, until, uids: a.all && !a.who && !a.others ? null : tg.map((c) => c.uid), power: a.power || 0 });
+          this.log(`${a.until === 'turn' ? 'このターン' : '次のターンのはじめまで'}、${a.all ? '自分のクリーチャーすべて' : tg.map((c) => '「' + c.def.name + '」').join('')}${a.power ? 'のパワー+' + a.power : ''}${a.names.length ? '、能力' + a.names.map((x) => '「' + x.slice(0, 16) + '」').join('') : ''}`);
+          break;
+        }
+        case 'noLose':
+          me.noLoseUntil = Math.max(me.noLoseUntil || 0, a.until === 'turn' ? this.turn : this.nextTurnOf(pi) - 1);
+          this.log(`${me.name}は${a.until === 'turn' ? 'このターン' : '次のターンまで'}ゲームに負けない`);
+          break;
+        case 'manaFaceDown': {
+          const r = await this.pickCards(pi, me.mana.filter((c) => !c.faceDown), a.n, a.optional, `${nm}: 裏向きにするマナ`, 'discard');
+          for (const c of r) c.faceDown = true;
+          if (r.length) this.log(`${me.name}はマナを${r.length}枚裏向きにした（文明のないマナになる）`);
+          break;
+        }
+        case 'shieldFaceDown': {
+          const r = await this.pickCards(pi, me.shields.filter((c) => c.faceUp), a.n, a.optional, `${nm}: 裏向きにするシールド`, 'recover');
+          for (const c of r) c.faceUp = false;
+          if (r.length) this.log(`${me.name}は表向きのシールドを${r.length}枚裏向きにした`);
+          break;
+        }
+        case 'shieldFaceUp': {
+          const r = await this.pickCards(pi, me.shields.filter((c) => !c.faceUp), a.n, a.optional, `${nm}: 表向きにするシールド`, 'recover');
+          for (const c of r) {
+            c.faceUp = true;
+            this.log(`シールドの「${c.def.name}」を表向きにした`);
           }
           break;
         }
@@ -2755,7 +2816,7 @@
         case 'selfTempGrant':
           if (this.zoneOf(src) === 'battle') {
             me.tempGrants = me.tempGrants || [];
-            me.tempGrants.push({ names: a.names, until: this.nextTurnOf(pi) - 1, uids: [src.uid] });
+            me.tempGrants.push({ names: a.names, until: a.until === 'turn' ? this.turn : this.nextTurnOf(pi) - 1, uids: [src.uid] });
             this.log(`「${src.def.name}」は次の自分のターンのはじめまで${a.names.map((x) => '「' + x + '」').join('と')}を得た`);
           }
           break;
@@ -2954,7 +3015,7 @@
       };
       // 「可能ならこのクリーチャーを攻撃する」
       const forced = op.battle.filter((c) => canHit(c) && this.kw(c).forceAttack && (c.tapped || k.attackUntapped || card.sick));
-      if (card.sick && card.abyssTurn !== this.turn) {
+      if (card.sick && card.abyssTurn !== this.turn && !k.speedAttacker) {
         if (k.machFighter && card.enteredTurn === this.turn) t.push(...op.battle.filter(canHit));
         return t;
       }

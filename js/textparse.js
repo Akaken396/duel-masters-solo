@@ -245,6 +245,12 @@
       return { act: 'tapOwnCost', who: m[4].replace(/(・)?クリーチャー$/, ''), others: !!m[2], n: +m[5], optional: m[8] !== 'する' };
     // 覚醒・龍解（裏返す）
     if ((m = s.replace(/コスト(の|が)大きいほうに|《[^》]+》(の)?(ほう|側)に/, '').match(/^(この(クリーチャー|ドラグハート|カード)を)(、)?(コスト(の|が)大きいほうに|クリーチャー側に|ドラグハート・クリーチャー側に|フォートレス側に|ウエポン側に|《[^》]+》(の)?(ほう|側)に)?裏返(す|してもよい|し、アンタップする|し、アンタップしてもよい)$/))) return { act: 'flipSelf', optional: /もよい/.test(m[m.length - 1]), untap: /アンタップ/.test(m[m.length - 1]) };
+    // このターン（次のターンまで）、自分のクリーチャーN体／すべてのパワー・能力
+    if ((m = s.match(/^(このターン|そのターン|次の自分のターンのはじめまで)、(バトルゾーンにある)?自分の(他の)?(、)?((?:[^、。]|、(?=コスト|進化))*?)クリーチャー((\d+)体|すべて|はすべて)(のパワー(は|を)\+(\d+)(される|する|され、|し、))?(は|に)?(、)?(「(.+?)」(と「(.+?)」)?を(得る|与える))?$/)) && (m[10] || m[15]))
+      return { act: 'teamBuff', until: /次の自分/.test(m[1]) ? 'next' : 'turn', all: !m[7], n: m[7] ? +m[7] : 0, others: !!m[3], who: m[5] || null, power: m[10] ? +m[10] : 0, names: [m[15], m[17]].filter(Boolean) };
+    // 攻撃の制限を外す
+    if ((m = s.match(/^((この|その)ターン、)?(このクリーチャー|自分のクリーチャー(はすべて)?|バトルゾーンにある自分のクリーチャー(\d+)体)は(、)?(タップされていない|アンタップしている)クリーチャーを攻撃できる$/)))
+      return /^このクリーチャー/.test(m[3]) ? { act: 'selfTempGrant', until: m[1] ? 'turn' : 'next', names: ['このクリーチャーはアンタップしているクリーチャーを攻撃できる'] } : { act: 'teamBuff', until: 'turn', all: !m[5], n: m[5] ? +m[5] : 0, power: 0, names: ['このクリーチャーはアンタップしているクリーチャーを攻撃できる'] };
     // GR召喚・超次元ゾーン
     if ((m = s.match(/^(自分は)?GR召喚(を(\d+)回)?する$/))) return { act: 'grSummon', n: m[3] ? +m[3] : 1 };
     if ((m = s.match(/^自分の超次元ゾーンから好きな数の(.*?)(サイキック・クリーチャー|ドラグハート)をコストの合計が(\d+)以下になるように選び、(バトルゾーンに)?出す$/)))
@@ -344,7 +350,7 @@
     if ((m = s.match(/^自分の山札の上から(\d+)枚(目)?を裏向きのまま、新しいシールドとして(自分の)?シールドゾーンに(加え|置)(る|く|てもよい)$/))) {
       return { act: 'shieldAdd', n: +m[1], optional: /てもよい/.test(s) };
     }
-    if ((m = s.match(/^自分の手札を(\d+)枚(、)?裏向きのまま(、)?新しいシールドとして(自分の)?シールドゾーンに(加え|置)(る|く|てもよい)$/))) {
+    if ((m = s.match(/^自分の手札を(\d+)枚(、)?(裏向きのまま|裏向きにして)(、)?新しいシールドとして(自分の)?シールドゾーンに(加え|置)(る|く|てもよい)$/))) {
       return { act: 'handToShield', n: +m[1], optional: /てもよい/.test(s) };
     }
     if ((m = s.match(/^次の自分のターンのはじめまで、このクリーチャーは(相手に選ばれない|離れない)$/))) {
@@ -357,6 +363,13 @@
       return { act: 'shieldToHand', n: +m[1], optional: !!m[2] || /てもよい/.test(s), noTrigger: true };
     }
     if (/^自分は(、)?ゲームに負ける$/.test(s)) return { act: 'loseGame' };
+    if (/^(自分は(、)?)?ゲームに勝(つ|利する)$/.test(s)) return { act: 'winGame' };
+    if ((m = s.match(/^((このターン|次の(自分の|相手の)ターンの(はじめ|終わり)まで)、)?自分は(、)?ゲームに負け(ない|ず、相手は(、)?(ゲームに)?勝てない)$/))) return { act: 'noLose', until: !m[2] || m[2] === 'このターン' ? 'turn' : 'next' };
+    if (/^相手の手札を見る$/.test(s)) return { act: 'revealHand' };
+    if ((m = s.match(/^相手の手札を見て(、)?(その中から)?(([^、。]*?)を)?(\d+)(枚|体)(まで)?選び、捨てさせる$/))) return { act: 'discard', n: +m[5], random: false, byMe: true, optional: !!m[7], cond: m[4] ? lookCond(m[4]) : null };
+    if ((m = s.match(/^自分のマナゾーンのカードを(\d+)枚(、)?裏向きに(する|してもよい)$/))) return { act: 'manaFaceDown', n: +m[1], optional: m[3] !== 'する' };
+    if ((m = s.match(/^自分のシールドゾーンにある表向きのカードを(\d+)枚(、)?裏向きに(する|してもよい)$/))) return { act: 'shieldFaceDown', n: +m[1], optional: m[3] !== 'する' };
+    if ((m = s.match(/^自分のシールドを(\d+)(つ|枚)(選び、)?表向きに(する|してもよい)$/))) return { act: 'shieldFaceUp', n: +m[1], optional: m[4] !== 'する' };
     if (/^相手は(、)?ゲームに負ける$/.test(s)) return { act: 'winGame' };
     if ((m = s.match(/^相手のシールドを(\d+)つ選び、持ち主の墓地に置く$/))) {
       return { act: 'shieldBurn', n: +m[1] };
@@ -1107,6 +1120,11 @@
     moveTarget: (a) => `${{ opp: '相手の', self: '自分の', any: '' }[a.side]}${a.all ? 'すべて' : a.n + '枚'}を${{ grave: '墓地', mana: 'マナ', shields: 'シールド', deckBottom: '山札の下' }[a.to]}へ`,
     handToMana: (a) => `手札${a.n}枚をマナへ`,
     oppTeamPower: (a) => `相手のクリーチャーすべてのパワー${a.n}`,
+    teamBuff: (a) => `${a.until === 'turn' ? 'このターン' : '次のターンまで'}、自分の${a.who || ''}クリーチャー${a.all ? 'すべて' : a.n + '体'}${a.power ? 'のパワー+' + a.power : ''}${a.names.length ? '・' + a.names.map((x) => '「' + x.slice(0, 12) + '」').join('') : ''}`,
+    noLose: (a) => `${a.until === 'turn' ? 'このターン' : '次のターンまで'}負けない`,
+    manaFaceDown: (a) => `マナ${a.n}枚を裏向きに`,
+    shieldFaceDown: (a) => `表向きのシールド${a.n}枚を裏向きに`,
+    shieldFaceUp: (a) => `シールド${a.n}つを表向きに`,
     flipSelf: () => '裏返す（覚醒・龍解）',
     grSummon: (a) => `GR召喚${a.n > 1 ? '×' + a.n : ''}`,
     hyperPut: (a) => `超次元ゾーンから${a.sumCost != null ? 'コスト合計' + a.sumCost + '以下' : (a.maxCost != null ? 'コスト' + a.maxCost + '以下の' : '') + a.n + '枚'}出す`,

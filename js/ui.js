@@ -376,7 +376,12 @@
     const untapped = pl.mana.filter((m) => !m.tapped).length;
     const mana = zone('mana', `マナ ${untapped}/${pl.mana.length}　${manaCivSummary(pl)}`);
     for (const c of pl.mana) {
-      const e = instCard(c, 'mana');
+      const e = c.faceDown ? cardBack() : instCard(c, 'mana');
+      if (c.faceDown) {
+        if (c.tapped) e.classList.add('tapped');
+        e.title = '裏向きのマナ（文明なし）';
+        e.addEventListener('contextmenu', (ev) => manualMenu(ev, c, 'mana'));
+      }
       e.style.setProperty('--cw', '62px');
       mana.c.append(e);
     }

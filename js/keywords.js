@@ -199,6 +199,8 @@
         if (m.groups.ub) hb.unblockable = true;
       }, desc: '付けた（装備・クロスした）クリーチャーのパワーや能力を上げる' },
     { name: 'クロスギアのマナ置き', re: /^このクロスギアはマナゾーンにタップして置かれる。?$/, auto: true, set: () => {}, desc: 'マナゾーンにタップして置く' },
+    { name: '破壊される時に下に置く', re: /^(?<who>このクリーチャー|自分の他の(、)?[^、。]+?)が破壊される時、墓地に置くかわりに(?<host>このクリーチャー|自分の[^、。]+?)(\d+体)?の下に置いてもよい。?$/, auto: true,
+      set: (k, m) => (k.underRepl = (k.underRepl || []).concat({ self: m.groups.who === 'このクリーチャー', who: m.groups.who.replace(/^自分の他の(、)?/, ''), host: m.groups.host === 'このクリーチャー' ? null : m.groups.host.replace(/^自分の/, '') })), desc: '破壊される時、墓地のかわりにクリーチャーの下に置ける' },
     { name: '超次元ゾーンから召喚', re: /^このクリーチャーを(、)?(自分の)?超次元ゾーンから召喚してもよい。?$/, auto: true, set: (k) => (k.hyperSummon = true), desc: '超次元ゾーンから召喚できる' },
     { name: 'マナゾーンから召喚', re: /^このクリーチャーを(、)?自分のマナゾーンから召喚してもよい。?$/, auto: true, set: (k) => (k.manaSummon = true), desc: 'マナゾーンから召喚できる' },
     { name: 'アビスラッシュ', re: /^アビスラッシュ([：:]このクリーチャーを自分の墓地から召喚してもよい。そうしたら、このターン、このクリーチャーはプレイヤーを攻撃でき、ターンの終わりに山札の下に置かれる。?)?$/, auto: true, set: (k) => ((k.graveSummon = true), (k.abyssRush = true)), desc: '墓地から召喚でき、そのターンはプレイヤーを攻撃できる。ターンの終わりに山札の下へ' },
