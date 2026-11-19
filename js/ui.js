@@ -911,6 +911,27 @@
     a.click();
     a.remove();
   });
+  // 文字コード（UTF-8 / UTF-16）やBOMの違いを吸収して読む
+  async function readTextLoose(file) {
+    const buf = new Uint8Array(await file.arrayBuffer());
+    if (buf[0] === 0xff && buf[1] === 0xfe) return new TextDecoder('utf-16le').decode(buf.subarray(2));
+    if (buf[0] === 0xfe && buf[1] === 0xff) return new TextDecoder('utf-16be').decode(buf.subarray(2));
+    // BOMなしUTF-16（1バイトおきに0が並ぶ）
+    if (buf.length > 4 && buf[1] === 0 && buf[3] === 0) return new TextDecoder('utf-16le').decode(buf);
+    return new TextDecoder('utf-8').decode(buf);
+  }
+  // 前後のゴミ（BOM・空白・説明文など）を除いて JSON を取り出す
+  function parseJsonLoose(text) {
+    let t = text.replace(/^﻿/, '').trim();
+    try {
+      return JSON.parse(t);
+    } catch (e) {
+      const s = t.search(/[{[]/);
+      const end = Math.max(t.lastIndexOf('}'), t.lastIndexOf(']'));
+      if (s < 0 || end <= s) throw new Error('中に { や [ が見つかりません');
+      return JSON.parse(t.slice(s, end + 1));
+    }
+  }
   function blobToDataUrl(b) {
     return new Promise((res) => {
       const r = new FileReader();
@@ -924,10 +945,16 @@
     e.target.value = '';
     if (!f) return;
     let data;
+    let text = '';
     try {
-      data = JSON.parse(await f.text());
+      text = await readTextLoose(f);
+      data = parseJsonLoose(text);
     } catch (err) {
-      return alert('JSONとして読めませんでした');
+      const head = text.slice(0, 80).replace(/\s+/g, ' ');
+      return alert(
+        `JSONとして読めませんでした。\n\nファイル: ${f.name}（${f.size.toLocaleString()} バイト）\n理由: ${err.message}\n先頭: ${head || '（空）'}\n\n` +
+          'ダウンロードしたファイルの名前が .json で終わっているか、中身が「{"app":"dmsolo"」で始まっているかを確認してください。'
+      );
     }
     const cards = Array.isArray(data) ? data : data.cards || [];
     const decks = Array.isArray(data) ? [] : data.decks || [];
