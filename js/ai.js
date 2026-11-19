@@ -88,6 +88,17 @@
     return Math.min(g.breakCount ? g.breakCount(c) : g.kw(c).breaker, 99);
   }
 
+  // クロスギアを一番強いクリーチャーにクロスする
+  async function crossPhase(g, pi) {
+    const me = g.p[pi];
+    for (let i = 0; i < 6; i++) {
+      const gear = me.battle.find((c) => g.canCross && g.canCross(pi, c) && !c.attachedTo);
+      if (!gear) return;
+      const hosts = me.battle.filter((c) => g.isCreature(c)).sort((a, b) => g.power(b) - g.power(a));
+      if (!hosts.length) return;
+      if (!(await g.crossGear(pi, gear.uid, hosts[0].uid))) return;
+    }
+  }
   async function attackPhase(g, pi) {
     const me = g.p[pi];
     const op = g.opp(pi);
@@ -161,6 +172,7 @@
       await g.pause();
     }
     await playCards(g, pi);
+    await crossPhase(g, pi);
     await attackPhase(g, pi);
     g.log(`${g.p[pi].name}はターンを終了した`);
   }

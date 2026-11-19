@@ -446,7 +446,7 @@
       can = g.canPlay(pi, c) || g.canPlayTwin(pi, c) || g.canCharge(pi, c);
     } else if (mine && z === 'battle') {
       const t = g.attackTargets(c);
-      clickable = can = t.length > 0 || g.canTapAbility(c);
+      clickable = can = t.length > 0 || g.canTapAbility(c) || g.canCross(pi, c);
     }
     const e = cardFace(c.def, { inst: c, click: clickable, nameBadge: z !== 'mana' });
     if (c.tapped) e.classList.add('tapped');
@@ -454,7 +454,12 @@
     if (can) e.classList.add('can');
     if (z === 'battle' && c.seals > 0) e.append(el('div', { class: 'badge seal', text: `封印${c.seals}` }));
     if (z === 'battle' && c.exLife) e.append(el('div', { class: 'badge seal', text: 'EXライフ' }));
-    if (z === 'battle' && !NON_CREATURE.includes(c.def.type)) {
+    if (z === 'battle' && c.attachedTo) {
+      const h = g.find(c.attachedTo);
+      if (h) e.append(el('div', { class: 'badge seal', text: `${{ weapon: '装備', cross: 'クロス', aura: 'オーラ' }[Engine.attachKind(c.def)] || '付'}→${h.card.def.name.slice(0, 6)}` }));
+    }
+    if (z === 'battle' && c.frontDef) e.append(el('div', { class: 'badge up', text: '裏面' }));
+    if (z === 'battle' && g.isCreature(c)) {
       const p = g.power(c);
       e.append(el('div', { class: 'badge' + (p !== +c.def.power ? ' up' : ''), text: p }));
     }
@@ -498,6 +503,7 @@
     const pi = c.owner;
     const ts = g.attackTargets(c);
     const extra = g.canTapAbility(c) ? [{ label: '攻撃するかわりに、タップして能力を使う', run: () => g.act(() => g.useTapAbility(pi, c.uid), 'タップ能力') }] : [];
+    if (g.canCross(pi, c)) extra.push({ label: `クリーチャーにクロスする（コスト${c.def.cost}）`, run: () => g.act(() => g.crossGear(pi, c.uid)) });
     openMenu(
       ev.clientX,
       ev.clientY,

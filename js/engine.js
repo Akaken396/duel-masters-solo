@@ -25,6 +25,22 @@
   function isDragheartItem(def) {
     return homeZone(def) === 'hyper' && def.power == null;
   }
+  // クリーチャーに付けて使うカード：'weapon' ウエポン / 'cross' クロスギア / 'aura' オーラ
+  function attachKind(def) {
+    if (!def || def.type !== 'creature') return null;
+    if (def._ak !== undefined) return def._ak;
+    const t = def.text || '';
+    let k = null;
+    if (isDragheartItem(def)) k = /これを装備した|ウエポン/.test(t) && !/フォートレス/.test(def.name + t.slice(0, 0)) ? 'weapon' : null;
+    else if (def.power == null && /クロスギア|これをクロスした/.test(t)) k = 'cross';
+    else if (/このオーラ|オレガ・オーラ|これを付けたクリーチャー|これをクリーチャーに付けた/.test(t) && !/このクリーチャー(が|は|を|の)/.test(t)) k = 'aura';
+    try {
+      Object.defineProperty(def, '_ak', { value: k, enumerable: false, configurable: true });
+    } catch (e) {
+      /* */
+    }
+    return k;
+  }
   const ZONE_LABEL = { deck: '山札', hand: '手札', mana: 'マナ', shields: 'シールド', battle: 'バトルゾーン', grave: '墓地', hyper: '超次元ゾーン', gr: '超GR' };
 
   // 種類: creature / spell / tamaseed（タマシード） / castle（城）
@@ -53,7 +69,7 @@
     return t;
   }
 
-  const WHEN_J = { eachTurnEnd: 'ターンの終わりの能力', oppTurnEnd: '相手のターンの終わりの能力', oppEnter: '相手のクリーチャーが出た時の能力', anyEnter: 'クリーチャーが出た時の能力', anyDestroyed: 'クリーチャーが破壊された時の能力', selfOrAllyDestroyed: '破壊された時の能力', blocked: 'ブロックされた時の能力', oppUnblocked: '相手の攻撃が通った時の能力', battled: 'バトルした時の能力', targeted: '選ばれた時の能力', oppAttack: '相手の攻撃時の能力', allyCast: '呪文を唱えた時の能力', oppCast: '相手が呪文を唱えた時の能力', allyBattleWin: '味方がバトルに勝った時の能力', oppDestroyed: '相手のクリーチャーが破壊された時の能力', ownShieldLeft: 'シールドが離れた時の能力', attackEnd: '攻撃の終わりの能力', beforeBreak: 'ブレイクの前の能力', unblocked: 'ブロックされなかった時の能力', allyAttack: '味方の攻撃時の能力', allyLeft: '味方が離れた時の能力', tapped: 'タップした時の能力', untapped: 'アンタップした時の能力', evolveSource: 'シンカパワー', tapAbility: 'タップ能力', battleLose: 'バトルに負けた時の能力', left: '離れた時の能力', attacked: '攻撃された時の能力', summonOnly: '召喚で出た時の能力', battleWin: 'バトルに勝った時の能力', oppTurnStart: '相手のターンのはじめの能力', broke: 'ブレイクした時の能力', summon: '出た時の能力', attack: '攻撃する時の能力', destroyed: '破壊された時の能力', turnStart: 'ターンのはじめの能力', turnEnd: 'ターンの終わりの能力', shieldAdded: 'シールドが置かれた時の能力', exLifeLost: 'EXライフが離れた時の能力', block: 'ブロックした時の能力', sealsGone: '封印が外れた時の能力' };
+  const WHEN_J = { hostAttack: '付いているクリーチャーの攻撃時の能力', hostAttackEnd: '付いているクリーチャーの攻撃の終わりの能力', eachTurnEnd: 'ターンの終わりの能力', oppTurnEnd: '相手のターンの終わりの能力', oppEnter: '相手のクリーチャーが出た時の能力', anyEnter: 'クリーチャーが出た時の能力', anyDestroyed: 'クリーチャーが破壊された時の能力', selfOrAllyDestroyed: '破壊された時の能力', blocked: 'ブロックされた時の能力', oppUnblocked: '相手の攻撃が通った時の能力', battled: 'バトルした時の能力', targeted: '選ばれた時の能力', oppAttack: '相手の攻撃時の能力', allyCast: '呪文を唱えた時の能力', oppCast: '相手が呪文を唱えた時の能力', allyBattleWin: '味方がバトルに勝った時の能力', oppDestroyed: '相手のクリーチャーが破壊された時の能力', ownShieldLeft: 'シールドが離れた時の能力', attackEnd: '攻撃の終わりの能力', beforeBreak: 'ブレイクの前の能力', unblocked: 'ブロックされなかった時の能力', allyAttack: '味方の攻撃時の能力', allyLeft: '味方が離れた時の能力', tapped: 'タップした時の能力', untapped: 'アンタップした時の能力', evolveSource: 'シンカパワー', tapAbility: 'タップ能力', battleLose: 'バトルに負けた時の能力', left: '離れた時の能力', attacked: '攻撃された時の能力', summonOnly: '召喚で出た時の能力', battleWin: 'バトルに勝った時の能力', oppTurnStart: '相手のターンのはじめの能力', broke: 'ブレイクした時の能力', summon: '出た時の能力', attack: '攻撃する時の能力', destroyed: '破壊された時の能力', turnStart: 'ターンのはじめの能力', turnEnd: 'ターンの終わりの能力', shieldAdded: 'シールドが置かれた時の能力', exLifeLost: 'EXライフが離れた時の能力', block: 'ブロックした時の能力', sealsGone: '封印が外れた時の能力' };
 
   class GameOver extends Error {
     constructor(winner, reason) {
@@ -128,6 +144,21 @@
       let out = base;
       this._granting = true;
       try {
+        for (const x of this.p[card.owner].battle) {
+          if (x.attachedTo !== card.uid) continue;
+          const hb = this.kwBase(x).hostBuff;
+          for (const nm of (hb && hb.names) || []) {
+            const hit = G.Keywords && G.Keywords.match(nm, nm);
+            if (hit && hit.e.set) {
+              if (out === base) out = { ...base };
+              hit.e.set(out, hit.m, nm);
+            }
+          }
+          if (hb && hb.unblockable) {
+            if (out === base) out = { ...base };
+            out.unblockable = true;
+          }
+        }
         for (const src of this.permanents(card.owner)) {
           const g = this.kwBase(src).grant;
           if (!g || (g.others && src === card)) continue;
@@ -252,6 +283,51 @@
       if ((card.spellShieldUntil || 0) >= this.turn && this.currentSource && this.currentSource.type === 'spell') return false;
       return true;
     }
+    // オーラ：自分のクリーチャーに付ける（オレガ・オーラはGRクリーチャー。いなければGR召喚して付ける）
+    async playAura(pi, card, fr = '') {
+      const me = this.p[pi];
+      const orega = /オレガ・オーラ/.test(card.def.text || '');
+      const hosts = () => me.battle.filter((c) => this.isCreature(c) && (!orega || homeZone(c.frontDef || c.def) === 'gr'));
+      let pool = hosts();
+      if ((!pool.length || orega) && me.gr.length && orega) {
+        const ids = pool.length ? await this.choose(pi, { kind: 'mode', prompt: `オーラ「${card.def.name}」をどこに付けますか？`, options: [{ id: 'gr', label: 'GR召喚して、そのクリーチャーに付ける' }, ...pool.map((c) => ({ id: String(c.uid), label: `「${c.def.name}」に付ける`, card: c }))], min: 1, max: 1, aiPick: ['gr'] }) : ['gr'];
+        if (ids[0] === 'gr') {
+          await this.doAction({ act: 'grSummon', n: 1 }, card, pi);
+          pool = [this.lastEntered].filter((c) => c && this.zoneOf(c) === 'battle');
+        } else pool = pool.filter((c) => String(c.uid) === ids[0]);
+      }
+      const host = pool.length === 1 ? pool[0] : (await this.pickCards(pi, pool, 1, false, `オーラ「${card.def.name}」を付けるクリーチャー`, 'recover'))[0];
+      if (!host) {
+        this.moveTo(card, 'grave');
+        this.log(`オーラ「${card.def.name}」を付けるクリーチャーがいないので墓地に置いた`);
+        return;
+      }
+      this.moveTo(card, 'battle');
+      card.sick = false;
+      card.attachedTo = host.uid;
+      card.enteredTurn = this.turn;
+      this.log(`${me.name}はオーラ「${card.def.name}」を${fr}「${host.def.name}」に付けた`);
+      this.noteManual(card);
+      await this.trigger(card, 'summon', pi);
+      await this.resolvePending();
+    }
+    // クロスギアをクリーチャーにクロスする（コストを支払う）
+    canCross(pi, gear) {
+      return this.active === pi && gear.owner === pi && this.zoneOf(gear) === 'battle' && attachKind(gear.def) === 'cross' && this.p[pi].battle.some((c) => this.isCreature(c) && c.uid !== gear.attachedTo) && !!this.payment(pi, gear);
+    }
+    async crossGear(pi, gearUid, hostUid) {
+      const f = this.find(gearUid);
+      if (!f || !this.canCross(pi, f.card)) return false;
+      const gear = f.card;
+      const pool = this.p[pi].battle.filter((c) => this.isCreature(c) && c.uid !== gear.attachedTo);
+      const host = hostUid ? pool.find((c) => c.uid === hostUid) : (await this.pickCards(pi, pool, 1, false, `クロスギア「${gear.def.name}」をクロスするクリーチャー`, 'recover'))[0];
+      if (!host) return false;
+      await this.pay(pi, gear, gear.def);
+      gear.attachedTo = host.uid;
+      this.log(`${this.p[pi].name}はクロスギア「${gear.def.name}」を「${host.def.name}」にクロスした`);
+      this.changed();
+      return true;
+    }
     // 覚醒・龍解：裏面にする
     flipCard(card) {
       if (card.frontDef) return false;
@@ -265,7 +341,7 @@
       }
       card.frontDef = d;
       card.def = { id: d.id + '#back', name: t.name || d.name, civs: t.civs && t.civs.length ? t.civs : d.civs, cost: +t.cost || d.cost, type: t.type || 'creature', power, races: t.races || d.races || [], text: t.text || '', evolution: '', officialUrl: d.officialUrl, imageUrl: d.imageUrl, twin: null };
-      if (card.equippedTo) card.equippedTo = null;
+      if (card.attachedTo) card.attachedTo = null;
       return true;
     }
     unflip(card) {
@@ -311,7 +387,7 @@
     condOk2(pi, c, card) {
       const me = this.p[pi];
       if (c.equippedTapped) {
-        const h = card && card.equippedTo && me.battle.find((x) => x.uid === card.equippedTo);
+        const h = card && card.attachedTo && me.battle.find((x) => x.uid === card.attachedTo);
         if (!h || !h.tapped) return false;
       }
       if (c.myTurn && this.active !== pi) return false;
@@ -473,7 +549,7 @@
       return parsed(def).manual;
     }
     isCreature(card) {
-      return !NON_CREATURE.includes(card.def.type) && !isDragheartItem(card.def);
+      return !NON_CREATURE.includes(card.def.type) && !isDragheartItem(card.def) && !attachKind(card.def);
     }
 
     power(card) {
@@ -501,6 +577,12 @@
           if (tp.who && !((card.def.races || []).join('/') + card.def.name).includes(tp.who)) continue;
           extra += tp.n;
         }
+      }
+      for (const x of this.p[card.owner].battle) {
+        if (x.attachedTo !== card.uid) continue;
+        const hb = parsed(x.def).kw.hostBuff;
+        if (hb && hb.power) extra += hb.power;
+        if (attachKind(x.def) === 'aura') extra += +x.def.power || 0;
       }
       const mb = parsed(card.def).kw.manaArmedBuff;
       if (mb && this.p[card.owner].mana.filter((m) => (m.def.civs || []).includes(mb.civ)).length >= mb.n) extra += mb.power;
@@ -1360,6 +1442,8 @@
         this.noteManual(card);
         await this.trigger(card, 'summon', pi);
         await this.shieldAdded(pi);
+      } else if (attachKind(def) === 'aura') {
+        await this.playAura(pi, card, fr);
       } else if (def !== card.def && def.type === 'field') {
         // WDフィールド：裏面で出す
         this.log(`${name}はフィールド「${def.name}」（「${card.def.name}」の裏面）を${fr}出した`);
@@ -1688,9 +1772,14 @@
         this.log(`「${card.def.name}」はシールド・ゴーで表向きのシールドになった`);
       }
       for (const u of under) this.moveTo(u, toZone === 'shields' ? 'grave' : toZone, o.moveOpt);
-      for (const pl of this.p) for (const w of pl.battle.filter((x) => x.equippedTo === card.uid)) {
-        w.equippedTo = null;
-        this.moveTo(w, 'hyper');
+      for (const pl of this.p) for (const w of pl.battle.filter((x) => x.attachedTo === card.uid)) {
+        w.attachedTo = null;
+        const k = attachKind(w.def);
+        if (k === 'weapon') this.moveTo(w, 'hyper');
+        else if (k === 'aura') {
+          this.moveTo(w, 'grave');
+          this.log(`オーラ「${w.def.name}」は墓地に置かれた`);
+        } else this.log(`クロスギア「${w.def.name}」はバトルゾーンに残った`);
       }
       if (o.shuffleAfter) shuffle(this.p[card.owner].deck, this.rng);
       if (this.hasAbility(card, 'left')) await this.trigger(card, 'left', card.owner, card.def, null, { defer: !!o.destroy });
@@ -2297,7 +2386,7 @@
             if (isDragheartItem(c.def) && /ウエポン|これを装備した/.test(c.def.text || '') && this.zoneOf(c) === 'battle') {
               const holder = src && this.zoneOf(src) === 'battle' && this.isCreature(src) ? src : (await this.pickCards(pi, me.battle.filter((x) => this.isCreature(x)), 1, false, `「${c.def.name}」を装備するクリーチャー`, 'recover'))[0];
               if (holder) {
-                c.equippedTo = holder.uid;
+                c.attachedTo = holder.uid;
                 this.log(`「${c.def.name}」を「${holder.def.name}」に装備した`);
               }
             }
@@ -2890,6 +2979,8 @@
       card.attacking = true;
       if (this.hasAbility(card, 'tapped')) await this.trigger(card, 'tapped', pi, card.def, null, { defer: true });
       await this.allyEvent(card, pi, 'allyAttack');
+      for (const x of me.battle.filter((y) => y.attachedTo === card.uid)) if (this.hasAbility(x, 'hostAttack')) await this.trigger(x, 'hostAttack', pi, x.def, null, { defer: true });
+      await this.resolvePending();
       await this.fireAll(1 - pi, 'oppAttack');
       this.log(`${me.name}の「${card.def.name}」が${tgtCard === 'player' ? op.name : '「' + tgtCard.def.name + '」'}を攻撃！`);
       await this.pause();
@@ -3033,6 +3124,7 @@
     async attackEnd(card, pi) {
       if (this.zoneOf(card) !== 'battle') return;
       if (this.hasAbility(card, 'attackEnd')) await this.trigger(card, 'attackEnd', pi);
+      for (const x of this.p[pi].battle.filter((y) => y.attachedTo === card.uid)) if (this.hasAbility(x, 'hostAttackEnd')) await this.trigger(x, 'hostAttackEnd', pi);
       if (this.zoneOf(card) !== 'battle') return;
       for (const src of this.permanents(1 - pi)) {
         const nc = this.kw(src).attackEndDestroyNot;
@@ -3253,6 +3345,6 @@
   }
 
   G.homeZone = homeZone;
-  G.Engine = { Game, GameOver, parsed, twinDef, CIV_LABEL, ZONE_LABEL, TYPE_LABEL, NON_CREATURE, shuffle, homeZone };
+  G.Engine = { Game, GameOver, parsed, twinDef, CIV_LABEL, ZONE_LABEL, TYPE_LABEL, NON_CREATURE, shuffle, homeZone, attachKind };
   if (typeof module !== 'undefined') module.exports = G.Engine;
 })(typeof globalThis !== 'undefined' ? globalThis : window);
