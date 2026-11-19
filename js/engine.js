@@ -1125,6 +1125,8 @@
       if (a.maxPower != null) pool = pool.filter((c) => this.power(c) <= a.maxPower);
       if (a.maxCost != null) pool = pool.filter((c) => (+c.def.cost || 0) <= a.maxCost);
       if (a.act === 'tap') pool = pool.filter((c) => !c.tapped);
+      if (a.tappedOnly) pool = pool.filter((c) => c.tapped);
+      if (a.untappedOnly) pool = pool.filter((c) => !c.tapped);
       return pool;
     }
 
@@ -1179,6 +1181,36 @@
           for (let i = 0; i < a.n && me.deck.length; i++) this.moveTo(me.deck[0], 'shields');
           this.log(`${me.name}はシールドを${a.n}つ追加した`);
           await this.shieldAdded(pi);
+          break;
+        }
+        case 'deckBottom':
+        case 'toMana': {
+          const pool = this.targetsFor(a, pi);
+          const picked = a.all ? pool : await this.pickCards(pi, pool, a.n, a.optional, `${nm}: ${a.act === 'toMana' ? 'マナゾーンに置く' : '山札の下に置く'}クリーチャーを選んでください`, 'target', 'bounce');
+          if (!pool.length) this.log(`${nm}の対象がいなかった`);
+          for (const c of picked) {
+            const z = a.act === 'toMana' ? 'mana' : 'deck';
+            if (await this.leave(c, z, { byOpp: c.owner !== pi, moveOpt: z === 'deck' ? { top: false } : {} })) this.log(`「${c.def.name}」は${a.act === 'toMana' ? 'マナゾーン' : '山札の下'}に置かれた`);
+          }
+          break;
+        }
+        case 'shieldBurn': {
+          const r = await this.pickCards(pi, op.shields.slice(), a.n, false, `${nm}: 墓地に置く相手のシールド`, 'shield');
+          for (const c of r) this.moveTo(c, 'grave');
+          if (r.length) {
+            this.log(`${op.name}のシールド${r.length}つが墓地に置かれた`);
+            await this.shieldsLeft(op.idx);
+          }
+          break;
+        }
+        case 'powerDown': {
+          const pool = this.targetsFor({ side: 'opp' }, pi);
+          const r = await this.pickCards(pi, pool, a.n, false, `${nm}: パワーを下げるクリーチャー`, 'target', 'destroy');
+          for (const c of r) {
+            c.tempPower -= a.amount;
+            this.log(`「${c.def.name}」のパワーが-${a.amount}された`);
+            if (this.power(c) <= 0) await this.destroyMany([c]);
+          }
           break;
         }
         case 'destroy':

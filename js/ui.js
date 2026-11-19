@@ -1236,10 +1236,35 @@
   window.addEventListener('message', (e) => {
     const d = e.data;
     if (d && d.app === 'dmsolo-official') importOfficial(d);
+    if (d && d.app === 'dmsolo-official-batch') importOfficialBatch(d.cards || []);
   });
+  async function importOfficialBatch(list) {
+    let add = 0;
+    let upd = 0;
+    let manualCards = 0;
+    for (const d of list) {
+      try {
+        const r = await importOfficial(d, true);
+        if (r === 'add') add++;
+        else if (r === 'update') upd++;
+        if (r && TextParse.parseCard(Store.byName(Official.toCard(d).name)).manual.length) manualCards++;
+      } catch (e) {
+        /* 読めなかったカードは飛ばす */
+      }
+    }
+    Store.saveCards();
+    showTab('cards');
+    alert(`${list.length}枚を取り込みました（追加 ${add}・更新 ${upd}）。\n手動の文が残っているカード: ${manualCards}枚`);
+  }
+  $('#off-search').addEventListener('click', () => window.open('https://dm.takaratomy.co.jp/card/', 'dmofficial'));
   $('#off-paste-btn').addEventListener('click', () => {
     try {
       const d = parseJsonLoose($('#off-paste').value);
+      if (d && d.app === 'dmsolo-official-batch') {
+        importOfficialBatch(d.cards || []);
+        $('#off-paste').value = '';
+        return;
+      }
       if (!d || d.app !== 'dmsolo-official') throw new Error('取り込みデータではありません');
       importOfficial(d);
       $('#off-paste').value = '';
@@ -1248,7 +1273,7 @@
     }
   });
 
-  async function importOfficial(d) {
+  async function importOfficial(d, quiet) {
     let c;
     try {
       c = Official.toCard(d);
@@ -1265,6 +1290,7 @@
     }
     // 公式画像を優先して表示する（手元の画像は外す）
     if (Store.imageUrls[c.id]) await Store.setImage(c.id, null).catch(() => {});
+    if (quiet) return old ? 'update' : 'add';
     Store.saveCards();
     showTab('cards');
     selectCard(c.id);

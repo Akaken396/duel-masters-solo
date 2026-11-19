@@ -9,7 +9,11 @@
       .replace(/[＋]/g, '+')
       .replace(/[，]/g, '、')
       .replace(/[．]/g, '。')
-      .replace(/\r/g, '');
+      .replace(/\r/g, '')
+      .replace(/\{[A-Za-z0-9]+\}\s*/g, '') // 公式ページのアイコン記号 {GS} など
+      .replace(/\[[a-z]{1,3}\d{0,3}\]/g, '') // マナ記号 [ll02] など
+      .replace(/^l\s+/gm, '') // 能力を与える時の記号
+      .replace(/^\s*[▶►]\s*/gm, (m) => m.trim());
   }
 
   // （…）や(...)の注釈を消す
@@ -63,6 +67,8 @@
 
   function targetFilter(s) {
     const f = {};
+    if (/タップされている|タップしている/.test(s) && !/アンタップ/.test(s)) f.tappedOnly = true;
+    if (/アンタップしている|アンタップされている/.test(s)) f.untappedOnly = true;
     let m = s.match(/パワー(\d+)以下/);
     if (m) f.maxPower = +m[1];
     m = s.match(/コスト(\d+)以下/);
@@ -103,6 +109,20 @@
     if (/クリーチャー/.test(s) && /破壊する$|破壊してもよい$/.test(s)) {
       const all = /すべて/.test(s);
       return { act: 'destroy', side: sideOf(s), all, n: all ? 0 : countOf(s), optional, ...targetFilter(s) };
+    }
+    if (/クリーチャー/.test(s) && /(持ち主の)?山札の下に置く$|山札の下に置いてもよい$/.test(s) && !/墓地から|マナゾーンから/.test(s)) {
+      const all = /すべて/.test(s);
+      return { act: 'deckBottom', side: sideOf(s), all, n: all ? 0 : countOf(s), optional, ...targetFilter(s) };
+    }
+    if (/クリーチャー/.test(s) && /(持ち主の)?マナゾーンに置く$|マナゾーンに置いてもよい$/.test(s) && !/山札の上|墓地から|手札から/.test(s)) {
+      const all = /すべて/.test(s);
+      return { act: 'toMana', side: sideOf(s), all, n: all ? 0 : countOf(s), optional, ...targetFilter(s) };
+    }
+    if ((m = s.match(/^相手のシールドを(\d+)つ選び、持ち主の墓地に置く$/))) {
+      return { act: 'shieldBurn', n: +m[1] };
+    }
+    if ((m = s.match(/^相手のクリーチャーを(\d+)体選ぶ。このターン、そのクリーチャーのパワーを-(\d+)する$/))) {
+      return { act: 'powerDown', side: 'opp', n: +m[1], amount: +m[2] };
     }
     if (/クリーチャー/.test(s) && /手札に戻す$|手札に戻してもよい$/.test(s) && !/墓地/.test(s) && !/マナ/.test(s)) {
       const all = /すべて/.test(s);
@@ -304,13 +324,17 @@
     mill: (a) => `山札から${a.n}枚墓地へ`,
     untapSelf: () => `自身をアンタップ`,
     seal: (a) => `封印を${a.n}つ付ける`,
+    deckBottom: (a) => `${sideJ(a.side)}${filt(a)}${a.all ? 'すべて' : a.n + '体'}山札の下へ`,
+    toMana: (a) => `${sideJ(a.side)}${filt(a)}${a.all ? 'すべて' : a.n + '体'}マナへ`,
+    shieldBurn: (a) => `相手のシールド${a.n}つを墓地へ`,
+    powerDown: (a) => `相手の${a.n}体パワー-${a.amount}`,
     reanimate: (a) => `墓地から${a.maxCost ? 'コスト' + a.maxCost + '以下の' : ''}${a.kinds.map((k) => (k === 'creature' ? 'クリーチャー' : 'タマシード')).join('か')}を${a.n}つ出す`,
   };
   function sideJ(s) {
     return s === 'opp' ? '相手の' : s === 'self' ? '自分の' : '';
   }
   function filt(a) {
-    return (a.maxPower ? `パワー${a.maxPower}以下` : '') + (a.maxCost ? `コスト${a.maxCost}以下` : '');
+    return (a.tappedOnly ? 'タップ中の' : '') + (a.untappedOnly ? 'アンタップ中の' : '') + (a.maxPower ? `パワー${a.maxPower}以下` : '') + (a.maxCost ? `コスト${a.maxCost}以下` : '');
   }
   const WHEN_LABEL = { summon: '出た時', attack: '攻撃時', destroyed: '破壊時', turnStart: 'ターン開始時', turnEnd: 'ターン終了時', shieldAdded: 'シールド追加時', cast: '呪文' };
 
