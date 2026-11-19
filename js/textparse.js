@@ -169,6 +169,11 @@
       return { act: 'oppLock', spell: /呪文/.test(m[4]), maxCost: m[3] ? +m[3] : null, until: m[1] === 'このターン' ? 'turn' : 'next' };
     }
     if (/^相手は(、)?自身の手札をすべて捨てる$/.test(s)) return { act: 'discardAll' };
+    if ((m = s.match(/^(自分の)?(.+?)(\d+)(体|枚|つ)につき、カードを(\d+)枚引(く|いてもよい)$/))) return { act: 'drawPer', what: m[2], per: +m[3], n: +m[5], optional: /てもよい/.test(s) };
+    if ((m = s.match(/^自分の山札の上から1枚(目)?を表向きにする。それが(.+?)(なら|であれば)(、)?(バトルゾーンに)?出(す|してもよい)。(それ以外なら|こうして出さなければ)(、)?(自分の)?(山札の下|マナゾーン|墓地|手札)に(置く|加える)$/))) {
+      return { act: 'revealTop', cond: lookCond(m[2]), optional: /てもよい/.test(m[6]), rest: { 山札の下: 'deckBottom', マナゾーン: 'mana', 墓地: 'grave', 手札: 'hand' }[m[10]] };
+    }
+    if ((m = s.match(/^(コスト(\d+)以下の)?(進化ではない)?(、)?クリーチャーを好きな数、自分の墓地から出す$/))) return { act: 'reanimate', kinds: ['creature'], maxCost: m[2] ? +m[2] : null, n: 99, optional: true };
     if (/^相手は(、)?自身の手札をすべて見せる$/.test(s)) return { act: 'revealHand' };
     if (/^自分のマナゾーンにあるカードをすべてアンタップする$/.test(s)) return { act: 'untapMana' };
     if (/^このターン、自分のクリーチャーはすべてのバトルに勝つ$/.test(s)) return { act: 'teamWinTurn' };
@@ -198,9 +203,9 @@
     if ((m = s.match(/^(コスト(\d+)以下の)?(呪文|クリーチャー|カード|タマシード)を(\d+)(枚|体|つ)、?自分の墓地から手札に(戻|加え)/))) {
       return { act: 'graveToHand', n: +m[4], creatureOnly: m[3] === 'クリーチャー', spellOnly: m[3] === '呪文', maxCost: m[2] ? +m[2] : null, optional: /てもよい/.test(s) };
     }
-    if ((m = s.match(/^(光|水|闇|火|自然)?の?(コスト(\d+)以下の)?(、)?(進化ではない)?(、)?(クリーチャー|タマシード)を(\d+)(体|つ|枚)、?自分の手札から(バトルゾーンに)?出/))) {
+    if ((m = s.match(/^(光|水|闇|火|自然)?の?(コスト(\d+)以下の)?(、)?(進化ではない)?(、)?(クリーチャー|タマシード)を(\d+)(体|つ|枚)、?自分の手札(または墓地)?から(バトルゾーンに)?出/))) {
       const civ = m[1] ? { 光: 'light', 水: 'water', 闇: 'darkness', 火: 'fire', 自然: 'nature' }[m[1]] : null;
-      return { act: 'putFromHand', civ, maxCost: m[3] ? +m[3] : null, notEvo: !!m[5], kinds: [m[7] === 'クリーチャー' ? 'creature' : 'tamaseed'], n: +m[8], optional: /てもよい/.test(s) };
+      return { act: 'putFromHand', civ, maxCost: m[3] ? +m[3] : null, notEvo: !!m[5], kinds: [m[7] === 'クリーチャー' ? 'creature' : 'tamaseed'], n: +m[8], optional: /てもよい/.test(s), alsoGrave: !!m[10] };
     }
     if ((m = s.match(/^(コスト(\d+)以下の)?呪文を(\d+)枚、?自分の手札からコストを支払わずに唱え/))) {
       return { act: 'castFromHand', maxCost: m[2] ? +m[2] : null, n: +m[3], optional: /てもよい/.test(s) };
@@ -324,7 +329,16 @@
   }
 
   // 「その後、」や「。」で区切った複数効果を読む。全部読めた時だけ配列を返す
+  // 「山札の上から1枚を表向きにする。それが○○なら出す。それ以外なら△に置く」をひとまとめに
+  const REVEAL_RE = /^自分の山札の上から1枚(目)?を表向きにする。それが(.+?)(なら|であれば)(、)?(バトルゾーンに)?出(す|してもよい)。(それ以外なら|こうして出さなければ)(、)?(自分の)?(山札の下|マナゾーン|墓地|手札)に(置く|加える)。?/;
   function parseEffects(body) {
+    const rv = body.match(REVEAL_RE);
+    if (rv) {
+      const act = { act: 'revealTop', cond: lookCond(rv[2]), optional: /てもよい/.test(rv[6]), rest: { 山札の下: 'deckBottom', マナゾーン: 'mana', 墓地: 'grave', 手札: 'hand' }[rv[10]] };
+      const remain = body.slice(rv[0].length).replace(/^その後、/, '').trim();
+      const after = remain ? parseEffects(remain) : [];
+      return [act, ...(after || [{ act: 'manualNote', text: remain }])];
+    }
     const lk = parseLook(body);
     if (lk) {
       const after = lk.remain.trim() ? parseEffects(lk.remain) : [];
@@ -487,6 +501,15 @@
       let whens = [];
       let body = line;
       // 「出た時または攻撃する時」
+      const allyEv = line.match(/^自分の(他の)?([^、]{1,24}?)が(攻撃する|離れた|破壊された)(時|とき)、/);
+      if (allyEv && !/^このクリーチャー/.test(line)) {
+        const what = allyEv[2].replace(/(・)?クリーチャー$/, '').replace(/^クリーチャー$/, '');
+        const actsE = parseEffects(line.replace(allyEv[0], ''));
+        if (actsE) {
+          A.push({ when: allyEv[3] === '攻撃する' ? 'allyAttack' : 'allyLeft', acts: actsE, ally: { race: what || null, others: !!allyEv[1] }, text: raw });
+          continue;
+        }
+      }
       const ally = line.match(/^(各ターンに(\d+)度、)?自分の(他の)?([^、]{1,24}?)が(バトルゾーンに)?出た(時|とき)、/);
       if (ally && !/^このクリーチャー/.test(line)) {
         const what = ally[4].replace(/(・)?クリーチャー$/, '').replace(/^クリーチャー$/, '');
@@ -559,6 +582,8 @@
     lookTop: (a) => `山札の上から${a.n}枚${a.reveal ? '表向き' : '見る'}→${a.cond.text || 'カード'}を${a.take === 'all' ? 'すべて' : a.take + (a.upTo ? 'まで' : '')}${{ hand: '手札', battle: '場', mana: 'マナ', grave: '墓地', shields: 'シールド' }[a.dest]}へ・残り${{ deckBottom: '山札の下', grave: '墓地', mana: 'マナ', hand: '手札', deckTop: '山札の上' }[a.rest]}`,
     mekuraid: (a) => `${a.race ? a.race + '・' : ''}メクレイド${a.n}`,
     fight: () => '相手1体とバトル',
+    drawPer: (a) => `${a.what}${a.per}つにつき${a.n}枚ドロー`,
+    revealTop: (a) => `山札の上を表向き→${a.cond.text}なら出す`,
     lockCreature: (a) => `相手${a.n}体を次のターンまで攻撃・ブロック不可`,
     tempUnblockable: (a) => `自分${a.n}体をこのターンブロックされない`,
     oppLock: (a) => `${a.until === 'turn' ? 'このターン' : '次のターンまで'}相手は${a.maxCost ? 'コスト' + a.maxCost + '以下の' : ''}${a.spell ? '呪文を唱えられない' : 'クリーチャーを出せない'}`,
@@ -600,7 +625,7 @@
   function filt(a) {
     return (a.tappedOnly ? 'タップ中の' : '') + (a.untappedOnly ? 'アンタップ中の' : '') + (a.maxPower ? `パワー${a.maxPower}以下` : '') + (a.maxCost ? `コスト${a.maxCost}以下` : '');
   }
-  const WHEN_LABEL = { tapped: 'タップした時', untapped: 'アンタップした時', evolveSource: '進化元になる時', tapAbility: 'タップ能力', battleLose: 'バトルに負けた時', allyEnter: '味方が出た時', left: '離れた時', attacked: '攻撃された時', summonOnly: '召喚で出た時', summon: '出た時', attack: '攻撃時', destroyed: '破壊時', turnStart: 'ターン開始時', turnEnd: 'ターン終了時', shieldAdded: 'シールド追加時', cast: '呪文', block: 'ブロック時', battleWin: 'バトルに勝った時', oppTurnStart: '相手のターン開始時', broke: 'ブレイクした時' };
+  const WHEN_LABEL = { allyAttack: '味方が攻撃する時', allyLeft: '味方が離れた時', tapped: 'タップした時', untapped: 'アンタップした時', evolveSource: '進化元になる時', tapAbility: 'タップ能力', battleLose: 'バトルに負けた時', allyEnter: '味方が出た時', left: '離れた時', attacked: '攻撃された時', summonOnly: '召喚で出た時', summon: '出た時', attack: '攻撃時', destroyed: '破壊時', turnStart: 'ターン開始時', turnEnd: 'ターン終了時', shieldAdded: 'シールド追加時', cast: '呪文', block: 'ブロック時', battleWin: 'バトルに勝った時', oppTurnStart: '相手のターン開始時', broke: 'ブレイクした時' };
 
   function civJ(c) {
     return { light: '光', water: '水', darkness: '闇', fire: '火', nature: '自然' }[c] || '';
