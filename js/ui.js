@@ -399,6 +399,8 @@
     if (c.tapped) e.classList.add('tapped');
     if (z === 'battle' && c.sick && !c.tapped) e.classList.add('sick');
     if (can) e.classList.add('can');
+    if (z === 'battle' && c.seals > 0) e.append(el('div', { class: 'badge seal', text: `封印${c.seals}` }));
+    if (z === 'battle' && c.exLife) e.append(el('div', { class: 'badge seal', text: 'EXライフ' }));
     if (z === 'battle' && !NON_CREATURE.includes(c.def.type)) {
       const p = g.power(c);
       e.append(el('div', { class: 'badge' + (p !== +c.def.power ? ' up' : ''), text: p }));

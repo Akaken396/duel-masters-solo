@@ -237,3 +237,4 @@ header nav button.on { background: var(--panel2); border-color: var(--line); }
 #cf-twinbox { margin: 8px 0; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; }
 #cf-twinbox summary { cursor: pointer; color: var(--muted); }
 #zoom hr { margin: 8px 0; }
+.card .badge.seal { left: auto; right: 2px; top: 2px; bottom: auto; background: #5a2a7a; color: #fff; }

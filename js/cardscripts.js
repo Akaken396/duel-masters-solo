@@ -91,16 +91,36 @@
   }
 
   // ササゲール3：ディスペクターのコストを3下げ、このタマシードを破壊
-  function sasage3(g, src, pi, card, def, withSasage) {
-    if (!withSasage || def.type === 'spell' || !(def.races || []).some((r) => r.includes('ディスペクター'))) return null;
+  const isDispecter = (def) => def.type !== 'spell' && (def.races || []).some((r) => r.includes('ディスペクター'));
+  const sasageOk = (g, src, pi, def) => g.zoneOf(src) === 'battle' && src.owner === pi && isDispecter(def);
+  function sasage3(g, src, pi, card, def, sasSrc) {
+    if (sasSrc !== src || !sasageOk(g, src, pi, def)) return null;
     return {
       n: 3,
-      sasage: true,
       use: async () => {
-        g.moveTo(src, 'grave');
         g.log(`ササゲール：${name(src)}を破壊してコストを3下げた`);
+        await g.destroyMany([src], { byOpp: false });
       },
     };
+  }
+
+  // 封印：山札の上のカードを裏向きで付ける。外した封印は墓地へ
+  function addSeals(g, card, n) {
+    const me = g.p[card.owner];
+    card.sealCards = me.deck.splice(0, Math.min(n, me.deck.length));
+    card.seals = card.sealCards.length;
+    g.log(`${name(card)}に山札の上から封印が${card.seals}つ付いた（山札残り${me.deck.length}）`);
+  }
+  async function removeSeal(g, card, onAllGone) {
+    if (!(card.seals > 0) || !card.sealCards) return;
+    const sc = card.sealCards.pop();
+    card.seals = card.sealCards.length;
+    if (sc) {
+      g.moveTo(sc, 'grave');
+      g.log(`${name(card)}の封印を1つ外した →「${sc.def.name}」を墓地へ（残り${card.seals}）`);
+    }
+    await g.pause(0.5);
+    if (card.seals === 0 && onAllGone) await onAllGone();
   }
 
   // 自分のクリーチャー1体を選んで、次の自分のターンまでアンタップさせない
@@ -113,20 +133,25 @@
   const S = {};
 
   // ================= 青黒バロム =================
+  async function skullAllGone(g, card) {
+    const pi = card.owner;
+    if (g.zoneOf(card) !== 'battle') return;
+    g.moveTo(card, 'grave');
+    g.log(`${name(card)}の封印がすべて外れ、破壊された`);
+    await g.trigger(card, 'destroyed', pi);
+    await reanimate(g, pi, (c) => isCreature(g, c) && hasCiv(c, 'darkness'), `${name(card)}: 墓地から出す闇のクリーチャー`, false);
+  }
   S['覇王の頭蓋 髑髏魔城'] = {
     summon(g, card) {
-      card.seals = 7;
-      g.log(`${name(card)}に封印が7つ付いた`);
+      addSeals(g, card, 7);
     },
-    async turnStart(g, card, pi) {
-      if (!(card.seals > 0)) return;
-      card.seals--;
-      g.log(`${name(card)}の封印を1つ外した（残り${card.seals}）`);
-      if (card.seals === 0) {
-        g.moveTo(card, 'grave');
-        g.log(`${name(card)}の封印がすべて外れ、破壊された`);
-        await reanimate(g, pi, (c) => isCreature(g, c) && hasCiv(c, 'darkness'), `${name(card)}: 墓地から出す闇のクリーチャー`, false);
-      }
+    async turnStart(g, card) {
+      await removeSeal(g, card, () => skullAllGone(g, card));
+    },
+    // 自分の闇のコマンドが出たら封印を1つ外す
+    async onAnyEnter(g, src, card) {
+      if (card.owner !== src.owner || !hasCiv(card, 'darkness') || !hasRace(card, 'コマンド')) return;
+      await removeSeal(g, src, () => skullAllGone(g, src));
     },
   };
 
@@ -136,6 +161,7 @@
     },
     graveUse: (g, src, pi, card) => src.usedTurn !== g.turn && isCreature(g, card) && hasRace(card, 'ディスペクター'),
     costMod: sasage3,
+    sasage: sasageOk,
   };
 
   S['邪杯と魔術の決断'] = {
@@ -199,6 +225,7 @@
       g.log(`${me.name}は山札の上から4枚見て1枚を手札に加えた`);
     },
     costMod: sasage3,
+    sasage: sasageOk,
     destroyed(g, card) {
       g.log(`【手動】${name(card)}: 次の自分のターンのはじめまで、自分のクリーチャー1体は相手の呪文で選ばれない`);
     },
@@ -355,7 +382,7 @@
   };
 
   S['魂が休む庭園 グリーン・グランドクロス'] = {
-    costMod(g, src, pi, card, def) {
+    costMod(g, src, pi, card, def, sasSrc) {
       if (src.usedTurn === g.turn || def.type === 'spell' || !isCreature(g, { def })) return null;
       return { n: 1, use: () => (src.usedTurn = g.turn) };
     },

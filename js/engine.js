@@ -199,6 +199,12 @@
       }
       if (from === 'shields' && zone !== 'shields') card.faceUp = false;
       if (from === 'battle' && zone !== 'battle') {
+        // 残っている封印は墓地へ
+        if (card.sealCards && card.sealCards.length) {
+          const rest = card.sealCards.splice(0);
+          for (const sc of rest) this.p[sc.owner].grave.push(sc);
+        }
+        delete card.sealCards;
         // 場を離れたら、場にいた間の状態を消す
         for (const k of ['seals', 'exLife', 'forceShield', 'noLeaveUntil', 'frozenUntil', 'noAttackTurn', 'modesUsed', 'flipped', 'usedTurn', 'ignoreName']) delete card[k];
       }
@@ -387,7 +393,7 @@
     }
 
     // コスト（軽減込み）と、支払った時に起きること
-    costPlan(pi, card, def = card.def, withSasage = false) {
+    costPlan(pi, card, def = card.def, sasSrc = null) {
       let cost = +def.cost || 0;
       const uses = [];
       const self = this.script(def);
@@ -398,16 +404,15 @@
       for (const src of this.permanents(pi)) {
         const sc = this.sc(src);
         if (!sc || !sc.costMod) continue;
-        const r = sc.costMod(this, src, pi, card, def, withSasage);
+        const r = sc.costMod(this, src, pi, card, def, sasSrc);
         if (r && r.n) {
           cost -= r.n;
           if (r.use) uses.push(r.use);
-          if (r.sasage) break; // ササゲールは1枚だけ
         }
       }
       const base = +def.cost || 0;
       cost = Math.max(base > 0 ? 1 : 0, cost);
-      if (withSasage) cost = Math.max(0, cost);
+      if (sasSrc) cost = Math.max(0, cost);
       return { cost, uses };
     }
 
@@ -415,13 +420,25 @@
     payment(pi, card, def = card.def) {
       return this.paymentPlan(pi, card, def)?.mana || null;
     }
-    paymentPlan(pi, card, def = card.def) {
-      for (const sas of [false, true]) {
+    // ササゲールに使える自分のカード
+    sasageSources(pi, def) {
+      return this.permanents(pi).filter((src) => {
+        const sc = this.sc(src);
+        return sc && sc.sasage && sc.sasage(this, src, pi, def);
+      });
+    }
+    // 払い方の候補（ササゲールなし／各ササゲール）
+    paymentPlans(pi, card, def = card.def) {
+      const out = [];
+      for (const sas of [null, ...this.sasageSources(pi, def)]) {
         const plan = this.costPlan(pi, card, def, sas);
         const mana = this.payWith(pi, def, plan.cost);
-        if (mana) return { mana, uses: plan.uses, cost: plan.cost };
+        if (mana) out.push({ mana, uses: plan.uses, cost: plan.cost, sas });
       }
-      return null;
+      return out;
+    }
+    paymentPlan(pi, card, def = card.def) {
+      return this.paymentPlans(pi, card, def)[0] || null;
     }
     payWith(pi, def, cost) {
       const pl = this.p[pi];
@@ -467,7 +484,17 @@
     }
 
     async pay(pi, card, def) {
-      const plan = this.paymentPlan(pi, card, def);
+      const plans = this.paymentPlans(pi, card, def);
+      let plan = plans[0];
+      const withSas = plans.filter((x) => x.sas);
+      if (withSas.length && !this.p[pi].isAI) {
+        const opts = plans.map((x, i) => ({
+          id: String(i),
+          label: x.sas ? `ササゲール：「${x.sas.def.name}」を破壊してコスト${x.cost}で出す` : `使わない（コスト${x.cost}）`,
+        }));
+        const r = await this.choose(pi, { kind: 'mode', prompt: `「${def.name}」: ササゲールを使いますか？`, options: opts, min: 1, max: 1 });
+        plan = plans[+r[0]] || plans[0];
+      }
       for (const m of plan.mana) m.tapped = true;
       for (const u of plan.uses) await u();
     }
