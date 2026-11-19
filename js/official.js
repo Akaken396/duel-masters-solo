@@ -100,27 +100,59 @@
       });
       return;
     }
-    // 一覧ページ：表示中のカード詳細へのリンクを集める
+    // 一覧ページ：カード詳細へのリンクを集める（ページ送りがあれば全ページ）
     var seen = {}, links = [];
-    links0.forEach(function (a) { var u = new URL(a.getAttribute('href'), location.href).href; if (!seen[u]) { seen[u] = 1; links.push(u); } });
+    var addLinks = function (root, base) {
+      q('a[href*="/card/detail/?id="]', root).forEach(function (a) { var u = new URL(a.getAttribute('href'), base).href; if (!seen[u]) { seen[u] = 1; links.push(u); } });
+    };
+    addLinks(document, location.href);
     if (!links.length) { alert('このページにはカードが見つかりません。カード詳細ページか、カード一覧（検索結果）ページで押してください。'); return; }
-    askKnown(function () {
-      var already = links.filter(function (u) { return known[idOf(u)]; });
-      if (!confirm('このページに表示されている' + links.length + '枚のカードを取り込みますか？（1枚ずつ読むので少し時間がかかります）')) return;
-      var skip = already.length ? confirm('このうち' + already.length + '枚は取り込み済みです。飛ばしますか？\n（キャンセルを押すと、全部取り込み直します）') : false;
-      var todo = skip ? links.filter(function (u) { return !known[idOf(u)]; }) : links;
-      var out = [], k = 0;
-      var next = function () {
-        if (k >= todo.length) {
-          show(out.length + '枚読み込み' + (skip ? '・' + already.length + '枚スキップ' : ''));
-          send({ app: 'dmsolo-official-batch', cards: out, skipped: skip ? already.length : 0 }, out.length + '枚読み込みました' + (skip && already.length ? '（取り込み済み' + already.length + '枚はスキップ）' : '') + '。');
-          return;
-        }
-        var u = todo[k++];
-        show('取り込み中 ' + k + '/' + todo.length);
-        readCard(u).then(function (c) { if (c) out.push(c); setTimeout(next, 400); });
+    var form = document.querySelector('form#search_cond');
+    var lastPage = 1;
+    q('.wp-pagenavi [data-page]').forEach(function (a) { var n = parseInt(a.getAttribute('data-page'), 10); if (n > lastPage) lastPage = n; });
+    var curInput = form && form.querySelector("input[name='pagenum']");
+    var curPage = curInput ? parseInt(curInput.value, 10) || 1 : 1;
+    var allPages = form && lastPage > 1 && confirm('検索結果は全' + lastPage + 'ページあります。全ページを順番にめくって取り込みますか？\n（キャンセルを押すと、今表示しているページだけ取り込みます）');
+    var collect = function (cb) {
+      if (!allPages) return cb();
+      var page = 1;
+      var action = new URL(form.getAttribute('action') || location.href, location.href).href;
+      var stepPage = function () {
+        if (page > lastPage) return cb();
+        show('検索結果をめくっています… ' + page + '/' + lastPage + 'ページ（' + links.length + '枚）');
+        if (page === curPage) { page++; return stepPage(); }
+        var fd = new FormData(form);
+        fd.set('pagenum', String(page));
+        var body = new URLSearchParams();
+        fd.forEach(function (v, k) { body.append(k, v); });
+        page++;
+        fetch(action, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: body.toString() })
+          .then(function (r) { return r.text(); })
+          .then(function (html) { addLinks(new DOMParser().parseFromString(html, 'text/html'), action); })
+          .catch(function () {})
+          .then(function () { setTimeout(stepPage, 400); });
       };
-      next();
+      stepPage();
+    };
+    collect(function () {
+      askKnown(function () {
+        var already = links.filter(function (u) { return known[idOf(u)]; });
+        if (!confirm((allPages ? '全' + lastPage + 'ページで' : 'このページに表示されている') + links.length + '枚のカードを取り込みますか？（1枚ずつ読むので時間がかかります）')) return;
+        var skip = already.length ? confirm('このうち' + already.length + '枚は取り込み済みです。飛ばしますか？\n（キャンセルを押すと、全部取り込み直します）') : false;
+        var todo = skip ? links.filter(function (u) { return !known[idOf(u)]; }) : links;
+        var out = [], k = 0;
+        var next = function () {
+          if (k >= todo.length) {
+            show(out.length + '枚読み込み' + (skip ? '・' + already.length + '枚スキップ' : ''));
+            send({ app: 'dmsolo-official-batch', cards: out, skipped: skip ? already.length : 0 }, out.length + '枚読み込みました' + (skip && already.length ? '（取り込み済み' + already.length + '枚はスキップ）' : '') + '。');
+            return;
+          }
+          var u = todo[k++];
+          show('取り込み中 ' + k + '/' + todo.length);
+          readCard(u).then(function (c) { if (c) out.push(c); setTimeout(next, 400); });
+        };
+        next();
+      });
     });
     /* eslint-enable */
   }
