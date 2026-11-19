@@ -195,6 +195,7 @@
     }
     // ブレイク数（パワード・ブレイカー込み）
     breakCount(card) {
+      if (this.permanents(1 - card.owner).some((s) => this.kw(s).oppBreakCap)) return 1;
       const k = this.kw(card);
       if (k.poweredBreaker) return Math.max(1, Math.floor(this.power(card) / 6000), k.breaker);
       return k.breaker;
@@ -1065,6 +1066,22 @@
         if (l2.maxCost != null && (+def.cost || 0) > l2.maxCost) continue;
         return true;
       }
+      for (const q of [0, 1]) for (const src of this.permanents(q)) {
+        const kq = this.kw(src);
+        const gb = kq.globalBan;
+        if (gb && (gb.oppShieldsLE == null || this.p[1 - q].shields.length <= gb.oppShieldsLE)) {
+          const isSp = def.type === 'spell';
+          if ((isSp || (gb.creature && !NON_CREATURE.includes(def.type))) && !(def.civs || []).includes(gb.exceptCiv)) return true;
+        }
+        for (const tl of kq.turnLimit || []) {
+          if (tl.side === 'opp' && q === pi) continue;
+          if (tl.oppTurnOnly && this.active !== pi) continue;
+          const isSp = def.type === 'spell';
+          if (tl.spell !== isSp || (!isSp && NON_CREATURE.includes(def.type))) continue;
+          const used = (tl.spell ? this.spellsThisTurn : this.creaturesThisTurn) || [0, 0];
+          if ((used[pi] || 0) >= tl.n) return true;
+        }
+      }
       for (const src of this.permanents(1 - pi)) {
         const sc = this.sc(src);
         if (sc && sc.lock && sc.lock(this, src, pi, def)) return true;
@@ -1265,6 +1282,10 @@
         }
       }
       const fromZone = this.zoneOf(card);
+      if (fromZone && fromZone !== 'hand' && [0, 1].some((q) => this.permanents(q).some((s) => { const nh = this.kw(s).noNonHandPut; return nh === 'all' || (nh === 'opp' && q !== pi); }))) {
+        this.log(`「${card.def.name}」は手札以外からは出せない`);
+        return false;
+      }
       if (fromZone && fromZone !== 'hand' && [0, 1].some((q) => this.permanents(q).some((s) => this.kw(s).noNonHandEntry))) {
         this.moveTo(card, 'hand');
         this.log(`「${card.def.name}」は手札以外から出ようとしたので、かわりに手札に戻った`);
@@ -2403,9 +2424,28 @@
     attackTargets(card) {
       const pi = card.owner;
       if (this.active !== pi || this.zoneOf(card) !== 'battle' || card.tapped || !this.isCreature(card)) return [];
-      const k = this.kw(card);
+      const k0 = this.kw(card);
+      // 「攻撃できない」を無視する能力
+      const ign = this.permanents(pi).map((s) => this.kw(s).ignoreCantAttack).filter(Boolean).find((ig) => !ig.who || ((card.def.races || []).join('/') + card.def.name + (card.def.text || '')).includes(ig.who.replace(/^「(.+?)」を持つ$/, '$1').replace(/(・)?クリーチャー$/, '')));
+      const k = ign ? { ...k0, cantAttack: ign.playerOnly ? k0.cantAttack : false, cantAttackPlayer: false } : k0;
       if (k.cantAttack) return [];
       if (card.noAttackTurn === this.turn) return [];
+      for (const q of [0, 1]) for (const s of this.permanents(q)) {
+        const ab = this.kw(s).attackBan;
+        if (!ab || (ab.oppOnly && q === pi)) continue;
+        const pw = this.power(card);
+        if (ab.maxPower != null && pw <= ab.maxPower) return [];
+        if (ab.minPower != null && pw >= ab.minPower) return [];
+        if (ab.lessThanSelf && s !== card && this.isCreature(s) && pw < this.power(s)) return [];
+      }
+      let needNoPlayer = false;
+      if (k.attackNeedWhat) {
+        const an = k.attackNeedWhat;
+        if (!an._cond) an._cond = G.TextParse && G.TextParse.lookCond ? G.TextParse.lookCond(an.what) : {};
+        const has = this.p[pi].battle.some((c) => (!an.others || c !== card) && this.fitLook(c, an._cond));
+        if (!has && !an.playerOnly) return [];
+        if (!has) needNoPlayer = true;
+      }
       if ((card.lockedUntil || 0) >= this.turn) return [];
       if (k.attackNeedGrave && this.p[pi].grave.length < k.attackNeedGrave) return [];
       const lackCreatures = k.attackNeedCreatures && this.p[pi].battle.filter((c) => this.isCreature(c)).length < k.attackNeedCreatures.n;
@@ -2431,8 +2471,8 @@
         if (k.machFighter && card.enteredTurn === this.turn) t.push(...op.battle.filter(canHit));
         return t;
       }
-      const guard = op.battle.some((s) => this.isCreature(s) && this.kw(s).playerGuardPower && this.power(card) < this.power(s));
-      const noPlayer = guard || k.cantAttackPlayer || lackCreatures || (k.playerAttackNeedShieldAdded && this.p[pi].shieldAddedTurn !== this.turn);
+      const guard = op.battle.some((s) => this.isCreature(s) && this.kw(s).playerGuardPower && this.power(card) < this.power(s)) || this.permanents(1 - pi).some((s) => this.kw(s).noPlayerAttack);
+      const noPlayer = guard || needNoPlayer || k.cantAttackPlayer || lackCreatures || (k.playerAttackNeedShieldAdded && this.p[pi].shieldAddedTurn !== this.turn);
       if (!noPlayer) t.push('player');
       t.push(...op.battle.filter((c) => canHit(c) && (c.tapped || k.attackUntapped)));
       if (forced.length) return t.filter((x) => x !== 'player' && forced.includes(x));
