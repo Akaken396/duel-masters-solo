@@ -69,7 +69,7 @@
     return t;
   }
 
-  const WHEN_J = { hostAttack: '付いているクリーチャーの攻撃時の能力', hostAttackEnd: '付いているクリーチャーの攻撃の終わりの能力', eachTurnEnd: 'ターンの終わりの能力', oppTurnEnd: '相手のターンの終わりの能力', oppEnter: '相手のクリーチャーが出た時の能力', anyEnter: 'クリーチャーが出た時の能力', anyDestroyed: 'クリーチャーが破壊された時の能力', selfOrAllyDestroyed: '破壊された時の能力', blocked: 'ブロックされた時の能力', oppUnblocked: '相手の攻撃が通った時の能力', battled: 'バトルした時の能力', targeted: '選ばれた時の能力', oppAttack: '相手の攻撃時の能力', allyCast: '呪文を唱えた時の能力', oppCast: '相手が呪文を唱えた時の能力', allyBattleWin: '味方がバトルに勝った時の能力', oppDestroyed: '相手のクリーチャーが破壊された時の能力', ownShieldLeft: 'シールドが離れた時の能力', attackEnd: '攻撃の終わりの能力', beforeBreak: 'ブレイクの前の能力', unblocked: 'ブロックされなかった時の能力', allyAttack: '味方の攻撃時の能力', allyLeft: '味方が離れた時の能力', tapped: 'タップした時の能力', untapped: 'アンタップした時の能力', evolveSource: 'シンカパワー', tapAbility: 'タップ能力', battleLose: 'バトルに負けた時の能力', left: '離れた時の能力', attacked: '攻撃された時の能力', summonOnly: '召喚で出た時の能力', battleWin: 'バトルに勝った時の能力', oppTurnStart: '相手のターンのはじめの能力', broke: 'ブレイクした時の能力', summon: '出た時の能力', attack: '攻撃する時の能力', destroyed: '破壊された時の能力', turnStart: 'ターンのはじめの能力', turnEnd: 'ターンの終わりの能力', shieldAdded: 'シールドが置かれた時の能力', exLifeLost: 'EXライフが離れた時の能力', block: 'ブロックした時の能力', sealsGone: '封印が外れた時の能力' };
+  const WHEN_J = { charged: 'マナに置いた時の能力', hostAttack: '付いているクリーチャーの攻撃時の能力', hostAttackEnd: '付いているクリーチャーの攻撃の終わりの能力', eachTurnEnd: 'ターンの終わりの能力', oppTurnEnd: '相手のターンの終わりの能力', oppEnter: '相手のクリーチャーが出た時の能力', anyEnter: 'クリーチャーが出た時の能力', anyDestroyed: 'クリーチャーが破壊された時の能力', selfOrAllyDestroyed: '破壊された時の能力', blocked: 'ブロックされた時の能力', oppUnblocked: '相手の攻撃が通った時の能力', battled: 'バトルした時の能力', targeted: '選ばれた時の能力', oppAttack: '相手の攻撃時の能力', allyCast: '呪文を唱えた時の能力', oppCast: '相手が呪文を唱えた時の能力', allyBattleWin: '味方がバトルに勝った時の能力', oppDestroyed: '相手のクリーチャーが破壊された時の能力', ownShieldLeft: 'シールドが離れた時の能力', attackEnd: '攻撃の終わりの能力', beforeBreak: 'ブレイクの前の能力', unblocked: 'ブロックされなかった時の能力', allyAttack: '味方の攻撃時の能力', allyLeft: '味方が離れた時の能力', tapped: 'タップした時の能力', untapped: 'アンタップした時の能力', evolveSource: 'シンカパワー', tapAbility: 'タップ能力', battleLose: 'バトルに負けた時の能力', left: '離れた時の能力', attacked: '攻撃された時の能力', summonOnly: '召喚で出た時の能力', battleWin: 'バトルに勝った時の能力', oppTurnStart: '相手のターンのはじめの能力', broke: 'ブレイクした時の能力', summon: '出た時の能力', attack: '攻撃する時の能力', destroyed: '破壊された時の能力', turnStart: 'ターンのはじめの能力', turnEnd: 'ターンの終わりの能力', shieldAdded: 'シールドが置かれた時の能力', exLifeLost: 'EXライフが離れた時の能力', block: 'ブロックした時の能力', sealsGone: '封印が外れた時の能力' };
 
   class GameOver extends Error {
     constructor(winner, reason) {
@@ -1070,6 +1070,7 @@
       this.moveTo(f.card, 'mana', { tapped: multi });
       this.manaCharged = true;
       this.log(`${this.p[pi].name}は「${f.card.def.name}」をマナに置いた`);
+      if (this.hasAbility(f.card, 'charged')) await this.trigger(f.card, 'charged', pi);
       this.changed();
       return true;
     }
@@ -1621,6 +1622,8 @@
         await this.resolvePending();
       }
       if (this.zoneOf(card) === 'battle' && this.isCreature(card)) {
+        await this.fireHand(pi, 'allyEnter', (ab) => ab.ally && (!ab.ally.race || ((card.def.races || []).join('/') + card.def.name).includes(ab.ally.race)));
+        await this.resolvePending();
         for (const src of this.permanents(pi)) {
           if (src === card || !this.isOnField(src)) continue;
           for (const ab of this.abilities(src)) {
@@ -1677,7 +1680,23 @@
     }
 
     // 「自分の○○が攻撃する時／離れた時」
+    // 手札にある時に働く能力（「〜した時、このクリーチャーを手札から出してもよい」など）
+    async fireHand(pi, when, filterAb) {
+      for (const c of this.p[pi].hand.slice()) {
+        for (const ab of this.abilities(c)) {
+          if (ab.when !== when || !ab.fromHand) continue;
+          if (filterAb && !filterAb(ab, c)) continue;
+          await this.queueFn(c, pi, `手札の「${c.def.name}」の能力`, async () => {
+            if (this.zoneOf(c) !== 'hand') return;
+            if (ab.cond && !this.condOk2(pi, ab.cond, c)) return;
+            for (const a of ab.acts) await this.doAction(a, c, pi);
+          }, { defer: true });
+          break;
+        }
+      }
+    }
     async allyEvent(card, pi, when) {
+      await this.fireHand(pi, when, (ab, c) => ab.ally && (!ab.ally.race || ((card.def.races || []).join('/') + card.def.name).includes(ab.ally.race)));
       for (const src of this.permanents(pi)) {
         if (!this.isOnField(src)) continue;
         for (const ab of this.abilities(src)) {
@@ -2499,6 +2518,18 @@
           }
           break;
         }
+        case 'selfFromHand':
+          if (!src || this.zoneOf(src) !== 'hand') break;
+          if (a.optional && !(await this.yesNo(pi, `手札の${nm}を出しますか？`, src))) break;
+          this.log(`${me.name}は手札から${nm}を出した`);
+          await this.enterBattle(src, pi, a.summon ? 'summon' : 'other');
+          break;
+        case 'selfDiscardFromHand':
+          if (!src || this.zoneOf(src) !== 'hand') break;
+          if (a.optional && !(await this.yesNo(pi, `手札の${nm}を捨てますか？`, src))) break;
+          this.moveTo(src, 'grave');
+          this.log(`${me.name}は手札の${nm}を捨てた`);
+          break;
         case 'showOwn': {
           const pool = me.hand.filter((c) => this.fitLook(c, a.cond));
           if (pool.length < a.n) break;
@@ -3159,6 +3190,7 @@
       await this.allyEvent(card, pi, 'allyAttack');
       for (const x of me.battle.filter((y) => y.attachedTo === card.uid)) if (this.hasAbility(x, 'hostAttack')) await this.trigger(x, 'hostAttack', pi, x.def, null, { defer: true });
       await this.resolvePending();
+      await this.fireHand(1 - pi, 'oppAttack');
       await this.fireAll(1 - pi, 'oppAttack');
       this.log(`${me.name}の「${card.def.name}」が${tgtCard === 'player' ? op.name : '「' + tgtCard.def.name + '」'}を攻撃！`);
       await this.pause();

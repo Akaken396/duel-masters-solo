@@ -128,6 +128,8 @@
     [/^カードが自分のシールドゾーンから墓地に置かれた(時|とき)/, 'ownShieldLeft'],
     [/^カードが自分のシールドゾーンに置かれた(時|とき)/, 'shieldAdded'],
     [/^(各ターンの終わりに|ターンの終わりに)/, 'eachTurnEnd'],
+    [/^このカードを(自分の)?手札からマナゾーンに置いた(時|とき)/, 'charged'],
+    [/^(相手の)?クリーチャーが(自分を)?攻撃する(時|とき)/, 'oppAttack'],
     [/^これを(装備|クロス|付け)(した|た)クリーチャーが攻撃する(時|とき)/, 'hostAttack'],
     [/^これを(装備|クロス|付け)(した|た)クリーチャーの攻撃の終わりに/, 'hostAttackEnd'],
     [/^これを(クリーチャーに)?(付けた|クロスした|装備した)(時|とき)/, 'summon'],
@@ -260,6 +262,9 @@
     // 選んで別のゾーンへ（破壊ではない）
     if (!/各プレイヤー|でもない|につき|自身の|^相手は|(?<!進化|多色)ではない|でない/.test(s) && (m = s.match(/^(バトルゾーンにある)?(相手の|自分の)?(、)?((?:[^。、]|、(?=コスト|進化|パワー|多色|タップ|アンタップ))*?)(カード|クリーチャー|エレメント)を(すべて|(\d+)(枚|体|つ)(まで)?選び)、(裏向きにして、?|表向きにして、?)?(新しいシールドとして)?(、)?(持ち主の)?(墓地|マナゾーン|山札の下|シールドゾーン|シールド)に(裏向きにして|表向きにして)?(置く|加える|置いてもよい)$/)) && !/手札|山札の上|マナゾーンにある|墓地にある/.test(m[4]))
       return { act: 'moveTarget', side: m[2] === '相手の' ? 'opp' : m[2] === '自分の' ? 'self' : 'any', all: m[6] === 'すべて', n: m[7] ? +m[7] : 0, optional: !!m[9] || /てもよい/.test(s), any: m[5] !== 'クリーチャー', to: /シールド/.test(m[14]) ? 'shields' : { 墓地: 'grave', マナゾーン: 'mana', 山札の下: 'deckBottom' }[m[14]], ...targetFilter(s) };
+    // 手札にある時の能力：「このクリーチャーを自分の手札から出してもよい」
+    if ((m = s.match(/^このクリーチャーを(、)?(自分の)?手札から(バトルゾーンに)?(コストを支払わずに)?(出|召喚)(す|してもよい)$/))) return { act: 'selfFromHand', optional: m[6] !== 'す', summon: m[5] === '召喚' };
+    if ((m = s.match(/^この(カード|クリーチャー|呪文)を(自分の)?手札から捨て(る|てもよい)$/))) return { act: 'selfDiscardFromHand', optional: m[3] !== 'る' };
     // 自分のカードを破壊する（コストとして使うことが多い）
     if ((m = s.match(/^(バトルゾーンにある)?自分の(他の)?(、)?([^、。]*?)を(\d+)(つ|体|枚)(まで)?(、)?(選んで|選び、)?破壊(する|してもよい)$/)) && !/相手/.test(s))
       return { act: 'destroyOwn', who: m[4] || null, others: !!m[2], n: +m[5], upTo: !!m[7], optional: m[10] !== 'する' };
@@ -814,6 +819,8 @@
   const CIVJ = { 光: 'light', 水: 'water', 闇: 'darkness', 火: 'fire', 自然: 'nature' };
 
   // def: {type, text}
+  // 手札にある間に働く能力か
+  const FROM_HAND = (acts) => JSON.stringify(acts || []).includes('"selfFromHand"') || JSON.stringify(acts || []).includes('"selfDiscardFromHand"');
   function parseCard(def) {
     const kw = { breaker: 1, powerAttacker: 0 };
     const abilities = []; // {when, acts, cond}
@@ -1103,6 +1110,7 @@
       }
     }
     // パワーアタッカー・ブレイカーなどの初期値
+    for (const ab of abilities) if (FROM_HAND(ab.acts) || (ab.modal && ab.modal.options.some((o) => FROM_HAND(o.acts)))) ab.fromHand = true;
     return { kw, abilities, manual, known, hyper: hyperUsed ? hyper : null };
   }
 
@@ -1153,6 +1161,8 @@
     moveTarget: (a) => `${{ opp: '相手の', self: '自分の', any: '' }[a.side]}${a.all ? 'すべて' : a.n + '枚'}を${{ grave: '墓地', mana: 'マナ', shields: 'シールド', deckBottom: '山札の下' }[a.to]}へ`,
     handToMana: (a) => `手札${a.n}枚をマナへ`,
     oppTeamPower: (a) => `相手のクリーチャーすべてのパワー${a.n}`,
+    selfFromHand: () => 'このクリーチャーを手札から出す',
+    selfDiscardFromHand: () => 'このカードを手札から捨てる',
     showOwn: (a) => `手札の${a.cond.text}を${a.n}枚見せる`,
     tapManaCost: (a) => `マナを${a.n}枚タップ`,
     underToGrave: (a) => `下のカード${a.n}枚を墓地へ`,
@@ -1217,7 +1227,7 @@
   function filt(a) {
     return (a.tappedOnly ? 'タップ中の' : '') + (a.untappedOnly ? 'アンタップ中の' : '') + (a.maxPower ? `パワー${a.maxPower}以下` : '') + (a.maxCost ? `コスト${a.maxCost}以下` : '');
   }
-  const WHEN_LABEL = { hostAttack: '付けたクリーチャーの攻撃時', hostAttackEnd: '付けたクリーチャーの攻撃の終わり', eachTurnEnd: '各ターンの終わり', oppTurnEnd: '相手のターンの終わり', oppEnter: '相手のクリーチャーが出た時', anyEnter: '他のクリーチャーが出た時', anyDestroyed: 'クリーチャーが破壊された時', selfOrAllyDestroyed: '自分のクリーチャーが破壊された時', blocked: 'ブロックされた時', oppUnblocked: '相手の攻撃が通った時', battled: 'バトルした時', targeted: '選ばれた時', oppAttack: '相手の攻撃時', allyCast: '自分が呪文を唱えた時', oppCast: '相手が呪文を唱えた時', allyBattleWin: '味方がバトルに勝った時', oppDestroyed: '相手のクリーチャーが破壊された時', ownShieldLeft: 'シールドが離れた時', attackEnd: '攻撃の終わり', beforeBreak: 'ブレイクの前', unblocked: 'ブロックされなかった時', allyAttack: '味方が攻撃する時', allyLeft: '味方が離れた時', tapped: 'タップした時', untapped: 'アンタップした時', evolveSource: '進化元になる時', tapAbility: 'タップ能力', battleLose: 'バトルに負けた時', allyEnter: '味方が出た時', left: '離れた時', attacked: '攻撃された時', summonOnly: '召喚で出た時', summon: '出た時', attack: '攻撃時', destroyed: '破壊時', turnStart: 'ターン開始時', turnEnd: 'ターン終了時', shieldAdded: 'シールド追加時', cast: '呪文', block: 'ブロック時', battleWin: 'バトルに勝った時', oppTurnStart: '相手のターン開始時', broke: 'ブレイクした時' };
+  const WHEN_LABEL = { charged: 'マナに置いた時', hostAttack: '付けたクリーチャーの攻撃時', hostAttackEnd: '付けたクリーチャーの攻撃の終わり', eachTurnEnd: '各ターンの終わり', oppTurnEnd: '相手のターンの終わり', oppEnter: '相手のクリーチャーが出た時', anyEnter: '他のクリーチャーが出た時', anyDestroyed: 'クリーチャーが破壊された時', selfOrAllyDestroyed: '自分のクリーチャーが破壊された時', blocked: 'ブロックされた時', oppUnblocked: '相手の攻撃が通った時', battled: 'バトルした時', targeted: '選ばれた時', oppAttack: '相手の攻撃時', allyCast: '自分が呪文を唱えた時', oppCast: '相手が呪文を唱えた時', allyBattleWin: '味方がバトルに勝った時', oppDestroyed: '相手のクリーチャーが破壊された時', ownShieldLeft: 'シールドが離れた時', attackEnd: '攻撃の終わり', beforeBreak: 'ブレイクの前', unblocked: 'ブロックされなかった時', allyAttack: '味方が攻撃する時', allyLeft: '味方が離れた時', tapped: 'タップした時', untapped: 'アンタップした時', evolveSource: '進化元になる時', tapAbility: 'タップ能力', battleLose: 'バトルに負けた時', allyEnter: '味方が出た時', left: '離れた時', attacked: '攻撃された時', summonOnly: '召喚で出た時', summon: '出た時', attack: '攻撃時', destroyed: '破壊時', turnStart: 'ターン開始時', turnEnd: 'ターン終了時', shieldAdded: 'シールド追加時', cast: '呪文', block: 'ブロック時', battleWin: 'バトルに勝った時', oppTurnStart: '相手のターン開始時', broke: 'ブレイクした時' };
 
   function civJ(c) {
     return { light: '光', water: '水', darkness: '闇', fire: '火', nature: '自然' }[c] || '';
