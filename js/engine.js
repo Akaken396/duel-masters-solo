@@ -1344,6 +1344,48 @@
           }
           break;
         }
+        case 'lookTop': {
+          const look = me.deck.slice(0, a.n);
+          if (!look.length) break;
+          for (const c of look) me.deck.splice(me.deck.indexOf(c), 1); // 見ている間は山札から外す
+          this.log(`${me.name}は山札の上から${look.length}枚を${a.reveal ? '表向きにした：' + look.map((c) => c.def.name).join('、') : '見た'}`);
+          const cd = a.cond || {};
+          const fit = (c) =>
+            (cd.maxCost == null || (+c.def.cost || 0) <= cd.maxCost) &&
+            (cd.minCost == null || (+c.def.cost || 0) >= cd.minCost) &&
+            (!cd.notEvo || !this.evoKind(c.def)) &&
+            (!cd.types || cd.types.includes(c.def.type === 'creature' || !NON_CREATURE.includes(c.def.type) ? 'creature' : c.def.type)) &&
+            (!cd.civs || !cd.civs.length || (c.def.civs || []).some((x) => cd.civs.includes(x))) &&
+            (!cd.race || ((c.def.races || []).join('/') + '/' + c.def.name).includes(cd.race));
+          const ok = look.filter(fit);
+          let chosen;
+          if (a.take === 'all') chosen = ok;
+          else {
+            // 一時的に山札に戻して選ぶ（選択画面にカードを出すため）
+            me.deck.unshift(...look);
+            chosen = await this.pickCards(pi, ok, a.take, a.upTo || !ok.length, `${nm}: ${cd.text || 'カード'}を選んでください（${look.map((c) => c.def.name).join('、')}）`, 'recover');
+            for (const c of look) if (me.deck.includes(c)) me.deck.splice(me.deck.indexOf(c), 1);
+          }
+          const zoneJ = { hand: '手札', battle: 'バトルゾーン', mana: 'マナゾーン', grave: '墓地', shields: 'シールド' };
+          for (const c of chosen) {
+            me.deck.unshift(c);
+            if (a.dest === 'battle') await this.enterBattle(c, pi, 'other');
+            else {
+              this.moveTo(c, a.dest, { tapped: a.dest === 'mana' && (c.def.civs || []).length > 1 });
+              this.log(`「${c.def.name}」を${zoneJ[a.dest]}に置いた`);
+            }
+          }
+          if (a.dest === 'shields' && chosen.length) await this.shieldAdded(pi);
+          const rest = look.filter((c) => !chosen.includes(c));
+          for (const c of rest) {
+            me.deck.unshift(c);
+            if (a.rest === 'deckBottom') this.moveTo(c, 'deck', { top: false });
+            else if (a.rest === 'deckTop') this.moveTo(c, 'deck', { top: true });
+            else this.moveTo(c, a.rest);
+          }
+          if (rest.length) this.log(`残り${rest.length}枚を${{ deckBottom: '山札の下', grave: '墓地', mana: 'マナゾーン', hand: '手札', deckTop: '山札の上' }[a.rest]}に置いた`);
+          break;
+        }
         case 'mekuraid': {
           // 山札の上から3枚を見て、コストN以下を1枚コストを払わずに使ってよい。残りは山札の下へ
           const look = me.deck.slice(0, a.look || 3);

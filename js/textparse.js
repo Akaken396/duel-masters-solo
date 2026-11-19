@@ -186,8 +186,51 @@
     return null;
   }
 
+  // 「山札の上からN枚を見る／表向きにする。その中から○○を△に、残りを□に」
+  const LOOK_RE = /^(自分の)?山札の上から(?<n>\d+)枚を(?<how>見る|表向きにする)。(その後、)?その中から(、)?((?<cond>[^。]+?)を)?(?<take>すべて|(?<cnt>\d+)(枚|体|つ)(?<upto>まで)?)(を)?(選び、)?(、)?(自分の)?(?<dest>手札に加え|バトルゾーンに出し|マナゾーンに置き|墓地に置き|シールド化し)(?<may>てもよい)?(。その後、|、|。)?(残り(のカード)?を(好きな順序で|ランダムな順序で)?(自分の)?(?<rest>山札の下|墓地|マナゾーン|手札|山札の上)に(置く|戻す|加える)。?)?/;
+  function lookCond(t) {
+    t = String(t || '');
+    const c = {};
+    let m;
+    if ((m = t.match(/コスト(\d+)以下/))) c.maxCost = +m[1];
+    if ((m = t.match(/コスト(\d+)以上/))) c.minCost = +m[1];
+    if (/進化ではない/.test(t)) c.notEvo = true;
+    const civ = { 光: 'light', 水: 'water', 闇: 'darkness', 火: 'fire', 自然: 'nature' };
+    c.civs = Object.keys(civ).filter((j) => new RegExp(j + '(の|または|か|・)').test(t)).map((j) => civ[j]);
+    if (/呪文/.test(t) && !/クリーチャー/.test(t)) c.types = ['spell'];
+    else if (/タマシード/.test(t) && !/クリーチャー/.test(t)) c.types = ['tamaseed'];
+    else if (/クリーチャー/.test(t) && !/呪文|カード/.test(t.replace(/クリーチャー・カード/, 'クリーチャー'))) c.types = ['creature'];
+    // 種族（「ドラゴン・クリーチャー」「ドラゴン・カード」「ジョーカーズ」など）
+    const r = t
+      .replace(/コスト\d+(以下|以上)の、?/g, '')
+      .replace(/進化ではない、?/g, '')
+      .replace(/^(光|水|闇|火|自然)((または|か|・|、)(光|水|闇|火|自然))*の、?/, '')
+      .replace(/(・)?(クリーチャー|カード|呪文|タマシード)(・カード)?$/, '')
+      .replace(/^(クリーチャー|カード|呪文|タマシード)$/, '')
+      .trim();
+    if (r) c.race = r;
+    c.text = t;
+    return c;
+  }
+  function parseLook(body) {
+    const m = body.match(LOOK_RE);
+    if (!m) return null;
+    const g = m.groups;
+    const dest = { 手札に加え: 'hand', バトルゾーンに出し: 'battle', マナゾーンに置き: 'mana', 墓地に置き: 'grave', シールド化し: 'shields' }[g.dest];
+    const rest = g.rest ? { 山札の下: 'deckBottom', 墓地: 'grave', マナゾーン: 'mana', 手札: 'hand', 山札の上: 'deckTop' }[g.rest] : 'deckBottom';
+    return {
+      act: { act: 'lookTop', n: +g.n, reveal: g.how === '表向きにする', cond: lookCond(g.cond || ''), take: g.take === 'すべて' ? 'all' : +g.cnt, upTo: !!g.upto || !!g.may, dest, rest },
+      remain: body.slice(m[0].length).replace(/^[。、]/, '').replace(/^その後、/, ''),
+    };
+  }
+
   // 「その後、」や「。」で区切った複数効果を読む。全部読めた時だけ配列を返す
   function parseEffects(body) {
+    const lk = parseLook(body);
+    if (lk) {
+      const after = lk.remain.trim() ? parseEffects(lk.remain) : [];
+      return [lk.act, ...(after || [{ act: 'manualNote', text: lk.remain }])];
+    }
     const parts = body
       .replace(/(引き|引いて)、(その後、)?(自分の)?(手札を)?(\d+枚)(選び、)?捨てる/g, '引く。自分の手札を$5捨てる')
       .split(/。その後、|、その後、|。/)
@@ -362,6 +405,7 @@
     selfDiscard: (a) => `自分の手札${a.n}枚捨て`,
     mill: (a) => `山札から${a.n}枚墓地へ`,
     untapSelf: () => `自身をアンタップ`,
+    lookTop: (a) => `山札の上から${a.n}枚${a.reveal ? '表向き' : '見る'}→${a.cond.text || 'カード'}を${a.take === 'all' ? 'すべて' : a.take + (a.upTo ? 'まで' : '')}${{ hand: '手札', battle: '場', mana: 'マナ', grave: '墓地', shields: 'シールド' }[a.dest]}へ・残り${{ deckBottom: '山札の下', grave: '墓地', mana: 'マナ', hand: '手札', deckTop: '山札の上' }[a.rest]}`,
     mekuraid: (a) => `${a.race ? a.race + '・' : ''}メクレイド${a.n}`,
     manualNote: (a) => `［手動: ${String(a.text).slice(0, 16)}…］`,
     seal: (a) => `封印を${a.n}つ付ける`,
