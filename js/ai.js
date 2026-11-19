@@ -66,15 +66,19 @@
       const cand = [];
       for (const c of me.hand) {
         if (g.canPlay(pi, c) && worthPlaying(g, pi, c)) cand.push({ c, twin: false, cost: +c.def.cost || 0, v: value(g, c) });
-        else if (g.canPlayTwin(pi, c)) {
+        else if (g.canPlayTwin && g.canPlayTwin(pi, c)) {
           const t = g.twin(c);
           if (worthPlaying(g, pi, { def: t })) cand.push({ c, twin: true, cost: +t.cost || 0, v: 0 });
         }
       }
+      for (const c of me.grave) {
+        if (g.canPlayFromGrave(pi, c) && worthPlaying(g, pi, c)) cand.push({ c, grave: true, cost: +c.def.cost || 0, v: value(g, c) });
+      }
       if (!cand.length) return;
       cand.sort((a, b) => b.cost - a.cost || b.v - a.v);
       const pick = cand[0];
-      if (pick.twin) await g.playTwin(pi, pick.c.uid);
+      if (pick.grave) await g.playFromGrave(pi, pick.c.uid);
+      else if (pick.twin) await g.playTwin(pi, pick.c.uid);
       else await g.play(pi, pick.c.uid);
       await g.pause();
     }
@@ -155,9 +159,12 @@
   // 選択の要求に答える
   async function choose(g, pi, req) {
     const opts = req.options;
+    if (req.aiPick) return req.aiPick.slice(0, Math.max(req.min, Math.min(req.max, req.aiPick.length)));
     switch (req.kind) {
       case 'yesno':
         return ['yes'];
+      case 'mode':
+        return [opts[0].id];
       case 'number':
         return [opts[opts.length - 1].id];
       case 'block': {

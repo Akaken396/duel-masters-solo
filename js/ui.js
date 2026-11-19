@@ -513,7 +513,16 @@
         e.addEventListener('contextmenu', (ev) => {
           manualMenu(ev, c, z);
         });
-        box.append(el('div', { class: 'opt' }, e));
+        const usable = z === 'grave' && g.winner == null && isHuman(pi) && g.active === pi && !g.busy && g.canPlayFromGrave(pi, c);
+        if (usable) {
+          e.classList.add('click', 'can');
+          e.addEventListener('click', () => {
+            g.opts.onChange = prev;
+            closeModal();
+            g.act(() => g.playFromGrave(pi, c.uid));
+          });
+        }
+        box.append(el('div', { class: 'opt' }, e, usable ? el('div', { text: 'クリックで使う' }) : null));
       }
       if (!pl[z].length) box.append(el('div', { class: 'muted', text: '（空）' }));
     };
@@ -542,6 +551,32 @@
       };
       const head = el('h3', { text: who + req.prompt });
       const kids = [head];
+
+      if (req.kind === 'mode') {
+        const sel = new Set();
+        const btns = el('div', { class: 'col' });
+        const ok = el('button', { class: 'primary', text: '決定' });
+        const upd = () => (ok.disabled = sel.size < Math.max(req.min, req.max === 1 ? 1 : 0));
+        for (const o of req.options) {
+          const b = el('button', { text: o.label, style: { textAlign: 'left' } });
+          b.addEventListener('click', () => {
+            if (req.max === 1) return done([o.id]);
+            if (sel.has(o.id)) sel.delete(o.id);
+            else if (sel.size < req.max) sel.add(o.id);
+            b.classList.toggle('primary', sel.has(o.id));
+            upd();
+          });
+          btns.append(b);
+        }
+        kids.push(btns);
+        if (req.max > 1) {
+          ok.addEventListener('click', () => done([...sel]));
+          kids.push(el('div', { class: 'acts', style: { marginTop: '10px' } }, ok));
+          upd();
+        }
+        openModal(...kids);
+        return;
+      }
 
       if (req.kind === 'yesno' || req.kind === 'number') {
         if (req.card) {

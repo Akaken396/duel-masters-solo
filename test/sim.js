@@ -1,6 +1,7 @@
 // AI同士で対戦させて、例外が出ないか・決着がつくかを確認する
 const path = require('path');
 const TP = require(path.join(__dirname, '../js/textparse.js'));
+require(path.join(__dirname, '../js/cardscripts.js'));
 const AI = require(path.join(__dirname, '../js/ai.js'));
 const { Game } = require(path.join(__dirname, '../js/engine.js'));
 const S = require(path.join(__dirname, '../js/samples.js'));

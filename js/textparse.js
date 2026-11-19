@@ -40,6 +40,9 @@
     { re: /^このクリーチャーは自分のターンのはじめにアンタップしない。?$/, set: (k) => (k.noUntap = true) },
     { re: /^(水晶)?チャージャー$/, set: (k) => (k.charger = true) },
     { re: /^ブレイク身代わり$/, set: (k) => (k.breakSubstitute = true) },
+    { re: /^EXライフ$/, set: (k) => (k.exLife = true) },
+    { re: /^シンカライズ$/, set: (k) => (k.sinkarize = true) },
+    { re: /^G・ストライク$/, set: (k) => (k.gStrike = true) },
   ];
 
   const TRIGGERS = [
@@ -226,6 +229,8 @@
     if (k.noUntap) out.push('ターン開始時にアンタップしない');
     if (k.charger) out.push('チャージャー');
     if (k.breakSubstitute) out.push('ブレイク身代わり');
+    if (k.exLife) out.push('EXライフ');
+    if (k.gStrike) out.push('G・ストライク');
     for (const ab of parsed.abilities) {
       out.push(`${WHEN_LABEL[ab.when]}: ` + ab.acts.map((a) => ACT_LABEL[a.act](a) + (a.optional ? '(任意)' : '')).join(' → '));
     }
