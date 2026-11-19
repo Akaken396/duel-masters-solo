@@ -22,7 +22,7 @@
         name: def.twin.name,
         civs: def.twin.civs && def.twin.civs.length ? def.twin.civs : def.civs,
         cost: +def.twin.cost || 0,
-        type: 'spell',
+        type: def.twin.type || 'spell',
         power: null,
         races: [],
         text: def.twin.text || '',
@@ -32,6 +32,8 @@
     }
     return t;
   }
+
+  const WHEN_J = { summon: '出た時の能力', attack: '攻撃する時の能力', destroyed: '破壊された時の能力', turnStart: 'ターンのはじめの能力', turnEnd: 'ターンの終わりの能力', shieldAdded: 'シールドが置かれた時の能力', exLifeLost: 'EXライフが離れた時の能力', block: 'ブロックした時の能力', sealsGone: '封印が外れた時の能力' };
 
   class GameOver extends Error {
     constructor(winner, reason) {
@@ -382,7 +384,8 @@
           else await new Promise((res) => (this._endTurnResolve = res));
           if (this._undoTo) this._undoTo = null;
           if (this.winner != null || this.aborted) break;
-          for (const c of this.permanents(this.active)) if (this.isOnField(c)) await this.trigger(c, 'turnEnd');
+          for (const c of this.permanents(this.active)) if (this.isOnField(c)) await this.trigger(c, 'turnEnd', c.owner, c.def, null, { defer: true });
+          await this.resolvePending();
           await this.endTurnEffects();
           this.endTurnCleanup();
           this.active = 1 - this.active;
@@ -416,11 +419,13 @@
         if (!this.kw(c).noUntap && !((c.frozenUntil || 0) >= this.turn)) c.tapped = false;
         c.sick = false;
       }
+      for (const c of this.permanents(this.active)) {
+        if (this.isOnField(c)) await this.trigger(c, 'turnStart', c.owner, c.def, null, { defer: true });
+      }
+      await this.resolvePending();
+      // ドロー（先攻1ターン目は引かない）
       const skipDraw = this.turn === 1;
       if (!skipDraw) this.draw(this.active, 1);
-      for (const c of this.permanents(this.active)) {
-        if (this.isOnField(c)) await this.trigger(c, 'turnStart');
-      }
       this.changed();
     }
 
@@ -800,8 +805,14 @@
         // 解決中は墓地へ（DMでは唱えた後に墓地）
         this.moveTo(card, 'grave');
         this.noteManual(card, def);
-        await this.trigger(card, 'cast', pi, def);
+        this.resolving = (this.resolving || 0) + 1;
+        try {
+          await this.trigger(card, 'cast', pi, def);
+        } finally {
+          this.resolving--;
+        }
         await this.notifyAll('onAnyCast', card, def);
+        await this.resolvePending();
         if (parsed(def).kw.charger && this.zoneOf(card) === 'grave') {
           this.moveTo(card, 'mana', { tapped: true });
           this.log(`「${def.name}」はチャージャーでマナに置かれた`);
@@ -814,6 +825,10 @@
         this.noteManual(card);
         await this.trigger(card, 'summon', pi);
         await this.shieldAdded(pi);
+      } else if (def !== card.def && def.type === 'field') {
+        // WDフィールド：裏面で出す
+        this.log(`${name}はフィールド「${def.name}」（「${card.def.name}」の裏面）を${fr}出した`);
+        await this.enterBattle(card, pi, 'summon', { ...po, flipped: true });
       } else {
         const verb = this.isCreature(card) ? '召喚した' : '出した';
         this.log(`${name}は${this.isCreature(card) ? '' : TYPE_LABEL[def.type]}「${def.name}」を${fr}${verb}`);
@@ -849,6 +864,7 @@
         this.moveTo(card, 'battle');
       }
       if (!this.isCreature(card)) card.sick = false;
+      if (o.flipped) card.flipped = true;
       if (this.isCreature(card)) this.creaturesThisTurn[pi]++;
       if (how !== 'summon' && !base) this.log(`「${card.def.name}」がバトルゾーンに出た`);
       if (this.kw(card).justDiver) card.jdUntil = this.nextTurnOf(pi) - 1;
@@ -881,9 +897,10 @@
         for (const src of this.permanents(pi)) {
           if (src === card || !this.isOnField(src)) continue;
           const sc = this.sc(src);
-          if (sc && sc[hook]) await sc[hook](this, src, card, def);
+          if (sc && sc[hook]) await this.queueFn(src, src.owner, `「${src.def.name}」の能力`, () => (this.isOnField(src) ? sc[hook](this, src, card, def) : null), { defer: true });
         }
       }
+      await this.resolvePending();
     }
 
     // 離れられない状態か（封印・シールド・フォース・極限ファイナル革命など）
@@ -972,7 +989,8 @@
 
     // 自分のシールドゾーンにカードが置かれた時の誘発
     async shieldAdded(pi) {
-      for (const c of this.permanents(pi)) if (this.isOnField(c)) await this.trigger(c, 'shieldAdded', pi);
+      for (const c of this.permanents(pi)) if (this.isOnField(c)) await this.trigger(c, 'shieldAdded', pi, c.def, null, { defer: true });
+      await this.resolvePending();
     }
     // 自分のシールドが離れた時（獄鬼夜城など）
     async shieldsLeft(pi) {
@@ -986,7 +1004,62 @@
       return z === 'battle' || (z === 'shields' && c.faceUp);
     }
 
-    async trigger(card, when, controller = card.owner, def = card.def, extra) {
+    // 誘発した能力は「待機」させ、まとめて解決する（ターンプレイヤーの能力から、選んだ順に）。
+    // 呪文の効果（cast）だけはその場で解決する。
+    async trigger(card, when, controller = card.owner, def = card.def, extra, o = {}) {
+      if (when === 'cast') return this.runAbility(card, when, controller, def, extra);
+      if (!this.hasAbility(card, when, def)) return;
+      this.pending = this.pending || [];
+      this.pending.push({ card, when, controller, def, extra, label: `「${def.name}」の${WHEN_J[when] || when}` });
+      if (!o.defer) await this.resolvePending();
+    }
+    // 任意の処理を待機させる（場のカードの「〜した時」能力など）
+    async queueFn(src, controller, label, fn, o = {}) {
+      this.pending = this.pending || [];
+      this.pending.push({ card: src, controller, fn, label });
+      if (!o.defer) await this.resolvePending();
+    }
+    hasAbility(card, when, def = card.def) {
+      const sc = this.script(def);
+      if (sc && sc[when]) return true;
+      return this.abilities(card, def).some((ab) => ab.when === when);
+    }
+    // 待機中の能力を解決する。何かを解決している最中なら、終わってからまとめて解決
+    async resolvePending() {
+      if (this.resolving > 0 || this.inPending) return;
+      this.inPending = true;
+      try {
+        while (this.pending && this.pending.length) {
+          const ap = this.active;
+          let mine = this.pending.filter((x) => x.controller === ap);
+          if (!mine.length) mine = this.pending.filter((x) => x.controller !== ap);
+          let item = mine[0];
+          if (mine.length > 1) {
+            const opts = mine.map((x, i) => ({ id: String(i), label: x.label }));
+            const r = await this.choose(item.controller, {
+              kind: 'mode',
+              prompt: `待機中の能力が${mine.length}つあります。先に解決するものを選んでください`,
+              options: opts,
+              min: 1,
+              max: 1,
+            });
+            item = mine[+r[0]] || mine[0];
+          }
+          this.pending.splice(this.pending.indexOf(item), 1);
+          this.resolving = (this.resolving || 0) + 1;
+          try {
+            if (item.fn) await item.fn();
+            else await this.runAbility(item.card, item.when, item.controller, item.def, item.extra);
+          } finally {
+            this.resolving--;
+          }
+        }
+      } finally {
+        this.inPending = false;
+      }
+    }
+
+    async runAbility(card, when, controller = card.owner, def = card.def, extra) {
       const sc = this.script(def);
       if (sc && sc[when]) {
         await sc[when](this, card, controller, extra);
@@ -1214,7 +1287,8 @@
         gone.push(c);
       }
       this.changed();
-      for (const c of gone) await this.trigger(c, 'destroyed', c.owner);
+      for (const c of gone) await this.trigger(c, 'destroyed', c.owner, c.def, null, { defer: true });
+      await this.resolvePending();
     }
 
     // ===== 攻撃 =====
@@ -1401,31 +1475,37 @@
       // ブレイクした時の効果（ニガ=アブシュームなど）
       if (src && this.zoneOf(src) === 'battle') await this.notifyAll('onBreak', src);
       await this.shieldsLeft(op.idx);
-      for (const s of picked) {
-        if (this.zoneOf(s) !== 'hand') continue;
-        // G・ストライク：相手クリーチャー1体はこのターン攻撃できない
-        if (this.kw(s).gStrike) {
-          const pool = this.p[pi].battle.filter((c) => this.isCreature(c));
-          if (pool.length && (await this.yesNo(op.idx, `G・ストライク「${s.def.name}」を使いますか？`, s))) {
-            const r = await this.pickCards(op.idx, pool, 1, false, 'このターン攻撃できなくするクリーチャー', 'target', 'tap');
+      // 手札に加わったシールドの中から、使うS・トリガー／G・ストライクを先に宣言し、選んだ順に使う
+      const cands = [];
+      for (const sh of picked) {
+        if (this.zoneOf(sh) !== 'hand') continue;
+        const ssc = this.sc(sh);
+        if (this.kw(sh).shieldTrigger || (ssc && ssc.dynamicTrigger && ssc.dynamicTrigger(this, sh))) cands.push({ id: 'st' + sh.uid, label: `S・トリガー「${sh.def.name}」`, card: sh, def: sh.def, kind: 'st' });
+        const t = this.twin(sh);
+        if (t && parsed(t).kw.shieldTrigger) cands.push({ id: 'tw' + sh.uid, label: `S・トリガー「${t.name}」（ツインパクトの呪文側）`, card: sh, def: t, kind: 'st' });
+        if (this.kw(sh).gStrike) cands.push({ id: 'gs' + sh.uid, label: `G・ストライク「${sh.def.name}」`, card: sh, def: sh.def, kind: 'gs' });
+      }
+      if (cands.length) {
+        const ids = await this.chooseModes(op.idx, `${op.name}: 使うS・トリガー／G・ストライクを、使う順に選んでください`, cands.map((c) => ({ id: c.id, label: c.label })), {
+          min: 0,
+          max: cands.length,
+          aiPick: cands.filter((c, i) => cands.findIndex((x) => x.card === c.card) === i).map((c) => c.id),
+        });
+        const used = new Set();
+        for (const id of ids) {
+          const c = cands.find((x) => x.id === id);
+          if (!c || used.has(c.card) || this.zoneOf(c.card) !== 'hand') continue;
+          used.add(c.card);
+          if (c.kind === 'gs') {
+            const pool = this.p[pi].battle.filter((x) => this.isCreature(x));
+            const r = await this.pickCards(op.idx, pool, 1, false, 'G・ストライク：このターン攻撃できなくするクリーチャー', 'target', 'tap');
             if (r[0]) {
               r[0].noAttackTurn = this.turn;
               this.log(`G・ストライク：「${r[0].def.name}」はこのターン攻撃できない`);
             }
-          }
-        }
-        const t = this.twin(s);
-        const sides = [];
-        const ssc = this.sc(s);
-        if (this.kw(s).shieldTrigger || (ssc && ssc.dynamicTrigger && ssc.dynamicTrigger(this, s))) sides.push(s.def);
-        if (t && parsed(t).kw.shieldTrigger) sides.push(t);
-        for (const d of sides) {
-          if (this.zoneOf(s) !== 'hand') break;
-          const use = await this.yesNo(op.idx, `S・トリガー「${d.name}」を使いますか？`, s);
-          if (use) {
+          } else {
             this.log(`${op.name}: S・トリガー発動！`);
-            await this.putIntoPlay(op.idx, s, true, d);
-            break;
+            await this.putIntoPlay(op.idx, c.card, true, c.def);
           }
         }
       }

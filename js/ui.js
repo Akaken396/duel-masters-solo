@@ -210,6 +210,17 @@
       [ai, b],
     ]) {
       if (r.count < 10) return alert(`「${d.name}」のカードが少なすぎます（${r.count}枚）`);
+      if ($('#setup-strict').checked) {
+        const per = {};
+        for (const e of r.entries) per[e.def.name] = (per[e.def.name] || 0) + e.n;
+        const over = Object.entries(per).filter(([, n]) => n > 4);
+        const bad = [];
+        if (r.count !== 40) bad.push(`デッキは40枚ちょうどです（今は${r.count}枚）`);
+        if (over.length) bad.push('同じ名前のカードは4枚までです：' + over.map(([k, n]) => `${k}×${n}`).join('、'));
+        if (r.unknown.length) bad.push('未登録のカード：' + r.unknown.join('、'));
+        if (bad.length) return alert(`「${d.name}」は競技ルールを満たしていません。\n` + bad.join('\n') + '\n\n（チェックを外すと、このまま遊べます）');
+        continue;
+      }
       if (r.count !== 40 || r.unknown.length) {
         if (!confirm(`「${d.name}」は${r.count}枚です${r.unknown.length ? `（未登録のカード: ${r.unknown.join('、')}）` : ''}。このまま始めますか？`)) return;
       }
@@ -449,7 +460,7 @@
         run: () => g.act(() => g.play(pi, c.uid)),
       },
       g.twin(c) && {
-        label: `呪文側「${g.twin(c).name}」を使う（コスト${g.twin(c).cost}）`,
+        label: g.twin(c).type === 'field' ? `裏面「${g.twin(c).name}」で出す（コスト${g.twin(c).cost}）` : `呪文側「${g.twin(c).name}」を使う（コスト${g.twin(c).cost}）`,
         disabled: !g.canPlayTwin(pi, c),
         run: () => g.act(() => g.playTwin(pi, c.uid)),
       },
