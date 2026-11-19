@@ -42,7 +42,7 @@
 
   // 使っても意味のない呪文などを避ける
   function worthPlaying(g, pi, c) {
-    const abs = g.abilities(c);
+    const abs = g.abilities(c, c.def);
     if (c.def.type !== 'spell') return true;
     if (!abs.length) return true; // 手動効果はとりあえず使う
     for (const ab of abs) {
@@ -53,7 +53,7 @@
         } else if (a.act === 'discard') {
           if (g.opp(pi).hand.length) return true;
         } else if (a.act === 'graveToHand') {
-          if (g.p[pi].grave.some((x) => x.def.type !== 'spell' || !a.creatureOnly)) return true;
+          if (g.p[pi].grave.some((x) => x.def.type === 'creature' || !a.creatureOnly)) return true;
         } else return true;
       }
     }
@@ -63,10 +63,19 @@
   async function playCards(g, pi) {
     const me = g.p[pi];
     for (let guard = 0; guard < 30; guard++) {
-      const cand = me.hand.filter((c) => g.canPlay(pi, c) && worthPlaying(g, pi, c));
+      const cand = [];
+      for (const c of me.hand) {
+        if (g.canPlay(pi, c) && worthPlaying(g, pi, c)) cand.push({ c, twin: false, cost: +c.def.cost || 0, v: value(g, c) });
+        else if (g.canPlayTwin(pi, c)) {
+          const t = g.twin(c);
+          if (worthPlaying(g, pi, { def: t })) cand.push({ c, twin: true, cost: +t.cost || 0, v: 0 });
+        }
+      }
       if (!cand.length) return;
-      cand.sort((a, b) => (+b.def.cost || 0) - (+a.def.cost || 0) || value(g, b) - value(g, a));
-      await g.play(pi, cand[0].uid);
+      cand.sort((a, b) => b.cost - a.cost || b.v - a.v);
+      const pick = cand[0];
+      if (pick.twin) await g.playTwin(pi, pick.c.uid);
+      else await g.play(pi, pick.c.uid);
       await g.pause();
     }
   }

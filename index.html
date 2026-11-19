@@ -121,6 +121,8 @@
                 <select id="cf-type">
                   <option value="creature">クリーチャー</option>
                   <option value="spell">呪文</option>
+                  <option value="tamaseed">タマシード</option>
+                  <option value="castle">城</option>
                 </select>
               </div>
               <div class="row"><label>文明</label><span id="cf-civs" class="civs"></span></div>
@@ -129,6 +131,13 @@
               <div class="row"><label>種族</label><input id="cf-races" type="text" placeholder="スペース区切り" /></div>
               <div class="row top"><label>テキスト</label><textarea id="cf-text" rows="8" placeholder="カードに書かれている能力をそのまま入力"></textarea></div>
               <div class="row top"><label>自動処理</label><div id="cf-parsed" class="check"></div></div>
+              <details id="cf-twinbox">
+                <summary>ツインパクト（呪文側）</summary>
+                <div class="row"><label>呪文名</label><input id="cf-tname" type="text" placeholder="なければ空のまま" /></div>
+                <div class="row"><label>コスト</label><input id="cf-tcost" type="number" min="0" max="99" /></div>
+                <div class="row top"><label>テキスト</label><textarea id="cf-ttext" rows="4"></textarea></div>
+                <div class="row top"><label>自動処理</label><div id="cf-tparsed" class="check"></div></div>
+              </details>
               <div class="row"><label>画像URL</label><input id="cf-url" type="text" placeholder="https://…（任意）" /></div>
               <div class="row">
                 <label>画像ファイル</label>

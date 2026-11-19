@@ -1,7 +1,7 @@
 // 画面まわり
 (function () {
   'use strict';
-  const { Game, CIV_LABEL, parsed } = Engine;
+  const { Game, CIV_LABEL, TYPE_LABEL, NON_CREATURE, parsed, twinDef } = Engine;
   const $ = (s, r = document) => r.querySelector(s);
   const CIVS = ['light', 'water', 'darkness', 'fire', 'nature', 'zero'];
   const CIV_COLOR = { light: '#e9cf4a', water: '#3d8fe0', darkness: '#6b4c8a', fire: '#e0503d', nature: '#3fa35a', zero: '#9aa3ad' };
@@ -40,7 +40,7 @@
         { class: 'face', style: { background: civBg(def.civs) } },
         el('div', { class: 'top' }, el('div', { class: 'cost', text: def.cost ?? '' }), el('div', { class: 'name', text: def.name })),
         el('div', { class: 'txt', text: def.text || '' }),
-        el('div', { class: 'pw', text: def.type === 'spell' ? '呪文' : def.power ?? '' })
+        el('div', { class: 'pw', text: NON_CREATURE.includes(def.type) ? TYPE_LABEL[def.type] : def.power ?? '' })
       );
     if (src) {
       const img = el('img', { src, alt: def.name, draggable: 'false', loading: 'lazy' });
@@ -71,12 +71,20 @@
     const pw = inst && game ? game.power(inst) : def.power;
     z.append(
       el('div', {}, el('b', { text: def.name })),
-      el('div', { class: 'muted', text: `${civ}　コスト${def.cost}　${def.type === 'spell' ? '呪文' : 'パワー' + (pw ?? '')}　${(def.races || []).join(' / ')}` }),
-      el('div', { class: 'ztext', text: def.text || '' })
+      el('div', { class: 'muted', text: `${civ}　コスト${def.cost}　${NON_CREATURE.includes(def.type) ? TYPE_LABEL[def.type] : 'パワー' + (pw ?? '')}　${(def.races || []).join(' / ')}` }),
+      el('div', { class: 'ztext', text: def.text || '（テキスト未登録）' })
     );
     const auto = TextParse.describe(p);
     if (auto.length) z.append(el('div', { class: 'zauto', text: '自動: ' + auto.join(' / ') }));
     if (p.manual.length) z.append(el('div', { class: 'zman', text: '手動: ' + p.manual.join(' / ') }));
+    const t = twinDef(def);
+    if (t) {
+      const tp = parsed(t);
+      z.append(el('hr'), el('div', {}, el('b', { text: t.name }), el('span', { class: 'muted', text: `　呪文 コスト${t.cost}` })), el('div', { class: 'ztext', text: t.text || '（テキスト未登録）' }));
+      const ta = TextParse.describe(tp);
+      if (ta.length) z.append(el('div', { class: 'zauto', text: '自動: ' + ta.join(' / ') }));
+      if (tp.manual.length) z.append(el('div', { class: 'zman', text: '手動: ' + tp.manual.join(' / ') }));
+    }
   }
 
   // ===== メニュー =====
@@ -322,7 +330,7 @@
     const row = el('div', { class: 'zrow' });
     const sh = zone('shields', `シールド ${pl.shields.length}`);
     pl.shields.forEach((c, i) => {
-      const e = cardBack(i + 1);
+      const e = c.faceUp ? cardFace(c.def, { inst: c, nameBadge: true }) : cardBack(i + 1);
       e.style.setProperty('--cw', '54px');
       e.addEventListener('contextmenu', (ev) => manualMenu(ev, c, 'shields'));
       sh.c.append(e);
@@ -382,7 +390,7 @@
     let can = false;
     if (mine && z === 'hand') {
       clickable = true;
-      can = g.canPlay(pi, c) || g.canCharge(pi, c);
+      can = g.canPlay(pi, c) || g.canPlayTwin(pi, c) || g.canCharge(pi, c);
     } else if (mine && z === 'battle') {
       const t = g.attackTargets(c);
       clickable = can = t.length > 0;
@@ -391,7 +399,7 @@
     if (c.tapped) e.classList.add('tapped');
     if (z === 'battle' && c.sick && !c.tapped) e.classList.add('sick');
     if (can) e.classList.add('can');
-    if (z === 'battle' && c.def.type !== 'spell') {
+    if (z === 'battle' && !NON_CREATURE.includes(c.def.type)) {
       const p = g.power(c);
       e.append(el('div', { class: 'badge' + (p !== +c.def.power ? ' up' : ''), text: p }));
     }
@@ -415,6 +423,11 @@
         label: `使う（コスト${c.def.cost}）${why}`,
         disabled: !g.canPlay(pi, c),
         run: () => g.act(() => g.play(pi, c.uid)),
+      },
+      g.twin(c) && {
+        label: `呪文側「${g.twin(c).name}」を使う（コスト${g.twin(c).cost}）`,
+        disabled: !g.canPlayTwin(pi, c),
+        run: () => g.act(() => g.playTwin(pi, c.uid)),
       },
       {
         label: g.manaCharged ? 'マナに置く（このターンは置いた）' : 'マナに置く',
@@ -463,8 +476,8 @@
       mv('deck', { top: true }, '山札の上へ'),
       mv('deck', { top: false }, '山札の下へ')
     );
-    if (z === 'hand' && c.def.type === 'spell')
-      items.push({ label: '呪文の効果をコストなしで解決', run: () => g.act(() => g.putIntoPlay(c.owner, c, true)) });
+    if (z === 'hand') items.push({ label: 'コストを払わずに使う', run: () => g.act(() => g.putIntoPlay(c.owner, c, true)) });
+    if (z === 'hand' && g.twin(c)) items.push({ label: 'コストを払わずに呪文側を使う', run: () => g.act(() => g.putIntoPlay(c.owner, c, true, g.twin(c))) });
     openMenu(ev.clientX, ev.clientY, `[手動] ${z === 'shields' || (z === 'hand' && !visibleHand(c.owner)) ? '？' : c.def.name}（${owner}）`, items);
   }
 
@@ -745,6 +758,10 @@
     $('#cf-races').value = (c.races || []).join(' ');
     $('#cf-text').value = c.text || '';
     $('#cf-url').value = c.imageUrl || '';
+    $('#cf-tname').value = c.twin?.name || '';
+    $('#cf-tcost').value = c.twin?.cost ?? '';
+    $('#cf-ttext').value = c.twin?.text || '';
+    $('#cf-twinbox').open = !!c.twin?.name;
     $('#cf-id').textContent = 'ID: ' + c.id + (draft ? '（未保存）' : '');
     $('#cf-file').value = '';
     updateCardPreview();
@@ -757,15 +774,25 @@
       type,
       civs: [...civBox.querySelectorAll('input:checked')].map((i) => i.value),
       cost: +$('#cf-cost').value || 0,
-      power: type === 'spell' ? null : $('#cf-power').value === '' ? null : +$('#cf-power').value,
+      power: NON_CREATURE.includes(type) ? null : $('#cf-power').value === '' ? null : +$('#cf-power').value,
       races: $('#cf-races').value.split(/[\s　/／,、]+/).filter(Boolean),
       text: $('#cf-text').value,
       imageUrl: $('#cf-url').value.trim(),
+      twin: $('#cf-tname').value.trim() ? { name: $('#cf-tname').value.trim(), cost: +$('#cf-tcost').value || 0, text: $('#cf-ttext').value } : null,
     };
   }
   function updateCardPreview() {
     const c = formToCard();
-    $('#cf-power').disabled = c.type === 'spell';
+    $('#cf-power').disabled = NON_CREATURE.includes(c.type);
+    const tout = $('#cf-tparsed');
+    tout.innerHTML = '';
+    const td = twinDef(c);
+    if (td) {
+      const tp = TextParse.parseCard(td);
+      const ta = TextParse.describe(tp);
+      tout.append(el('div', { class: 'good', text: ta.length ? '✓ ' + ta.join(' / ') : '（自動処理する能力なし）' }));
+      if (tp.manual.length) tout.append(el('div', { class: 'warn' }, '手動で処理する文:', el('ul', {}, tp.manual.map((m) => el('li', { text: m })))));
+    }
     const pv = $('#cf-preview');
     pv.innerHTML = '';
     pv.append(cardFace(c));
@@ -944,6 +971,8 @@
     civs = civs.map((c) => CIV_FROM[c] || String(c).toLowerCase()).filter((c) => CIVS.includes(c));
     let type = r.type || 'creature';
     if (/呪文|spell/i.test(type)) type = 'spell';
+    else if (/タマシード|tamaseed/i.test(type)) type = 'tamaseed';
+    else if (/城|castle/i.test(type)) type = 'castle';
     else type = 'creature';
     let races = r.races || [];
     if (typeof races === 'string') races = races.split(/[\s/／,、]+/).filter(Boolean);
@@ -953,10 +982,11 @@
       civs,
       cost: +r.cost || 0,
       type,
-      power: type === 'spell' ? null : r.power == null || r.power === '' ? null : parseInt(String(r.power).replace(/[^\d]/g, ''), 10) || 0,
+      power: NON_CREATURE.includes(type) ? null : r.power == null || r.power === '' ? null : parseInt(String(r.power).replace(/[^\d]/g, ''), 10) || 0,
       races,
       text: r.text || '',
       imageUrl: r.imageUrl || r.image || '',
+      twin: r.twin && r.twin.name ? { name: String(r.twin.name), cost: +r.twin.cost || 0, text: r.twin.text || '' } : null,
     };
   }
 

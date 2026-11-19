@@ -7,6 +7,32 @@
   const ZONES = ['deck', 'hand', 'mana', 'shields', 'battle', 'grave'];
   const ZONE_LABEL = { deck: '山札', hand: '手札', mana: 'マナ', shields: 'シールド', battle: 'バトルゾーン', grave: '墓地' };
 
+  // 種類: creature / spell / tamaseed（タマシード） / castle（城）
+  const NON_CREATURE = ['spell', 'tamaseed', 'castle'];
+  const TYPE_LABEL = { creature: 'クリーチャー', spell: '呪文', tamaseed: 'タマシード', castle: '城' };
+
+  // ツインパクトの呪文側を、ひとつのカード定義として扱う
+  const twinCache = new WeakMap();
+  function twinDef(def) {
+    if (!def || !def.twin || !def.twin.name) return null;
+    let t = twinCache.get(def);
+    if (!t || t._src !== JSON.stringify(def.twin)) {
+      t = {
+        id: def.id + '#twin',
+        name: def.twin.name,
+        civs: def.twin.civs && def.twin.civs.length ? def.twin.civs : def.civs,
+        cost: +def.twin.cost || 0,
+        type: 'spell',
+        power: null,
+        races: [],
+        text: def.twin.text || '',
+        _src: JSON.stringify(def.twin),
+      };
+      twinCache.set(def, t);
+    }
+    return t;
+  }
+
   class GameOver extends Error {
     constructor(winner, reason) {
       super('game over');
@@ -74,15 +100,18 @@
     kw(card) {
       return parsed(card.def).kw;
     }
-    abilities(card) {
-      return parsed(card.def).abilities;
+    abilities(card, def = card.def) {
+      return parsed(def).abilities;
     }
-    manual(card) {
-      return parsed(card.def).manual;
+    manual(card, def = card.def) {
+      return parsed(def).manual;
+    }
+    isCreature(card) {
+      return !NON_CREATURE.includes(card.def.type);
     }
 
     power(card) {
-      if (card.def.power == null) return 0;
+      if (card.def.power == null || !this.isCreature(card)) return 0;
       return (+card.def.power || 0) + card.tempPower + (card.attacking ? this.kw(card).powerAttacker : 0);
     }
 
@@ -139,6 +168,7 @@
         card.attacking = false;
         card.sick = false;
       }
+      if (from === 'shields' && zone !== 'shields') card.faceUp = false;
       if (zone === 'deck' && top) owner.deck.unshift(card);
       else owner[zone].push(card);
       if (zone === 'battle' && from !== 'battle') {
@@ -310,10 +340,10 @@
     }
 
     // 支払いに使うマナを決める。払えなければ null
-    payment(pi, card) {
+    payment(pi, card, def = card.def) {
       const pl = this.p[pi];
-      const cost = Math.max(0, +card.def.cost || 0);
-      const need = (card.def.civs || []).filter((c) => c !== 'zero');
+      const cost = Math.max(0, +def.cost || 0);
+      const need = (def.civs || []).filter((c) => c !== 'zero');
       const avail = pl.mana.filter((m) => !m.tapped);
       if (cost === 0) return [];
       if (avail.length < cost) return null;
@@ -354,15 +384,47 @@
       return true;
     }
 
-    // 召喚 or 呪文の使用（free=S・トリガーなど）
-    async putIntoPlay(pi, card, free) {
+    // ツインパクトの呪文側
+    twin(card) {
+      return twinDef(card.def);
+    }
+    canPlayTwin(pi, card) {
+      const t = this.twin(card);
+      return !!t && this.active === pi && card.owner === pi && this.zoneOf(card) === 'hand' && !!this.payment(pi, card, t);
+    }
+    async playTwin(pi, uid) {
+      const f = this.find(uid);
+      if (!f || !this.canPlayTwin(pi, f.card)) return false;
+      const t = this.twin(f.card);
+      for (const m of this.payment(pi, f.card, t)) m.tapped = true;
+      await this.putIntoPlay(pi, f.card, false, t);
+      return true;
+    }
+
+    // 召喚 or 呪文の使用（free=S・トリガーなど）。def を渡すとツインパクトの呪文側として扱う
+    async putIntoPlay(pi, card, free, def = card.def) {
       const name = this.p[pi].name;
-      if (card.def.type === 'spell') {
-        this.log(`${name}は呪文「${card.def.name}」を${free ? 'コストを払わずに' : ''}唱えた`);
+      const fr = free ? 'コストを払わずに' : '';
+      if (def.type === 'spell') {
+        this.log(`${name}は呪文「${def.name}」を${fr}唱えた`);
         // 解決中は墓地へ（DMでは唱えた後に墓地）
         this.moveTo(card, 'grave');
+        this.noteManual(card, def);
+        await this.trigger(card, 'cast', pi, def);
+      } else if (def.type === 'castle') {
+        // 城：自分のシールド1つに付ける扱い。表向きのシールドとして置く
+        this.moveTo(card, 'shields');
+        card.faceUp = true;
+        this.log(`${name}は城「${def.name}」を${fr}シールドに要塞化した`);
         this.noteManual(card);
-        await this.trigger(card, 'cast', pi);
+        await this.trigger(card, 'summon', pi);
+      } else if (def.type === 'tamaseed') {
+        this.moveTo(card, 'battle');
+        card.sick = false;
+        this.log(`${name}はタマシード「${def.name}」を${fr}出した`);
+        this.noteManual(card);
+        await this.pause();
+        await this.trigger(card, 'summon', pi);
       } else {
         this.log(`${name}は「${card.def.name}」を${free ? 'コストを払わずに' : ''}召喚した`);
         this.moveTo(card, 'battle');
@@ -373,13 +435,14 @@
       this.changed();
     }
 
-    noteManual(card) {
-      const m = this.manual(card);
-      if (m.length) this.log(`【手動】「${card.def.name}」: ${m.join(' / ')}`);
+    noteManual(card, def = card.def) {
+      const m = this.manual(card, def);
+      if (m.length) this.log(`【手動】「${def.name}」: ${m.join(' / ')}`);
+      else if (!def.text) this.log(`【手動】「${def.name}」: 効果テキスト未登録（必要なら手動で処理）`);
     }
 
-    async trigger(card, when, controller = card.owner) {
-      for (const ab of this.abilities(card)) {
+    async trigger(card, when, controller = card.owner, def = card.def) {
+      for (const ab of this.abilities(card, def)) {
         if (ab.when !== when) continue;
         for (const a of ab.acts) {
           await this.doAction(a, card, controller);
@@ -391,6 +454,7 @@
       let pool = [];
       if (a.side === 'opp' || a.side === 'any') pool.push(...this.opp(pi).battle);
       if (a.side === 'self' || a.side === 'any') pool.push(...this.p[pi].battle);
+      pool = pool.filter((c) => this.isCreature(c));
       if (a.maxPower != null) pool = pool.filter((c) => this.power(c) <= a.maxPower);
       if (a.maxCost != null) pool = pool.filter((c) => (+c.def.cost || 0) <= a.maxCost);
       if (a.act === 'tap') pool = pool.filter((c) => !c.tapped);
@@ -490,7 +554,7 @@
         case 'manaToHand': {
           const zone = a.act === 'graveToHand' ? 'grave' : 'mana';
           let pool = me[zone].slice();
-          if (a.creatureOnly) pool = pool.filter((c) => c.def.type !== 'spell');
+          if (a.creatureOnly) pool = pool.filter((c) => !NON_CREATURE.includes(c.def.type));
           const picked = await this.pickCards(pi, pool, a.n, a.optional, `${nm}: 手札に戻すカードを選んでください`, 'recover');
           for (const c of picked) {
             this.moveTo(c, 'hand');
@@ -527,17 +591,17 @@
     // ===== 攻撃 =====
     attackTargets(card) {
       const pi = card.owner;
-      if (this.active !== pi || this.zoneOf(card) !== 'battle' || card.tapped) return [];
+      if (this.active !== pi || this.zoneOf(card) !== 'battle' || card.tapped || !this.isCreature(card)) return [];
       const k = this.kw(card);
       if (k.cantAttack) return [];
       const op = this.opp(pi);
       const t = [];
       if (card.sick) {
-        if (k.machFighter && card.enteredTurn === this.turn) t.push(...op.battle);
+        if (k.machFighter && card.enteredTurn === this.turn) t.push(...op.battle.filter((c) => this.isCreature(c)));
         return t;
       }
       if (!k.cantAttackPlayer) t.push('player');
-      t.push(...op.battle.filter((c) => c.tapped));
+      t.push(...op.battle.filter((c) => c.tapped && this.isCreature(c)));
       return t;
     }
 
@@ -559,7 +623,7 @@
         if (this.zoneOf(card) !== 'battle') return true;
         // ブロック
         if (!this.kw(card).unblockable) {
-          const blockers = op.battle.filter((c) => !c.tapped && this.kw(c).blocker && c !== tgtCard);
+          const blockers = op.battle.filter((c) => !c.tapped && this.isCreature(c) && this.kw(c).blocker && c !== tgtCard);
           if (blockers.length) {
             const r = await this.choose(op.idx, {
               kind: 'block',
@@ -621,16 +685,29 @@
       else {
         picked = await this.pickCards(pi, op.shields, n, false, `ブレイクするシールドを${n}つ選んでください`, 'shield');
       }
-      for (const s of picked) this.moveTo(s, 'hand');
+      for (const s of picked) {
+        if (s.faceUp) {
+          // 表向き（城など）は手札ではなく墓地へ
+          this.moveTo(s, 'grave');
+          this.log(`城「${s.def.name}」は墓地に置かれた`);
+        } else this.moveTo(s, 'hand');
+      }
       this.log(`${op.name}のシールドを${picked.length}つブレイクした（残り${op.shields.length}）`);
       await this.pause();
       for (const s of picked) {
         if (this.zoneOf(s) !== 'hand') continue;
-        if (!this.kw(s).shieldTrigger) continue;
-        const use = await this.yesNo(op.idx, `S・トリガー「${s.def.name}」を使いますか？`, s);
-        if (use) {
-          this.log(`${op.name}: S・トリガー発動！`);
-          await this.putIntoPlay(op.idx, s, true);
+        const t = this.twin(s);
+        const sides = [];
+        if (this.kw(s).shieldTrigger) sides.push(s.def);
+        if (t && parsed(t).kw.shieldTrigger) sides.push(t);
+        for (const d of sides) {
+          if (this.zoneOf(s) !== 'hand') break;
+          const use = await this.yesNo(op.idx, `S・トリガー「${d.name}」を使いますか？`, s);
+          if (use) {
+            this.log(`${op.name}: S・トリガー発動！`);
+            await this.putIntoPlay(op.idx, s, true, d);
+            break;
+          }
         }
       }
     }
@@ -672,6 +749,6 @@
     }
   }
 
-  G.Engine = { Game, GameOver, parsed, CIV_LABEL, ZONE_LABEL, shuffle };
+  G.Engine = { Game, GameOver, parsed, twinDef, CIV_LABEL, ZONE_LABEL, TYPE_LABEL, NON_CREATURE, shuffle };
   if (typeof module !== 'undefined') module.exports = G.Engine;
 })(typeof globalThis !== 'undefined' ? globalThis : window);
