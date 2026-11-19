@@ -265,8 +265,16 @@
       }
       if (c.manaGE != null && me.mana.length < c.manaGE) return false;
       if (c.handLE != null && me.hand.length > c.handLE) return false;
+      if (c.graveGE != null && me.grave.length < c.graveGE) return false;
+      if (c.handLess && !(me.hand.length < this.p[1 - pi].hand.length)) return false;
+      if (c.shieldsLess && !(me.shields.length < this.p[1 - pi].shields.length)) return false;
       if (c.oppAllTapped && this.p[1 - pi].battle.some((x) => this.isCreature(x) && !x.tapped)) return false;
       if (c.oppHas && !this.p[1 - pi].battle.some((x) => ((x.def.races || []).join('/') + x.def.name + (x.def.type || '')).includes(c.oppHas.replace(/(・)?クリーチャー$/, '')))) return false;
+      if (c.countLE) {
+        const w = c.countLE.what.replace(/(・)?クリーチャー$/, '');
+        const n = me.battle.filter((x) => (!c.countLE.others || x !== card) && this.isCreature(x) && (!w || ((x.def.races || []).join('/') + x.def.name).includes(w))).length;
+        if (n > c.countLE.n) return false;
+      }
       if (c.count && c.count.others && card) {
         const w = c.count.what.replace(/(・)?クリーチャー$/, '');
         const n = me.battle.filter((x) => x !== card && this.isCreature(x) && (!w || ((x.def.races || []).join('/') + x.def.name).includes(w))).length;
@@ -1916,6 +1924,28 @@
         case 'lastIf':
           if (this._lastMoved && this.fitLook(this._lastMoved, a.cond)) for (const x of a.acts) await this.doAction(x, src, pi);
           break;
+        case 'ifCond':
+          if (!this.condOk2(pi, a.cond, src)) {
+            this.log(`${nm}: 条件（${a.text}）を満たしていない`);
+            break;
+          }
+          for (const x of a.acts) await this.doAction(x, src, pi);
+          break;
+        case 'freezeAll':
+          for (const c of op.battle) {
+            if (!this.isCreature(c) || (a.tappedOnly && !c.tapped)) continue;
+            c.frozenUntil = this.nextTurnOf(c.owner);
+          }
+          this.log(`${op.name}の${a.tappedOnly ? 'タップしている' : ''}クリーチャーは次のターンのはじめにアンタップしない`);
+          break;
+        case 'pairFight': {
+          const mine = await this.pickCards(pi, me.battle.filter((c) => this.isCreature(c)), 1, a.optional, `${nm}: バトルさせる自分のクリーチャー`, 'recover');
+          if (!mine.length) break;
+          const theirs = await this.pickCards(pi, op.battle.filter((c) => this.isCreature(c)), 1, a.optional, `${nm}: バトルさせる相手のクリーチャー`, 'target', 'destroy');
+          if (!theirs.length) break;
+          await this.battle(mine[0], theirs[0]);
+          break;
+        }
         case 'selfDestroy':
           if (src && this.zoneOf(src) === 'battle') await this.destroyMany([src], { byOpp: false });
           break;

@@ -20,6 +20,11 @@
       .replace(/^l\s+/gm, '') // 能力を与える時の記号
       .replace(/\?\?|\uFFFD{1,2}/g, '\n▶')
       .replace(/。\s*▼\s*/g, '。\n▶')
+      // エンジンが常に守る注意書きは読み飛ばす
+      .replace(/(。|、)\s*ただし(、)?(その)?(召喚)?コストは\s*[01０１]\s*(以下に(は)?ならない|より少なくならない|以下にはならない)(。)?/g, '。')
+      .replace(/(。|、)\s*ただし(、)?その「S・トリガー」は使えない(。)?/g, '。')
+      .replace(/(。|、)\s*その「S・トリガー」は使えない(。)?/g, '。')
+      .replace(/。。/g, '。')
       .replace(/^\s*▼\s*/gm, '▶')
       .replace(/^\s*[▶►]\s*/gm, (m) => m.trim());
   }
@@ -185,6 +190,9 @@
     const s = body.replace(/。$/, '').replace(/^自分は(、)?(?=カードを)/, '').replace(/\s+/g, '');
     const optional = /てもよい|まで/.test(s);
     let m;
+    if ((m = s.match(/^自分の山札の上から(\d+)枚(目)?を(、)?シールド化(する|してもよい)$/))) return { act: 'shieldAdd', n: +m[1], optional: m[4] !== 'する' };
+    if ((m = s.match(/^自分と相手のクリーチャーを1体ずつ選(ぶ|んでもよい)。その2体をバトルさせる$/))) return { act: 'pairFight', optional: m[1] !== 'ぶ' };
+    if ((m = s.match(/^(バトルゾーンにある)?相手の(タップされている|タップしている)?クリーチャーはすべて、次の相手のターンのはじめにアンタップ(されない|しない)$/))) return { act: 'freezeAll', tappedOnly: !!m[2] };
     if (/^この(クリーチャー|タマシード|カード|フィールド|クロスギア)を破壊(する|してもよい)$/.test(s)) return { act: 'selfDestroy', optional: /もよい/.test(s) };
     // すべてアンタップ
     if ((m = s.match(/^(バトルゾーンにある)?自分の(他の)?(、)?(名前に《(.+?)》とある)?(進化)?((.+?)・)?クリーチャー(をすべて|すべてを)アンタップする$/)))
@@ -251,7 +259,7 @@
     if ((m = s.match(/^(バトルゾーンにある)?相手の(コスト(\d+)以下の)?(進化ではない)?(クリーチャー|エレメント)を(\d+)(体|つ)選び、(持ち主の)?シールド化(する|してもよい)$/))) {
       return { act: 'toShield', side: 'opp', n: +m[6], optional: /てもよい/.test(s), any: m[5] === 'エレメント', maxCost: m[3] ? +m[3] : null };
     }
-    if ((m = s.match(/^自分のシールドを(\d+)つ(まで)?、?(選び、)?手札に加え(る|てもよい)(。ただし、その「S・トリガー」は使えない)?$/))) {
+    if ((m = s.match(/^自分のシールドを(\d+)つ(まで)?、?(選び、)?手札に(加え|戻)(る|す|てもよい|してもよい)(。ただし、その「S・トリガー」は使えない)?$/))) {
       return { act: 'shieldToHand', n: +m[1], optional: !!m[2] || /てもよい/.test(s), noTrigger: true };
     }
     if (/^自分は(、)?ゲームに負ける$/.test(s)) return { act: 'loseGame' };
@@ -375,7 +383,7 @@
       return { act: 'mill', n: +m[1], optional: /てもよい/.test(s) };
     }
     // 直前に選んだクリーチャーを、次のターンのはじめにアンタップさせない
-    if (/^(次の(自分|相手)のターンのはじめ(に|まで)、)?(それ|そのクリーチャー|そのカード)(は|を)(、)?(次の(自分|相手)のターンのはじめ(に|まで)、?)?アンタップしない$/.test(s)) {
+    if (/^(次の(自分|相手)のターンのはじめ(に|まで)、)?(それ|そのクリーチャー|そのカード|それら|選んだクリーチャーはすべて)(は|を)?(、)?(次の(自分|相手)のターンのはじめ(に|まで)、?)?アンタップ(しない|されない)$/.test(s)) {
       return { act: 'freezeLast' };
     }
     if (/^このクリーチャーをアンタップする$/.test(s)) {
@@ -480,6 +488,29 @@
     if (!remain) return [];
     return parseEffects(remain) || [{ act: 'manualNote', text: remain }];
   }
+  // 「〜なら」「〜あれば」「〜場合」の条件文を読む。読めなければ null
+  function parseCondText(ct) {
+    const c = {};
+    let mm;
+    ct = ct.replace(/(であれば|ならば|なら|あれば|場合|の場合)$/, '');
+    if ((mm = ct.match(/^自分のシールドが(\d+)(つ|枚)以下(で)?$/))) c.shieldsLE = +mm[1];
+    else if ((mm = ct.match(/^自分のシールドが(\d+)(つ|枚)以上$/))) c.shieldsGE = +mm[1];
+    else if (/^自分のシールドが1(つ|枚)もない$|^自分のシールドがない$/.test(ct)) c.shieldsLE = 0;
+    else if (/^(自分の手札が相手より少ない|相手の手札が自分(のもの|の)?より多い|相手の手札の枚数が自分より多い)(い)?$/.test(ct)) c.handLess = true;
+    else if (/^(自分のマナゾーンのカードが相手より少ない|相手のマナゾーンのカードが自分(のマナゾーンのカード|の)?より多い)$/.test(ct)) c.oppManaMore = true;
+    else if (/^(自分のシールドが相手より少ない|相手のシールドが自分(のもの|の)?より多い)$/.test(ct)) c.shieldsLess = true;
+    else if (/^自分のシールドの数が相手より多い$/.test(ct)) c.shieldsMore = true;
+    else if (/^(バトルゾーンにある)?自分のクリーチャーの数が相手より多い$/.test(ct)) c.creaturesMore = true;
+    else if ((mm = ct.match(/^自分のマナゾーンにカードが(\d+)枚以上$/))) c.manaGE = +mm[1];
+    else if ((mm = ct.match(/^自分の手札が(\d+)枚以下$/))) c.handLE = +mm[1];
+    else if ((mm = ct.match(/^自分の墓地にカードが(\d+)枚以上$/))) c.graveGE = +mm[1];
+    else if ((mm = ct.match(/^(バトルゾーンに)?自分の(他の)?([^、。]+?)が(\d+)(体|つ|枚)以上$/)) && !/シールド|マナ|手札|墓地/.test(mm[3])) c.count = { what: mm[3], n: +mm[4], others: !!mm[2] };
+    else if ((mm = ct.match(/^(バトルゾーンに)?自分の(他の)?([^、。]+?)が$/)) && !/シールド|マナ|手札|墓地/.test(mm[3])) c.count = { what: mm[3], n: 1, others: !!mm[2] };
+    else if (/^自分のターン中/.test(ct) && /^自分のターン中(に)?(この呪文を唱えた)?$/.test(ct)) c.myTurn = true;
+    else return null;
+    return c;
+  }
+
   // 山札を見る効果の言い回しをそろえる
   function lookNorm(b) {
     if (!/山札/.test(b)) return b;
@@ -501,7 +532,8 @@
       .replace(/(、)?新しいシールドとして(自分の)?シールドゾーンに(加え|置き)/g, 'シールド化し')
       .replace(/その後、残りを/g, '残りを')
       .replace(/(\d+)枚(目)?を見る。(その中から|そのうち(の)?)/g, '$1枚を見る。その中から')
-      .replace(/(\d+)枚(目)?を表向きにする。(そのうち(の)?)/g, '$1枚を表向きにする。その中から');
+      .replace(/(\d+)枚(目)?を表向きにする。(そのうち(の)?)/g, '$1枚を表向きにする。その中から')
+      .replace(/シールド化し(る|く)/g, 'シールド化する');
   }
   // 「その中から1枚をA、もう1枚をBに」
   const LOOK2_RE = /^(自分の)?山札の上から2枚を(見る|表向きにする)。その中から1枚を([^、。]+?)、もう1枚を([^、。]+?)。?$/;
@@ -524,6 +556,21 @@
     if (sh) {
       const rest = parseEffects('自分の山札の上から' + body.slice(sh[0].length));
       return rest ? [{ act: 'shuffleDeck' }, ...rest] : null;
+    }
+    const pf = body.match(/^自分と相手のクリーチャーを1体ずつ選(ぶ|んでもよい)。その2体をバトルさせる。?/);
+    if (pf) return [{ act: 'pairFight', optional: pf[1] !== 'ぶ' }, ...afterActs(body.slice(pf[0].length))];
+    // 「条件なら、効果」
+    const cdm = body.match(/^([^、。]+?(であれば|ならば|なら|あれば|場合))、(.+)$/);
+    if (cdm) {
+      const cond = parseCondText(cdm[1]);
+      if (cond) {
+        const sent = cdm[3].split(/。/);
+        const then = parseEffects(sent[0]);
+        if (then && then[0].act !== 'manualNote') {
+          const restTxt = sent.slice(1).join('。').trim();
+          return [{ act: 'ifCond', cond, acts: then, text: cdm[1] }, ...afterActs(restTxt)];
+        }
+      }
     }
     // 「Aしてもよい。そうしたら、B」
     const ifm = body.match(/^(.+?)(てもよい|る|す|く)。(そうしたら|そうした場合|そうすれば)、(.+)$/);
@@ -739,9 +786,9 @@
         continue;
       }
       // 条件つきで「このクリーチャーは（パワー+Nし、）「○○」を得る」
-      let cg = line.match(/^(.+?)(あれば|なければ|なら|もなければ|中|間)、このクリーチャー(は|に|の)(、)?(パワーを\+(\d+)し、|パワーは\+(\d+)され、)?「(.+?)」(と「(.+?)」)?を(得る|与える)。?$/);
+      let cg = line.match(/^(.+?)(あれば|なければ|なら|もなければ|中|間|ある時)、このクリーチャー(は|に|の)(、)?(パワーを\+(\d+)し、|パワーは\+(\d+)され、)?「(.+?)」(と「(.+?)」)?を(得る|与える)。?$/);
       if (!cg) {
-        const pw = line.match(/^(.+?)(あれば|なければ|なら|もなければ|中|間)、このクリーチャーの?パワー(を\+(\d+)する|は\+(\d+)される)。?$/);
+        const pw = line.match(/^(.+?)(あれば|なければ|なら|もなければ|中|間|ある時)、このクリーチャーの?パワー(を\+(\d+)する|は\+(\d+)される)。?$/);
         if (pw) cg = [pw[0], pw[1], pw[2], '', '', '', pw[4], pw[5], null, null, null];
       }
       if (!cg) {
@@ -760,6 +807,7 @@
         else if ((mm = ct.match(/^自分の手札が(\d+)枚以下なら$/))) c2.handLE = +mm[1];
         else if (/^バトルゾーンにある相手のクリーチャーがすべてタップしていれば$/.test(ct)) c2.oppAllTapped = true;
         else if ((mm = ct.match(/^相手の(.+?)がバトルゾーンにある時$/))) c2.oppHas = mm[1];
+        else if ((mm = ct.match(/^(バトルゾーンに)?自分の(他の)?([^、。]+?)が(\d+)(体|つ|枚)以下なら$/))) c2.countLE = { what: mm[3], n: +mm[4], others: !!mm[2] };
         else if ((mm = ct.match(/^(バトルゾーンに)?自分の(他の)?([^、。]+?)が(\d+)(体|つ|枚)以上(バトルゾーンに)?あれば$/))) c2.count = { what: mm[3].replace(/^名前に《(.+?)》を持つ/, '$1'), n: +mm[4], others: !!mm[2] };
         else if ((mm = ct.match(/^(バトルゾーンに)?自分の(他の)?([^、。]+?)があれば$/)) && !/シールド|マナ|手札|墓地/.test(mm[3])) c2.count = { what: mm[3], n: 1, others: !!mm[2] };
         else if ((mm = ct.match(/マナ武装\s*(\d+)[：:]\s*自分のマナゾーンに(光|水|闇|火|自然)のカードが(\d+)枚以上あれば/))) Object.assign(c2, { manaCiv: CIVJ[mm[2]], n: +mm[3] });
@@ -890,6 +938,9 @@
     arrangeTop: (a) => `山札の上${a.n}枚を見て${{ both: '上か下', bottom: '下', top: '上' }[a.where]}に好きな順で置く`,
     topCheck: (a) => `山札の上を${a.reveal ? '表向き' : '見る'}→${a.text}なら${{ hand: '手札へ', battle: '出す', mana: 'マナへ', grave: '墓地へ', cast: '唱える' }[a.then]}${a.else && a.else !== 'deckTop' ? '、違えば' + { deckBottom: '山札の下', grave: '墓地', mana: 'マナ', hand: '手札' }[a.else] : ''}`,
     selfDestroy: () => 'このカードを破壊',
+    freezeAll: (a) => `相手の${a.tappedOnly ? 'タップしている' : ''}クリーチャーは次のターンのはじめにアンタップしない`,
+    pairFight: () => '自分と相手のクリーチャーを1体ずつバトル',
+    ifCond: (a) => `${a.text}、${a.acts.map((x) => (ACT_LABEL[x.act] ? ACT_LABEL[x.act](x) : x.act)).join('、')}`,
     lastIf: (a) => `それが${a.cond.text}なら${a.acts.map((x) => (ACT_LABEL[x.act] ? ACT_LABEL[x.act](x) : x.act)).join('、')}`,
     ifDo: (a) => `${a.text}→そうしたら${a.acts.map((x) => (ACT_LABEL[x.act] ? ACT_LABEL[x.act](x) : x.act)).join('、')}`,
     lockCreature: (a) => `相手${a.n}体を次のターンまで攻撃・ブロック不可`,
