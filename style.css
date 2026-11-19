@@ -238,3 +238,5 @@ header nav button.on { background: var(--panel2); border-color: var(--line); }
 #cf-twinbox summary { cursor: pointer; color: var(--muted); }
 #zoom hr { margin: 8px 0; }
 .card .badge.seal { left: auto; right: 2px; top: 2px; bottom: auto; background: #5a2a7a; color: #fff; }
+#zoom .zflavor { font-size: 12px; font-style: italic; color: var(--muted); margin-top: 4px; white-space: pre-wrap; }
+#zoom .zlink { display: inline-block; margin-top: 8px; font-size: 12px; color: var(--accent); }

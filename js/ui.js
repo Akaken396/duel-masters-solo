@@ -61,6 +61,10 @@
     return c;
   }
 
+  function officialUrl(def) {
+    if (def.officialUrl) return def.officialUrl;
+    return 'https://www.google.com/search?q=' + encodeURIComponent(`site:dm.takaratomy.co.jp ${def.name}`);
+  }
   function showZoom(def, inst) {
     const z = $('#zoom');
     if (!z) return;
@@ -74,9 +78,13 @@
       el('div', { class: 'muted', text: `${civ}　コスト${def.cost}　${NON_CREATURE.includes(def.type) ? TYPE_LABEL[def.type] : 'パワー' + (pw ?? '')}　${(def.races || []).join(' / ')}` }),
       el('div', { class: 'ztext', text: def.text || '（テキスト未登録）' })
     );
+    if (def.flavor) z.append(el('div', { class: 'zflavor', text: def.flavor }));
     const auto = TextParse.describe(p);
     if (auto.length) z.append(el('div', { class: 'zauto', text: '自動: ' + auto.join(' / ') }));
     if (p.manual.length) z.append(el('div', { class: 'zman', text: '手動: ' + p.manual.join(' / ') }));
+    if (!String(def.id || '').startsWith('s-')) {
+      z.append(el('a', { class: 'zlink', href: officialUrl(def), target: '_blank', rel: 'noopener noreferrer', text: def.officialUrl ? '公式ページで見る ↗' : '公式サイトで探す ↗' }));
+    }
     const t = twinDef(def);
     if (t) {
       const tp = parsed(t);
@@ -795,6 +803,8 @@
     $('#cf-races').value = (c.races || []).join(' ');
     $('#cf-text').value = c.text || '';
     $('#cf-url').value = c.imageUrl || '';
+    $('#cf-flavor').value = c.flavor || '';
+    $('#cf-official').value = c.officialUrl || '';
     $('#cf-tname').value = c.twin?.name || '';
     $('#cf-tcost').value = c.twin?.cost ?? '';
     $('#cf-ttext').value = c.twin?.text || '';
@@ -815,6 +825,8 @@
       races: $('#cf-races').value.split(/[\s　/／,、]+/).filter(Boolean),
       text: $('#cf-text').value,
       imageUrl: $('#cf-url').value.trim(),
+      flavor: $('#cf-flavor').value,
+      officialUrl: $('#cf-official').value.trim(),
       twin: $('#cf-tname').value.trim() ? { name: $('#cf-tname').value.trim(), cost: +$('#cf-tcost').value || 0, text: $('#cf-ttext').value } : null,
     };
   }
@@ -864,6 +876,7 @@
   }
   const G_norm = (s) => window.normName(s);
   $('#cf-save').addEventListener('click', () => saveCard(false));
+  $('#cf-open-official').addEventListener('click', () => window.open(officialUrl(formToCard()), '_blank', 'noopener'));
   $('#cf-dup').addEventListener('click', () => {
     const c = formToCard();
     draft = { ...c, id: Store.newId(), name: c.name + '（コピー）' };
@@ -1051,6 +1064,8 @@
       races,
       text: r.text || '',
       imageUrl: r.imageUrl || r.image || '',
+      flavor: r.flavor || '',
+      officialUrl: r.officialUrl || '',
       twin: r.twin && r.twin.name ? { name: String(r.twin.name), cost: +r.twin.cost || 0, text: r.twin.text || '' } : null,
     };
   }
