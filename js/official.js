@@ -121,17 +121,28 @@
     var collect = function (cb) {
       if (!allPages) return cb();
       var page = 1;
-      var action = new URL(form.getAttribute('action') || location.href, location.href).href;
+      // 公式の検索画面と同じ送り方：/card/ へ、値の入っている項目だけを送る
+      var action = location.origin + '/card/';
+      var buildBody = function (pg) {
+        var body = new URLSearchParams();
+        q('input', form).forEach(function (el) {
+          var t = (el.getAttribute('type') || 'text').toLowerCase();
+          var ok = t === 'text' || t === 'search' || t === 'number' || t === 'hidden' || ((t === 'checkbox' || t === 'radio') && el.checked);
+          if (!ok || !el.name || el.value === '') return;
+          body.append(el.name, el.name === 'pagenum' ? String(pg) : el.value);
+        });
+        q('select', form).forEach(function (el) { if (el.name && el.value !== '') body.append(el.name, el.value); });
+        var sort = document.querySelector('#sort-area');
+        if (sort) q('select,input[type=hidden]', sort).forEach(function (el) { if (el.name && el.value !== '' && !body.has(el.name)) body.append(el.name, el.value); });
+        if (!body.has('pagenum')) body.append('pagenum', String(pg));
+        return body.toString();
+      };
       var stepPage = function () {
         if (page > lastPage) return cb();
         show('検索結果をめくっています… ' + page + '/' + lastPage + 'ページ（' + links.length + '枚）');
         if (page === curPage) { page++; return stepPage(); }
-        var fd = new FormData(form);
-        fd.set('pagenum', String(page));
-        var body = new URLSearchParams();
-        fd.forEach(function (v, k) { body.append(k, v); });
-        page++;
-        fetch(action, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: body.toString() })
+        var pg = page++;
+        fetch(action, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8', 'X-Requested-With': 'XMLHttpRequest' }, body: buildBody(pg) })
           .then(function (r) { return r.text(); })
           .then(function (html) { addLinks(new DOMParser().parseFromString(html, 'text/html'), action); })
           .catch(function () {})
