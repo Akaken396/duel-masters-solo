@@ -33,7 +33,7 @@
     return t;
   }
 
-  const WHEN_J = { summon: '出た時の能力', attack: '攻撃する時の能力', destroyed: '破壊された時の能力', turnStart: 'ターンのはじめの能力', turnEnd: 'ターンの終わりの能力', shieldAdded: 'シールドが置かれた時の能力', exLifeLost: 'EXライフが離れた時の能力', block: 'ブロックした時の能力', sealsGone: '封印が外れた時の能力' };
+  const WHEN_J = { battleWin: 'バトルに勝った時の能力', oppTurnStart: '相手のターンのはじめの能力', broke: 'ブレイクした時の能力', summon: '出た時の能力', attack: '攻撃する時の能力', destroyed: '破壊された時の能力', turnStart: 'ターンのはじめの能力', turnEnd: 'ターンの終わりの能力', shieldAdded: 'シールドが置かれた時の能力', exLifeLost: 'EXライフが離れた時の能力', block: 'ブロックした時の能力', sealsGone: '封印が外れた時の能力' };
 
   class GameOver extends Error {
     constructor(winner, reason) {
@@ -421,6 +421,9 @@
       }
       for (const c of this.permanents(this.active)) {
         if (this.isOnField(c)) await this.trigger(c, 'turnStart', c.owner, c.def, null, { defer: true });
+      }
+      for (const c of this.permanents(1 - this.active)) {
+        if (this.isOnField(c)) await this.trigger(c, 'oppTurnStart', c.owner, c.def, null, { defer: true });
       }
       await this.resolvePending();
       // ドロー（先攻1ターン目は引かない）
@@ -1236,6 +1239,7 @@
               this.log(`「${c.def.name}」はタップされた`);
             }
           }
+          this.lastPicked = picked;
           break;
         }
         case 'discard': {
@@ -1287,6 +1291,28 @@
           for (const c of r) await this.enterBattle(c, pi, 'other');
           break;
         }
+        case 'freezeLast':
+          for (const c of this.lastPicked || []) {
+            if (this.zoneOf(c) !== 'battle') continue;
+            c.frozenUntil = this.nextTurnOf(c.owner);
+            this.log(`「${c.def.name}」は次のターンのはじめにアンタップしない`);
+          }
+          break;
+        case 'shieldToHand': {
+          const r = await this.pickCards(pi, me.shields.slice(), a.n, a.optional, `${nm}: 手札に加える自分のシールド`, 'recover');
+          for (const c of r) this.moveTo(c, 'hand');
+          if (r.length) {
+            this.log(`${me.name}はシールドを${r.length}つ手札に加えた（S・トリガーは使えない）`);
+            await this.shieldsLeft(pi);
+          }
+          break;
+        }
+        case 'loseGame':
+          this.win(1 - pi, `${src.def.name}の効果`);
+          break;
+        case 'winGame':
+          this.win(pi, `${src.def.name}の効果`);
+          break;
         case 'seal':
           if (this.zoneOf(src) === 'battle') this.addSeals(src, a.n);
           break;
@@ -1471,6 +1497,7 @@
         if (this.kw(loser).slayer) lose.push(winner);
       }
       await this.destroyMany(lose);
+      for (const w of [a, d]) if (!lose.includes(w) && this.zoneOf(w) === 'battle') await this.trigger(w, 'battleWin', w.owner);
     }
 
     async breakShields(pi, n, src) {
@@ -1505,6 +1532,7 @@
       this.log(`${op.name}のシールドを${picked.length}つブレイクした（残り${op.shields.length}）`);
       await this.pause();
       // ブレイクした時の効果（ニガ=アブシュームなど）
+      if (src && this.zoneOf(src) === 'battle') await this.trigger(src, 'broke', src.owner);
       if (src && this.zoneOf(src) === 'battle') await this.notifyAll('onBreak', src);
       await this.shieldsLeft(op.idx);
       // 手札に加わったシールドの中から、使うS・トリガー／G・ストライクを先に宣言し、選んだ順に使う

@@ -60,8 +60,8 @@
     { name: 'B・A・D', re: /^B・A・D(・S)?\s*(\d+)$/, auto: true, set: (k, m) => (k.bad = +m[2]), desc: 'コストをN下げて使える。使ったらターンの終わりに破壊' },
     { name: 'ササゲール', re: /^ササゲール\s*(\d+)$/, auto: true, set: (k, m, raw) => {
         k.sasage = +m[1];
-        const r = String(raw).match(/自分の([^）)を]+?)を召喚/);
-        if (r) k.sasageFor = r[1].replace(/^(コスト\d+以上の)?/, '');
+        const r = String(raw).match(/自分の([^）)をの]+?)(を召喚|の召喚コスト)/);
+        if (r) k.sasageFor = r[1].replace(/^(コスト\d+以上の)?/, '').replace(/・クリーチャー$/, '');
       }, desc: 'このカードを破壊して、召喚するカードのコストをN下げられる' },
     { name: 'シンパシー', re: /^シンパシー[：:]\s*(.+)$/, auto: true, set: (k, m) => (k.sympathy = m[1].replace(/。$/, '')), desc: '自分の場の指定のカード1枚につき、コストが1下がる（1未満にはならない）' },
     { name: '革命チェンジ', re: /^革命チェンジ[：:－-]\s*(.+)$/, auto: true, set: (k, m) => (k.revChange = condOf(m[1])), desc: '条件に合う自分のクリーチャーが攻撃する時、手札のこれと入れ替えられる' },

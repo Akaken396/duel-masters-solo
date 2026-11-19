@@ -55,7 +55,11 @@
     { re: /^このクリーチャーが破壊された時、/, when: 'destroyed' },
     { re: /^自分のターンのはじめに、/, when: 'turnStart' },
     { re: /^自分のターンの(終わり|おわり)に、/, when: 'turnEnd' },
-    { re: /^自分のシールドゾーンにカードが置かれた時、/, when: 'shieldAdded' },
+    { re: /^(自分のシールドゾーンにカードが|カードが自分のシールドゾーンに)置かれた時、/, when: 'shieldAdded' },
+    { re: /^このクリーチャーが(相手のクリーチャーの攻撃を)?ブロックした時、/, when: 'block' },
+    { re: /^このクリーチャーがバトルに勝った時、/, when: 'battleWin' },
+    { re: /^相手のターンのはじめに、/, when: 'oppTurnStart' },
+    { re: /^このクリーチャーが(相手の)?シールドをブレイクした時、/, when: 'broke' },
   ];
 
   // 対象の側：相手 / 自分 / 指定なし(どちらでも)
@@ -92,7 +96,7 @@
       const civ = m[4] ? { 光: 'light', 水: 'water', 闇: 'darkness', 火: 'fire', 自然: 'nature' }[m[4]] : null;
       return { act: 'reanimate', kinds, civ, maxCost: m[3] ? +m[3] : m[6] ? +m[6] : null, n: +(m[10] || 1), optional };
     }
-    if ((m = s.match(/^(コスト(\d+)以下の)?(光|水|闇|火|自然)?の?(コスト(\d+)以下の)?(クリーチャー|タマシード)(または|か)?(クリーチャー|タマシード)?を(\d+)(体|つ)(まで)?、?(自分の)?墓地から(バトルゾーンに)?出/))) {
+    if ((m = s.match(/^(コスト(\d+)以下の)?(光|水|闇|火|自然)?の?(コスト(\d+)以下の)?(クリーチャー|タマシード)(または|か)?(クリーチャー|タマシード)?を(\d+)(体|つ|枚)(まで)?、?(自分の)?墓地から(バトルゾーンに)?出/))) {
       const kinds = [m[6], m[8]].filter(Boolean).map((k) => (k === 'クリーチャー' ? 'creature' : 'tamaseed'));
       const civ = m[3] ? { 光: 'light', 水: 'water', 闇: 'darkness', 火: 'fire', 自然: 'nature' }[m[3]] : null;
       return { act: 'reanimate', kinds, civ, maxCost: m[2] ? +m[2] : m[5] ? +m[5] : null, n: +m[9], optional };
@@ -118,6 +122,11 @@
       const all = /すべて/.test(s);
       return { act: 'toMana', side: sideOf(s), all, n: all ? 0 : countOf(s), optional, ...targetFilter(s) };
     }
+    if ((m = s.match(/^自分のシールドを(\d+)つ(まで)?、?(選び、)?手札に加え(る|てもよい)(。ただし、その「S・トリガー」は使えない)?$/))) {
+      return { act: 'shieldToHand', n: +m[1], optional: !!m[2] || /てもよい/.test(s), noTrigger: true };
+    }
+    if (/^自分は(、)?ゲームに負ける$/.test(s)) return { act: 'loseGame' };
+    if (/^相手は(、)?ゲームに負ける$/.test(s)) return { act: 'winGame' };
     if ((m = s.match(/^相手のシールドを(\d+)つ選び、持ち主の墓地に置く$/))) {
       return { act: 'shieldBurn', n: +m[1] };
     }
@@ -150,6 +159,10 @@
     if ((m = s.match(/^自分の山札の上から(\d+)枚を(自分の)?墓地に置く$/))) {
       return { act: 'mill', n: +m[1] };
     }
+    // 直前に選んだクリーチャーを、次のターンのはじめにアンタップさせない
+    if (/^(次の(自分|相手)のターンのはじめ(に|まで)、)?(それ|そのクリーチャー|そのカード)(は|を)(、)?(次の(自分|相手)のターンのはじめ(に|まで)、?)?アンタップしない$/.test(s)) {
+      return { act: 'freezeLast' };
+    }
     if (/^このクリーチャーをアンタップする$/.test(s)) {
       return { act: 'untapSelf' };
     }
@@ -165,7 +178,7 @@
   // 「その後、」や「。」で区切った複数効果を読む。全部読めた時だけ配列を返す
   function parseEffects(body) {
     const parts = body
-      .replace(/(引き|引いて)、(その後、)?(自分の)?手札を/g, '引く。自分の手札を')
+      .replace(/(引き|引いて)、(その後、)?(自分の)?(手札を)?(\d+枚)(選び、)?捨てる/g, '引く。自分の手札を$5捨てる')
       .split(/。その後、|、その後、|。/)
       .map((x) => x.trim())
       .filter(Boolean);
@@ -275,10 +288,14 @@
       let whens = [];
       let body = line;
       // 「出た時または攻撃する時」
-      const both = line.match(/^このクリーチャーが(バトルゾーンに)?出た時(または|か|、)攻撃する時、/);
+      const both = line.match(/^このクリーチャーが(バトルゾーンに)?出た時(、)?(または|か|、)攻撃する時、/);
+      const atkBlk = line.match(/^このクリーチャーが攻撃(する時)?(または|か|、)ブロックした時、/);
       if (both) {
         whens = ['summon', 'attack'];
         body = line.replace(both[0], '');
+      } else if (atkBlk) {
+        whens = ['attack', 'block'];
+        body = line.replace(atkBlk[0], '');
       } else {
         for (const t of TRIGGERS) {
           if (t.re.test(line)) {
@@ -324,6 +341,10 @@
     mill: (a) => `山札から${a.n}枚墓地へ`,
     untapSelf: () => `自身をアンタップ`,
     seal: (a) => `封印を${a.n}つ付ける`,
+    freezeLast: () => 'それはアンタップしない',
+    shieldToHand: (a) => `自分のシールド${a.n}つを手札へ`,
+    loseGame: () => '自分は負ける',
+    winGame: () => '自分の勝ち',
     deckBottom: (a) => `${sideJ(a.side)}${filt(a)}${a.all ? 'すべて' : a.n + '体'}山札の下へ`,
     toMana: (a) => `${sideJ(a.side)}${filt(a)}${a.all ? 'すべて' : a.n + '体'}マナへ`,
     shieldBurn: (a) => `相手のシールド${a.n}つを墓地へ`,
@@ -336,7 +357,7 @@
   function filt(a) {
     return (a.tappedOnly ? 'タップ中の' : '') + (a.untappedOnly ? 'アンタップ中の' : '') + (a.maxPower ? `パワー${a.maxPower}以下` : '') + (a.maxCost ? `コスト${a.maxCost}以下` : '');
   }
-  const WHEN_LABEL = { summon: '出た時', attack: '攻撃時', destroyed: '破壊時', turnStart: 'ターン開始時', turnEnd: 'ターン終了時', shieldAdded: 'シールド追加時', cast: '呪文' };
+  const WHEN_LABEL = { summon: '出た時', attack: '攻撃時', destroyed: '破壊時', turnStart: 'ターン開始時', turnEnd: 'ターン終了時', shieldAdded: 'シールド追加時', cast: '呪文', block: 'ブロック時', battleWin: 'バトルに勝った時', oppTurnStart: '相手のターン開始時', broke: 'ブレイクした時' };
 
   function civJ(c) {
     return { light: '光', water: '水', darkness: '闇', fire: '火', nature: '自然' }[c] || '';
