@@ -221,7 +221,7 @@
       return { act: 'draw', n: +m[2], optional };
     }
     if ((m = s.match(/^自分の山札の上から(\d+)枚(目)?(まで)?を?(タップして)?(自分の)?マナゾーンに(タップして)?置/))) {
-      return { act: 'manaBoost', n: +m[1], optional };
+      return { act: 'manaBoost', n: +m[1], optional, tapped: /タップして/.test(s) };
     }
     if ((m = s.match(/^自分の山札の上から(\d+)枚(目)?(まで)?をシールド化(する|してもよい)|^自分の山札の上から(\d+)枚(目)?を(自分の)?シールドゾーンに(裏向きのまま)?(加える|置く)/))) {
       if (m[5]) m[4] = m[5];
@@ -391,7 +391,7 @@
   }
 
   // 「山札の上からN枚を見る／表向きにする。その中から○○を△に、残りを□に」
-  const LOOK_RE = /^(自分の)?山札の上から(?<n>\d+)枚を(?<how>見る|表向きにする)。(その後、)?その中から(、)?((?<cond>[^。]+?)を)?(?<take>すべて|好きな数|それぞれ(?<each>\d+)(枚|体|つ)(?<eupto>まで)?|(?<cnt>\d+)(枚|体|つ)(?<upto>まで)?)(を)?(、)?(選び、)?(、)?(表向きにし(てから)?、?)?(自分の)?(タップして)?(?<dest>手札に加え|バトルゾーンに出し|マナゾーンに置き|墓地に置き|シールド化し)(?<may>てもよい)?(。その後、|、|。)?(残り(のカード)?を(好きな順序で|ランダムな順序で)?(自分の)?(?<rest>山札の下|墓地|マナゾーン|手札|山札の上)に(置く|戻す|加える)。?)?/;
+  const LOOK_RE = /^(自分の)?山札の上から(?<n>\d+)枚を(?<how>見る|表向きにする)。(その後、)?その中から(、)?((?<cond>[^。]+?)を)?(?<take>すべて|好きな数|それぞれ(?<each>\d+)(枚|体|つ)(?<eupto>まで)?|(?<cnt>\d+)(枚|体|つ)(?<upto>まで)?)(を)?(、)?(選び、)?(、)?(表向きにし(てから)?、?)?(自分の)?(タップして)?(?<dest>手札に加え|バトルゾーンに出し|出し|マナゾーンに置き|墓地に置き|シールド化し)(?<may>てもよい)?(。その後、|、|。)?(残り(のカード)?を(すべて)?(好きな順序で|ランダムな順序で)?(自分の)?(?<rtap>タップして)?(?<rest>山札の下|墓地|マナゾーン|手札|山札の上)に(置く|戻す|加える)。?)?/;
   function lookCond(t) {
     t = String(t || '');
     const c = {};
@@ -400,6 +400,10 @@
       c.any = [lookCond(m[1]), lookCond(m[2])];
       c.text = t;
       return c;
+    }
+    if (/^無色/.test(t)) {
+      c.colorless = true;
+      t = t.replace(/^無色(の)?/, '');
     }
     if ((m = t.match(/「(.+?)」を持つ、?/))) {
       c.hasText = m[1];
@@ -440,7 +444,7 @@
     const m = body.match(LOOK_RE);
     if (!m) return null;
     const g = m.groups;
-    const dest = { 手札に加え: 'hand', バトルゾーンに出し: 'battle', マナゾーンに置き: 'mana', 墓地に置き: 'grave', シールド化し: 'shields' }[g.dest];
+    const dest = { 手札に加え: 'hand', バトルゾーンに出し: 'battle', 出し: 'battle', マナゾーンに置き: 'mana', 墓地に置き: 'grave', シールド化し: 'shields' }[g.dest];
     const rest = g.rest ? { 山札の下: 'deckBottom', 墓地: 'grave', マナゾーン: 'mana', 手札: 'hand', 山札の上: 'deckTop' }[g.rest] : 'deckBottom';
     return {
       act: {
@@ -453,6 +457,7 @@
         upTo: !!g.upto || !!g.eupto || !!g.may || g.take === '好きな数',
         dest,
         rest,
+        restTapped: !!g.rtap,
       },
       remain: body.slice(m[0].length).replace(/^[。、]/, '').replace(/^その後、/, ''),
     };
@@ -462,20 +467,58 @@
   // 「山札の上から1枚を表向きにする。それが○○なら出す。それ以外なら△に置く」をひとまとめに
   const REVEAL_RE = /^自分の山札の上から1枚(目)?を表向きにする。それが(.+?)(なら|であれば)(、)?(バトルゾーンに)?出(す|してもよい)。(それ以外なら|こうして出さなければ)(、)?(自分の)?(山札の下|マナゾーン|墓地|手札)に(置く|加える)。?/;
   // 山札全体から探す：「自分の山札を見る。その中から○○を1枚手札に加えてもよい。その後、山札をシャッフルする」
+  const SEARCH_CAST_RE = /^自分の山札を見る。その中から(?<cond>[^。]+?)を1枚(選び、)?(、)?(自分の)?山札をシャッフルした後、その呪文をコストを支払わずに唱え(てもよい|る)。?/;
   const SEARCH_RE = /^(自分の山札を見る。その中から|自分の山札から)(、)?(?<cond>[^。]+?)を(?<n>\d+)(枚|体|つ)(?<upto>まで)?(、)?(選び、|さがして(相手に見せ、)?|表向きにし(て)?、|相手に見せ(て|、))?(自分の)?(タップして)?(?<dest>手札に加え|バトルゾーンに出し|出し|マナゾーンに置き|墓地に置き|シールド化し)(?<may>てもよい|る|す|く)?。?((その後、)?(自分の)?山札をシャッフルする。?)?/;
   // 山札の上を並べ替える
   const ARRANGE_RE = /^(自分の)?山札の上から(?<n>\d+)枚を見る。(その後、)?(それら|そのカード|見たカード)を(好きな順序で)?(自分の)?山札の(?<where>上または下|上か下|上|下|一番下|一番上)に(好きな順序で)?(置く|戻す)。?/;
   // 山札の上1枚をチェック：「それが○○なら手札に加える。それ以外なら山札の下に置く」など
-  const TOPCHECK_RE = /^(自分の)?山札の上から1枚(目)?を(?<how>見る|表向きにする)(?<may0>てもよい)?。(それ|そのカード)が(?<cond>.+?)(なら|であれば)(、)?(表向きにして|相手に見せて|相手に見せ、)?(自分の)?(タップして)?(?<then>手札に加え|バトルゾーンに出し|出し|マナゾーンに置き|墓地に置き|コストを支払わずに唱え)(?<may>てもよい|る|す|く)?。?((?<elseh>それ以外なら|そうでなければ|そうでない場合|こうして出さなければ|こうして加えなければ|こうして唱えなければ|呪文でなければ|クリーチャーでなければ)(、)?(自分の)?(?<else>山札の(一番)?下|山札の(一番)?上|墓地|マナゾーン|手札)に(置く|加える|戻す|置いてもよい|戻してもよい)。?)?/;
+  const TOPCHECK_RE = /^(自分の)?山札の上から1枚(目)?を(?<how>見る|表向きにする)(?<may0>てもよい)?。(それ|そのカード)が(?<cond>.+?)(なら|であれば)(、)?(表向きにして|相手に見せて|相手に見せ、)?(自分の)?(タップして)?(?<then>手札に加え|バトルゾーンに出し|出し|マナゾーンに置き|墓地に置き|コストを支払わずに唱え|コストを支払わずに使っ|シールド化し)(?<may>てもよい|る|す|く)?。?((?<elseh>それ以外なら|そうでなければ|そうでない場合|こうして出さなければ|こうして加えなければ|こうして唱えなければ|呪文でなければ|クリーチャーでなければ)(、)?(自分の)?(?<else>山札の(一番)?下|山札の(一番)?上|墓地|マナゾーン|手札)に(置く|加える|戻す|置いてもよい|戻してもよい)。?)?/;
   const ZONE_OF = (t) => (/下/.test(t) ? 'deckBottom' : /上/.test(t) ? 'deckTop' : t === '墓地' ? 'grave' : t === 'マナゾーン' ? 'mana' : 'hand');
-  const DEST_OF = (t) => ({ 手札に加え: 'hand', バトルゾーンに出し: 'battle', 出し: 'battle', マナゾーンに置き: 'mana', 墓地に置き: 'grave', シールド化し: 'shields', コストを支払わずに唱え: 'cast' }[t]);
+  const DEST_OF = (t) => ({ 手札に加え: 'hand', バトルゾーンに出し: 'battle', 出し: 'battle', マナゾーンに置き: 'mana', 墓地に置き: 'grave', シールド化し: 'shields', コストを支払わずに唱え: 'cast', コストを支払わずに使っ: 'use' }[t]);
   function afterActs(remain) {
     remain = remain.replace(/^その後、/, '').trim();
     if (!remain) return [];
     return parseEffects(remain) || [{ act: 'manualNote', text: remain }];
   }
+  // 山札を見る効果の言い回しをそろえる
+  function lookNorm(b) {
+    if (!/山札/.test(b)) return b;
+    return b
+      .replace(/(、)?(選んで|選び、)?相手に見せ(てから|て|、)(、)?/g, '、')
+      .replace(/、、+/g, '、')
+      .replace(/(その中から|そのうち(の)?)、/g, '$1')
+      .replace(/(\d+)(枚|体)、(手札|自分の手札|マナゾーン|墓地|バトルゾーン|出)/g, '$1$2$3')
+      .replace(/(\d+)(枚|体)選んで(?=(自分の)?(手札|マナ|墓地|バトル|出))/g, '$1$2')
+      .replace(/山札の一番(下|上)/g, '山札の$1')
+      .replace(/好きな枚数/g, '好きな数')
+      .replace(/その中から好きな数の([^。、]+?)を/g, 'その中から$1を好きな数')
+      .replace(/その中(にある|の)すべての([^。、]+?)を/g, 'その中から$2をすべて')
+      .replace(/その中の([^。、]+?)を(\d+)/g, 'その中から$1を$2')
+      .replace(/「(.+?)」付き(の)?呪文/g, '「$1」を持つ呪文')
+      .replace(/([^。、を]+?)を(\d+)体または([^。、を]+?)を(\d+)枚/g, '$1または$3を$4枚')
+      .replace(/残りをシャッフルして/g, '残りを')
+      .replace(/(表向きで|表向きにして|裏向きにして|裏向きのまま)(、)?(新しいシールドとして)?(自分の)?(シールドゾーンに(加え|置き)|シールド化し)/g, 'シールド化し')
+      .replace(/(、)?新しいシールドとして(自分の)?シールドゾーンに(加え|置き)/g, 'シールド化し')
+      .replace(/その後、残りを/g, '残りを')
+      .replace(/(\d+)枚(目)?を見る。(その中から|そのうち(の)?)/g, '$1枚を見る。その中から')
+      .replace(/(\d+)枚(目)?を表向きにする。(そのうち(の)?)/g, '$1枚を表向きにする。その中から');
+  }
+  // 「その中から1枚をA、もう1枚をBに」
+  const LOOK2_RE = /^(自分の)?山札の上から2枚を(見る|表向きにする)。その中から1枚を([^、。]+?)、もう1枚を([^、。]+?)。?$/;
+  const zoneWord = (t) => (/シールド/.test(t) ? 'shields' : /手札/.test(t) ? 'hand' : /マナ/.test(t) ? 'mana' : /墓地/.test(t) ? 'grave' : /出/.test(t) ? 'battle' : null);
   function parseEffects(body) {
-    body = String(body || '').replace(/パワーを\s*-∞\s*する/g, 'パワーを0にする');
+    body = lookNorm(String(body || '').replace(/パワーを\s*-∞\s*する/g, 'パワーを0にする'));
+    const l2 = body.match(LOOK2_RE);
+    if (l2 && zoneWord(l2[3]) && zoneWord(l2[4]) && zoneWord(l2[4]) !== 'battle') {
+      return [{ act: 'lookTop', n: 2, reveal: l2[2] === '表向きにする', cond: lookCond(''), take: 1, each: 0, upTo: false, dest: zoneWord(l2[3]), rest: zoneWord(l2[4]), restTapped: /タップ/.test(l2[4]) }];
+    }
+    body = body.replace(/(その中から[^。]*?)、もう1枚を/, '$1、残りを');
+    // 「山札の上から1枚をマナゾーンに置く。それが○○なら、もう1枚マナゾーンに置く」
+    const mb = body.match(/^(自分の山札の上から1枚(目)?を(タップして)?マナゾーンに置く)。(その後、)?(それが|そのカードが)(.+?)(なら|であれば)、(自分の)?(山札の上から)?もう1枚(、)?(タップして)?マナゾーンに置く。?/);
+    if (mb) {
+      const first = parseEffect(mb[1]);
+      if (first) return [first, { act: 'lastIf', cond: lookCond(mb[6]), acts: [{ act: 'manaBoost', n: 1, tapped: !!mb[11] }] }, ...afterActs(body.slice(mb[0].length))];
+    }
     // 「自分の山札をシャッフルし、（その後、）上からN枚を…」
     let sh = body.match(/^自分の山札をシャッフルし、(その後、)?(自分の山札の)?上から/);
     if (sh) {
@@ -490,6 +533,7 @@
       if (first && first.act !== 'manualNote' && then) return [{ act: 'ifDo', first: { ...first, optional: false }, optional: ifm[2] === 'てもよい', acts: then, text: ifm[1] + ifm[2] }];
     }
     let mm;
+    if ((mm = body.match(SEARCH_CAST_RE))) return [{ act: 'searchDeck', cond: lookCond(mm.groups.cond), n: 1, upTo: true, dest: 'cast' }, ...afterActs(body.slice(mm[0].length))];
     if ((mm = body.match(SEARCH_RE))) {
       const g = mm.groups;
       return [{ act: 'searchDeck', cond: lookCond(g.cond), n: +g.n, upTo: !!g.upto || g.may === 'てもよい', dest: DEST_OF(g.dest) }, ...(afterActs(body.slice(mm[0].length)) || [])];
@@ -828,6 +872,7 @@
     arrangeTop: (a) => `山札の上${a.n}枚を見て${{ both: '上か下', bottom: '下', top: '上' }[a.where]}に好きな順で置く`,
     topCheck: (a) => `山札の上を${a.reveal ? '表向き' : '見る'}→${a.text}なら${{ hand: '手札へ', battle: '出す', mana: 'マナへ', grave: '墓地へ', cast: '唱える' }[a.then]}${a.else && a.else !== 'deckTop' ? '、違えば' + { deckBottom: '山札の下', grave: '墓地', mana: 'マナ', hand: '手札' }[a.else] : ''}`,
     selfDestroy: () => 'このカードを破壊',
+    lastIf: (a) => `それが${a.cond.text}なら${a.acts.map((x) => (ACT_LABEL[x.act] ? ACT_LABEL[x.act](x) : x.act)).join('、')}`,
     ifDo: (a) => `${a.text}→そうしたら${a.acts.map((x) => (ACT_LABEL[x.act] ? ACT_LABEL[x.act](x) : x.act)).join('、')}`,
     lockCreature: (a) => `相手${a.n}体を次のターンまで攻撃・ブロック不可`,
     tempUnblockable: (a) => `自分${a.n}体をこのターンブロックされない`,

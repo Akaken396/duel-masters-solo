@@ -576,7 +576,8 @@
         (!cd.race || hay.includes(cd.race)) &&
         (!cd.races || cd.races.some((r) => hay.includes(r))) &&
         (!cd.hasText || (c.def.text || '').includes(cd.hasText)) &&
-        (!cd.nameHas || c.def.name.includes(cd.nameHas))
+        (!cd.nameHas || c.def.name.includes(cd.nameHas)) &&
+        (!cd.colorless || !(c.def.civs || []).some((x) => x !== 'zero'))
       );
     }
     // 効果の前後で盤面が変わったか（「そうしたら」の判定用）
@@ -1651,7 +1652,8 @@
           if (a.optional && !(await this.yesNo(pi, `${nm}: 山札の上から${a.n}枚をマナに置きますか？`, src))) return;
           for (let i = 0; i < a.n && me.deck.length; i++) {
             const c = me.deck[0];
-            this.moveTo(c, 'mana', { tapped: (c.def.civs || []).length > 1 });
+            this.moveTo(c, 'mana', { tapped: a.tapped || (c.def.civs || []).length > 1 });
+            this._lastMoved = c;
             this.log(`${me.name}は山札の上の「${c.def.name}」をマナに置いた`);
           }
           break;
@@ -1803,9 +1805,10 @@
             me.deck.unshift(c);
             if (a.rest === 'deckBottom') this.moveTo(c, 'deck', { top: false });
             else if (a.rest === 'deckTop') this.moveTo(c, 'deck', { top: true });
-            else this.moveTo(c, a.rest);
+            else this.moveTo(c, a.rest, { tapped: a.rest === 'mana' && (a.restTapped || (c.def.civs || []).length > 1) });
           }
-          if (rest.length) this.log(`残り${rest.length}枚を${{ deckBottom: '山札の下', grave: '墓地', mana: 'マナゾーン', hand: '手札', deckTop: '山札の上' }[a.rest]}に置いた`);
+          if (a.rest === 'shields' && rest.length) await this.shieldAdded(pi);
+          if (rest.length) this.log(`残り${rest.length}枚を${{ deckBottom: '山札の下', grave: '墓地', mana: 'マナゾーン', hand: '手札', deckTop: '山札の上', shields: 'シールド' }[a.rest]}に置いた`);
           break;
         }
         case 'mekuraid': {
@@ -1843,6 +1846,9 @@
           }
           break;
         }
+        case 'lastIf':
+          if (this._lastMoved && this.fitLook(this._lastMoved, a.cond)) for (const x of a.acts) await this.doAction(x, src, pi);
+          break;
         case 'selfDestroy':
           if (src && this.zoneOf(src) === 'battle') await this.destroyMany([src], { byOpp: false });
           break;
@@ -1857,8 +1863,14 @@
           this.log(`${me.name}は山札をシャッフルした`);
           break;
         case 'searchDeck': {
-          const pool = me.deck.filter((c) => this.fitLook(c, a.cond) && (a.dest !== 'battle' || this.isCreature(c)));
+          const pool = me.deck.filter((c) => this.fitLook(c, a.cond) && (a.dest !== 'battle' || this.isCreature(c)) && (a.dest !== 'cast' || (c.def.type === 'spell' && !this.locked(pi, c.def))));
           const r = await this.pickCards(pi, pool, a.n, a.upTo || !pool.length, `${nm}: 山札から${(a.cond && a.cond.text) || 'カード'}を選んでください`, 'recover');
+          if (a.dest === 'cast') {
+            shuffle(me.deck, this.rng);
+            this.log(`${me.name}は山札をシャッフルした`);
+            for (const c of r) await this.putIntoPlay(pi, c, true);
+            break;
+          }
           for (const c of r) {
             if (a.dest === 'battle') await this.enterBattle(c, pi, 'other');
             else {
@@ -1899,13 +1911,16 @@
           if (a.optional0 && !(await this.yesNo(pi, `${nm}: 山札の上を${a.reveal ? '表向きに' : '見'}しますか？`, src))) break;
           if (a.reveal) this.log(`${me.name}は山札の上の「${c.def.name}」を表向きにした`);
           else this.log(`${me.name}は山札の上を見た`);
-          const ok = this.fitLook(c, a.cond) && (a.then !== 'battle' || this.isCreature(c)) && (a.then !== 'cast' || (c.def.type === 'spell' && !this.locked(pi, c.def)));
-          if (ok && (!a.optional || (await this.yesNo(pi, `${nm}: 「${c.def.name}」を${{ hand: '手札に加え', battle: '出し', mana: 'マナゾーンに置き', grave: '墓地に置き', cast: '唱え' }[a.then]}ますか？`, c)))) {
-            if (a.then === 'battle') await this.enterBattle(c, pi, 'other');
-            else if (a.then === 'cast') await this.putIntoPlay(pi, c, true);
+          let then = a.then;
+          if (then === 'use') then = c.def.type === 'spell' ? 'cast' : 'battle';
+          const ok = this.fitLook(c, a.cond) && (then !== 'battle' || this.isCreature(c)) && (then !== 'cast' || (c.def.type === 'spell' && !this.locked(pi, c.def)));
+          if (ok && (!a.optional || (await this.yesNo(pi, `${nm}: 「${c.def.name}」を${{ hand: '手札に加え', battle: '出し', mana: 'マナゾーンに置き', grave: '墓地に置き', cast: '唱え', shields: 'シールド化し' }[then]}ますか？`, c)))) {
+            if (then === 'battle') await this.enterBattle(c, pi, 'other');
+            else if (then === 'cast') await this.putIntoPlay(pi, c, true);
             else {
-              this.moveTo(c, a.then);
-              this.log(`「${c.def.name}」を${ZONE_LABEL[a.then] || a.then}に置いた`);
+              this.moveTo(c, then);
+              this.log(`「${c.def.name}」を${ZONE_LABEL[then] || then}に置いた`);
+              if (then === 'shields') await this.shieldAdded(pi);
             }
           } else if (a.else === 'deckBottom') {
             this.moveTo(c, 'deck', { top: false });
