@@ -930,9 +930,37 @@
       await this.pause();
       await this.trigger(card, 'summon', pi);
       if (how === 'summon' && this.zoneOf(card) === 'battle') await this.trigger(card, 'summonOnly', pi);
+      if (how === 'summon' && this.zoneOf(card) === 'battle' && this.kw(card).yobinion) await this.queueFn(card, pi, `「${card.def.name}」のヨビニオン`, () => this.yobinion(card, pi));
       if (this.zoneOf(card) === 'battle') await this.notifyAll('onAnyEnter', card);
       if (this.kw(card).exLife && card.exLife) await this.shieldAdded(pi);
       return true;
+    }
+
+    // ヨビニオン：このクリーチャーよりコストが小さいクリーチャーが出るまで表向きにして出す
+    async yobinion(card, pi) {
+      const me = this.p[pi];
+      const cost = +card.def.cost || 0;
+      const shown = [];
+      let hit = null;
+      while (me.deck.length) {
+        const c = me.deck[0];
+        me.deck.shift();
+        shown.push(c);
+        if (this.isCreature(c) && !this.evoKind(c.def) && (+c.def.cost || 0) < cost) {
+          hit = c;
+          break;
+        }
+      }
+      this.log(`「${card.def.name}」のヨビニオン：${shown.map((c) => c.def.name).join('、') || 'なし'} を表向きにした`);
+      for (const c of shown) if (c !== hit) {
+        me.deck.push(c);
+        c.tapped = false;
+      }
+      if (hit) {
+        me.deck.push(hit); // いったん山札に戻してから出す（移動の処理をそろえるため）
+        await this.enterBattle(hit, pi, 'other');
+      } else this.log('ヨビニオン：出せるクリーチャーがなかった');
+      this.changed();
     }
 
     // 場のすべてのカードに「何かが出た／唱えられた」を知らせる
@@ -1314,6 +1342,22 @@
             this.moveTo(c, 'grave');
             this.log(`${me.name}は手札の「${c.def.name}」を捨てた`);
           }
+          break;
+        }
+        case 'mekuraid': {
+          // 山札の上から3枚を見て、コストN以下を1枚コストを払わずに使ってよい。残りは山札の下へ
+          const look = me.deck.slice(0, a.look || 3);
+          if (!look.length) break;
+          this.log(`${me.name}のメクレイド${a.n}：山札の上から${look.length}枚を見た`);
+          const ok = look.filter((c) => (+c.def.cost || 0) <= a.n && (!a.race || ((c.def.races || []).join('/') + c.def.name).includes(a.race)) && (c.def.type !== 'spell' || !this.locked(pi, c.def)));
+          const r = await this.pickCards(pi, ok, 1, true, `メクレイド${a.n}: コストを払わずに使うカード（${look.map((c) => c.def.name).join('、')}）`, 'recover');
+          const used = r[0];
+          // 残りは山札の下へ
+          for (const c of look) if (c !== used) this.moveTo(c, 'deck', { top: false });
+          if (used) {
+            this.log(`メクレイドで「${used.def.name}」を使う`);
+            await this.putIntoPlay(pi, used, true);
+          } else this.log('メクレイド：何も使わなかった');
           break;
         }
         case 'manualNote':

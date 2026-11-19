@@ -103,6 +103,9 @@
       const civ = m[3] ? { 光: 'light', 水: 'water', 闇: 'darkness', 火: 'fire', 自然: 'nature' }[m[3]] : null;
       return { act: 'reanimate', kinds, civ, maxCost: m[2] ? +m[2] : m[5] ? +m[5] : null, n: +m[9], optional };
     }
+    if ((m = s.match(/^(自分は)?(、)?(([^、。]*?)・)?(超)?メクレイド\s*(\d+)(する|を行う)?$/))) {
+      return { act: 'mekuraid', n: +m[6], race: m[4] || null, look: 3 };
+    }
     if ((m = s.match(/^カードを(最大)?(\d+)枚(まで)?引/))) {
       return { act: 'draw', n: +m[2], optional };
     }
@@ -296,6 +299,12 @@
         K.manaArmedCost = { ...cond, n2: +mcost[1] };
         continue;
       }
+      // 単独の「メクレイドN」は、出た時に行う
+      const mk = line.match(/^(([^、。]*?)・)?(超)?メクレイド\s*(\d+)$/);
+      if (mk) {
+        A.push({ when: 'summon', acts: [{ act: 'mekuraid', n: +mk[4], race: mk[2] || null, look: 3 }], text: raw });
+        continue;
+      }
       // 封印
       const seal = line.match(/封印を(\d+)つ付ける/);
       let whens = [];
@@ -353,6 +362,7 @@
     selfDiscard: (a) => `自分の手札${a.n}枚捨て`,
     mill: (a) => `山札から${a.n}枚墓地へ`,
     untapSelf: () => `自身をアンタップ`,
+    mekuraid: (a) => `${a.race ? a.race + '・' : ''}メクレイド${a.n}`,
     manualNote: (a) => `［手動: ${String(a.text).slice(0, 16)}…］`,
     seal: (a) => `封印を${a.n}つ付ける`,
     freezeLast: () => 'それはアンタップしない',
@@ -395,6 +405,7 @@
     if (k.breakSubstitute) out.push('ブレイク身代わり');
     if (k.exLife) out.push('EXライフ');
     if (k.gStrike) out.push('G・ストライク');
+    if (k.yobinion) out.push('ヨビニオン');
     const flags = {
       justDiver: 'ジャストダイバー', shieldGo: 'シールド・ゴー', escape: 'エスケープ', guardman: 'ガードマン', poweredBreaker: 'パワード・ブレイカー',
       attackUntapped: 'アンタップ攻撃可', untargetable: '相手に選ばれない', sinkarize: 'シンカライズ', zRush: 'Zラッシュ',
