@@ -24,6 +24,7 @@
       .replace(/(。|、)\s*ただし(、)?(その)?(召喚)?コストは\s*[01０１]\s*(以下に(は)?ならない|より少なくならない|以下にはならない)(。)?/g, '。')
       .replace(/(。|、)\s*ただし(、)?その「S・トリガー」は使えない(。)?/g, '。')
       .replace(/(。|、)\s*その「S・トリガー」は使えない(。)?/g, '。')
+      .replace(/(。|、)\s*ただし(、)?(その|それらの)「S・トリガー」(能力)?は使えない(。)?/g, '。')
       .replace(/。。/g, '。')
       .replace(/代わりに/g, 'かわりに')
       .replace(/^自分の(他の)?([^、。]{1,24}?)をバトルゾーンに出した(時|とき)、/gm, '自分の$1$2が出た時、')
@@ -321,7 +322,10 @@
     // すべてアンタップ
     if ((m = s.match(/^(バトルゾーンにある)?自分の(他の)?(、)?(名前に《(.+?)》とある)?(進化)?((.+?)・)?クリーチャー(をすべて|すべてを)アンタップする$/)))
       return { act: 'untapAll', others: !!m[2], nameHas: m[5] || null, evoOnly: !!m[6], race: m[8] || null };
-    if (/^(このクリーチャーを)?アンタップする$/.test(s)) return { act: 'untapSelf', optional: false };
+    if (/^(この(クリーチャー|カード)を)?アンタップする$/.test(s)) return { act: 'untapSelf', optional: false };
+    if ((m = s.match(/^自分のマナゾーンにある(カード|[^、。]*?カード)を(\d+)枚(まで)?アンタップする$/))) return { act: 'untapManaN', n: +m[2] };
+    if ((m = s.match(/^(コスト(\d+)以下の)?((光|水|闇|火|自然)の)?呪文を(\d+)枚、自分の墓地からコストを支払わずに唱え(る|てもよい)$/))) return { act: 'castFromGrave', maxCost: m[2] ? +m[2] : null, civ: m[4] ? CIVJ[m[4]] : null, n: +m[5], optional: m[6] !== 'る' };
+    if ((m = s.match(/^([^、。]*?)を(\d+)(体|枚)、自分のマナゾーンから(バトルゾーンに)?出(す|してもよい)$/)) && !lookCond(m[1]).unknown) return { act: 'putFromMana', cond: lookCond(m[1]), n: +m[2], optional: m[5] !== 'す' };
     if ((m = s.match(/^クリーチャーを(\d+)体選び、タップまたはアンタップしてもよい$/))) return { act: 'tapOrUntap', n: +m[1], optional: true };
     if ((m = s.match(/^(自分の手札を|カードを)(\d+)枚(、自分の手札から)?捨ててもよい$/))) return { act: 'selfDiscard', n: +m[2], optional: true };
     if ((m = s.match(/^カードを(\d+)枚、自分のマナゾーンから墓地に置(く|いてもよい)$/))) return { act: 'manaToGrave', n: +m[1], optional: m[2] !== 'く' };
@@ -733,6 +737,8 @@
     if (pb) return [{ act: 'arrangeTop', n: +pb[1], where: 'pickBottom', k: +pb[3] }, ...afterActs(body.slice(pb[0].length))];
     const hm = body.match(/^自分の山札の上から1枚(目)?を見る。(そのカード|それ)を(自分の)?手札に加えるか、(タップして)?(自分の)?マナゾーンに置く。?/);
     if (hm) return [{ act: 'topHandOrMana', tapped: !!hm[4] }, ...afterActs(body.slice(hm[0].length))];
+    const cg = body.match(/^(コスト(\d+)以下の)?((光|水|闇|火|自然)の)?呪文を(\d+)枚、(自分の|いずれかのプレイヤーの)墓地からコストを支払わずに唱え(る|てもよい)。(それを|その呪文を)?唱えた後、(その呪文を|それを)?墓地(に置く)?(の)?かわりに(持ち主の|自分の)?山札の(一番)?下に置く。?/);
+    if (cg) return [{ act: 'castFromGrave', maxCost: cg[2] ? +cg[2] : null, civ: cg[4] ? CIVJ[cg[4]] : null, n: +cg[5], optional: cg[7] !== 'る', anyGrave: cg[6] !== '自分の', bottomAfter: true }, ...afterActs(body.slice(cg[0].length))];
     const pf = body.match(/^自分と相手のクリーチャーを1体ずつ選(ぶ|んでもよい)。その2体をバトルさせる。?/);
     if (pf) return [{ act: 'pairFight', optional: pf[1] !== 'ぶ' }, ...afterActs(body.slice(pf[0].length))];
     // 「条件なら、効果」
@@ -1176,6 +1182,9 @@
     moveTarget: (a) => `${{ opp: '相手の', self: '自分の', any: '' }[a.side]}${a.all ? 'すべて' : a.n + '枚'}を${{ grave: '墓地', mana: 'マナ', shields: 'シールド', deckBottom: '山札の下' }[a.to]}へ`,
     handToMana: (a) => `手札${a.n}枚をマナへ`,
     oppTeamPower: (a) => `相手のクリーチャーすべてのパワー${a.n}`,
+    untapManaN: (a) => `マナ${a.n}枚アンタップ`,
+    castFromGrave: (a) => `墓地から呪文を${a.n}枚コストなしで唱える`,
+    putFromMana: (a) => `マナから${a.cond.text}を${a.n}体出す`,
     selfFromHand: () => 'このクリーチャーを手札から出す',
     selfDiscardFromHand: () => 'このカードを手札から捨てる',
     showOwn: (a) => `手札の${a.cond.text}を${a.n}枚見せる`,

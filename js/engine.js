@@ -1262,6 +1262,10 @@
 
     // ロック（一音の妖精など）で使えないか
     locked(pi, def) {
+      for (const src of this.p[pi].battle) {
+        const ex = this.kw(src).exileLock;
+        if (ex && def.name.includes(ex) && src.def.name !== undefined) return true;
+      }
       if (parsed(def).kw.summonAfterSpell && !((this.spellsThisTurn || [0, 0])[pi] > 0)) return true;
       const sl = this.p[pi].summonLock;
       if (sl && sl.until >= this.turn && !NON_CREATURE.includes(def.type) && (+def.cost || 0) <= sl.maxCost) return true;
@@ -1837,6 +1841,22 @@
           this.log(`「${card.def.name}」は離れず、かわりにシールドを1つ墓地に置いた`);
           await this.shieldsLeft(card.owner);
           return false;
+        }
+      }
+      // 「自分の○○が破壊される時、墓地に置くかわりにマナ／手札へ」
+      if (o.destroy && toZone === 'grave') {
+        for (const s of this.p[card.owner].battle) {
+          let done = false;
+          for (const ad of this.kw(s).allyDestroyTo || []) {
+            if (ad.others && s === card) continue;
+            if (!this.allyMatch(card, ad.who.replace(/(・)?クリーチャー$/, ''))) continue;
+            if (ad.optional && !(await this.yesNo(card.owner, `「${card.def.name}」を墓地のかわりに${ad.to === 'hand' ? '手札' : 'マナゾーン'}に置きますか？`, card))) continue;
+            toZone = ad.to;
+            this.log(`「${s.def.name}」の効果で「${card.def.name}」は${ad.to === 'hand' ? '手札' : 'マナゾーン'}へ`);
+            done = true;
+            break;
+          }
+          if (done) break;
         }
       }
       // 「破壊される時、墓地に置くかわりに〜の下に置いてもよい」
@@ -2533,6 +2553,37 @@
           }
           break;
         }
+        case 'untapManaN': {
+          const r = me.mana.filter((c) => c.tapped).slice(0, a.n);
+          for (const c of r) c.tapped = false;
+          this.log(`${me.name}はマナを${r.length}枚アンタップした`);
+          break;
+        }
+        case 'castFromGrave': {
+          if ((this._castDepth || 0) > 6) break; // 念のための無限ループ防止
+          const graves = a.anyGrave ? [...me.grave, ...op.grave] : me.grave;
+          const pool = graves.filter((c) => c !== src && c.def.type === 'spell' && (a.maxCost == null || (+c.def.cost || 0) <= a.maxCost) && (!a.civ || (c.def.civs || []).includes(a.civ)) && !this.locked(pi, c.def));
+          const r = await this.pickCards(pi, pool, a.n, a.optional, `${nm}: 墓地から唱える呪文`, 'recover');
+          for (const c of r) {
+            this._castDepth = (this._castDepth || 0) + 1;
+            try {
+              await this.putIntoPlay(pi, c, true);
+            } finally {
+              this._castDepth--;
+            }
+            if (a.bottomAfter && this.zoneOf(c) === 'grave') {
+              this.moveTo(c, 'deck', { top: false });
+              this.log(`「${c.def.name}」は唱えた後、墓地のかわりに山札の下に置かれた`);
+            }
+          }
+          break;
+        }
+        case 'putFromMana': {
+          const pool = me.mana.filter((c) => this.fitLook(c, a.cond) && (this.isCreature(c) || c.def.type === 'tamaseed' || c.def.type === 'field'));
+          const r = await this.pickCards(pi, pool, a.n, a.optional, `${nm}: マナゾーンから出すカード`, 'recover');
+          for (const c of r) await this.enterBattle(c, pi, 'other');
+          break;
+        }
         case 'selfFromHand':
           if (!src || this.zoneOf(src) !== 'hand') break;
           if (a.optional && !(await this.yesNo(pi, `手札の${nm}を出しますか？`, src))) break;
@@ -3023,7 +3074,7 @@
         }
         case 'putFromHand':
         case 'castFromHand': {
-          let pool = [...me.hand, ...(a.alsoGrave ? me.grave : [])].filter((c) => (a.act === 'castFromHand' ? c.def.type === 'spell' : (a.kinds || ['creature']).includes(this.isCreature(c) ? 'creature' : c.def.type)));
+          let pool = [...me.hand, ...(a.alsoGrave ? me.grave : [])].filter((c) => c !== src && (a.act === 'castFromHand' ? c.def.type === 'spell' : (a.kinds || ['creature']).includes(this.isCreature(c) ? 'creature' : c.def.type)));
           if (a.maxCost != null) pool = pool.filter((c) => (+c.def.cost || 0) <= a.maxCost);
           if (a.notEvo) pool = pool.filter((c) => !this.evoKind(c.def));
           if (a.civ) pool = pool.filter((c) => (c.def.civs || []).includes(a.civ));
