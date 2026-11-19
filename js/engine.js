@@ -313,6 +313,7 @@
       for (const src of this.p[card.owner].battle) {
         const tp = this.kwBase(src).teamPower;
         if (!tp || (tp.others && src === card)) continue;
+        if (tp.oppTurnOnly && this.active === card.owner) continue;
         if (tp.who && !((card.def.races || []).join('/') + card.def.name).includes(tp.who.replace(/(・)?クリーチャー$/, ''))) continue;
         extra += tp.n;
       }
@@ -324,8 +325,18 @@
 
     // マナ・墓地・場の数に応じたパワー
     powerExtra(card) {
+      const pu = parsed(card.def).kw.powerPerUnder;
+      if (pu) return Math.floor((card.under || []).length / pu.per) * pu.n + this.powerExtra2(card);
+      return this.powerExtra2(card);
+    }
+    powerExtra2(card) {
       const pp = parsed(card.def).kw.powerPer;
       if (!pp) return 0;
+      if (pp.all && pp.zone === '墓地') {
+        const all = [...this.p[0].grave, ...this.p[1].grave].filter((c) => !pp.what || (pp.what === '呪文' ? c.def.type === 'spell' : this.isCreature(c)));
+        return Math.floor(all.length / pp.per) * pp.n;
+      }
+      if (pp.zone === '墓地' && pp.what === '呪文') return Math.floor(this.p[card.owner].grave.filter((c) => c.def.type === 'spell').length / pp.per) * pp.n;
       const me = this.p[pp.side === 'opp' ? 1 - card.owner : card.owner];
       const zone = pp.zone === 'マナゾーン' ? me.mana : pp.zone === '墓地' ? me.grave : me.battle;
       const w = (pp.what || '').replace(/^の/, '').replace(/(クリーチャー|カード)$/, '');
@@ -407,7 +418,7 @@
         }
         delete card.sealCards;
         // 場を離れたら、場にいた間の状態を消す
-        for (const k of ['seals', 'exLife', 'forceShield', 'noLeaveUntil', 'frozenUntil', 'noAttackTurn', 'modesUsed', 'flipped', 'usedTurn', 'ignoreName', 'hyper', 'hyperUntil', 'jdUntil', 'returnAtEnd', 'badEnd', 'spellShieldUntil', 'blocking', 'protectUntil', 'allyUsed', 'winAllUntil', 'firstAttackDone']) delete card[k];
+        for (const k of ['seals', 'exLife', 'forceShield', 'noLeaveUntil', 'frozenUntil', 'noAttackTurn', 'modesUsed', 'flipped', 'usedTurn', 'ignoreName', 'hyper', 'hyperUntil', 'jdUntil', 'returnAtEnd', 'badEnd', 'spellShieldUntil', 'blocking', 'protectUntil', 'allyUsed', 'winAllUntil', 'firstAttackDone', 'lockedUntil', 'unblockableTurn']) delete card[k];
       }
       if (zone === 'grave') this.graveThisTurn = true;
       if (zone === 'deck' && top) owner.deck.unshift(card);
@@ -519,7 +530,15 @@
           await this.resolvePending();
           await this.endTurnEffects();
           this.endTurnCleanup();
-          this.active = 1 - this.active;
+          const xt = this.p[this.active].extraTurns || 0;
+          if (xt > 0) {
+            this.p[this.active].extraTurns = xt - 1;
+            this.inExtraTurn = true;
+            this.log(`${this.p[this.active].name}の追加ターン！`);
+          } else {
+            this.inExtraTurn = false;
+            this.active = 1 - this.active;
+          }
           if (this.turn > 400) this.win(this.first, '規定ターン超過');
         }
       } catch (e) {
@@ -798,6 +817,11 @@
         const mana = this.payWith(pi, def, plan.cost);
         if (mana) out.push({ mana, uses: plan.uses, cost: plan.cost, sas });
       }
+      const atc = parsed(def).kw.altTapCost;
+      if (atc && def.type === 'spell') {
+        const tappers = this.p[pi].battle.filter((c) => this.isCreature(c) && !c.tapped && (!atc.civ || (c.def.civs || []).includes(atc.civ)));
+        if (tappers.length >= atc.n) out.push({ mana: [], uses: [() => { for (const c of tappers.slice(0, atc.n)) c.tapped = true; this.log(`クリーチャー${atc.n}体をタップして唱える`); }], cost: 0, tapAlt: atc.n });
+      }
       if (parsed(def).kw.bad) {
         const plan = this.costPlan(pi, card, def, null, true);
         const mana = this.payWith(pi, def, plan.cost);
@@ -842,6 +866,19 @@
     locked(pi, def) {
       const sl = this.p[pi].summonLock;
       if (sl && sl.until >= this.turn && !NON_CREATURE.includes(def.type) && (+def.cost || 0) <= sl.maxCost) return true;
+      for (const lk of this.p[pi].locks || []) {
+        if (lk.until < this.turn) continue;
+        if (lk.spell !== (def.type === 'spell')) continue;
+        if (lk.maxCost == null || (+def.cost || 0) <= lk.maxCost) return true;
+      }
+      for (const src of this.permanents(1 - pi)) {
+        const l2 = this.kw(src).spellLock2;
+        if (!l2 || def.type !== 'spell') continue;
+        if (l2.myTurnOnly && this.active !== src.owner) continue;
+        if (l2.notCiv && (def.civs || []).includes(l2.notCiv)) continue;
+        if (l2.maxCost != null && (+def.cost || 0) > l2.maxCost) continue;
+        return true;
+      }
       for (const src of this.permanents(1 - pi)) {
         const sc = this.sc(src);
         if (sc && sc.lock && sc.lock(this, src, pi, def)) return true;
@@ -867,7 +904,7 @@
     async pay(pi, card, def) {
       const plans = this.paymentPlans(pi, card, def);
       let plan = plans[0];
-      const withSas = plans.filter((x) => x.sas || x.bad);
+      const withSas = plans.filter((x) => x.sas || x.bad || x.tapAlt);
       if (withSas.length && !this.p[pi].isAI) {
         const opts = plans.map((x, i) => ({
           id: String(i),
@@ -875,6 +912,8 @@
             ? `ササゲール：「${x.sas.def.name}」を破壊してコスト${x.cost}で出す`
             : x.bad
               ? `B・A・D：コスト${x.cost}で出す（ターンの終わりに破壊）`
+              : x.tapAlt
+                ? `自分のクリーチャーを${x.tapAlt}体タップして唱える`
               : `通常どおり（コスト${x.cost}）`,
         }));
         const r = await this.choose(pi, { kind: 'mode', prompt: `「${def.name}」: どう払いますか？`, options: opts, min: 1, max: 1 });
@@ -971,6 +1010,10 @@
         }
         await this.notifyAll('onAnyCast', card, def);
         await this.resolvePending();
+        if (parsed(def).kw.returnAfterCast && this.zoneOf(card) === 'grave') {
+          this.moveTo(card, 'hand');
+          this.log(`「${def.name}」は唱えた後、手札に戻った`);
+        }
         if (parsed(def).kw.fortifyAfterCast && this.zoneOf(card) === 'grave' && this.p[pi].shields.length) {
           this.moveTo(card, 'shields');
           card.faceUp = true;
@@ -1198,6 +1241,7 @@
           toZone = 'shields';
           faceUp = true;
         }
+        if (k.destroyToMana) toZone = 'mana';
         for (const src of this.permanents(card.owner)) {
           const sc = this.sc(src);
           if (sc && sc.protectDestroy && (await sc.protectDestroy(this, src, card))) return false;
@@ -1642,6 +1686,56 @@
           }
           break;
         }
+        case 'lockCreature': {
+          const r = await this.pickCards(pi, op.battle.filter((c) => this.isCreature(c)), a.n, false, `${nm}: 攻撃もブロックもできなくする相手のクリーチャー`, 'target', 'tap');
+          for (const c of r) {
+            c.lockedUntil = this.nextTurnOf(pi) - 1;
+            this.log(`「${c.def.name}」は次の${me.name}のターンのはじめまで攻撃もブロックもできない`);
+          }
+          break;
+        }
+        case 'tempUnblockable': {
+          const r = await this.pickCards(pi, me.battle.filter((c) => this.isCreature(c)), a.n, a.optional, `${nm}: このターンブロックされなくする自分のクリーチャー`, 'recover');
+          for (const c of r) {
+            c.unblockableTurn = this.turn;
+            this.log(`「${c.def.name}」はこのターンブロックされない`);
+          }
+          break;
+        }
+        case 'oppLock':
+          op.locks = op.locks || [];
+          op.locks.push({ spell: a.spell, maxCost: a.maxCost, until: a.until === 'turn' ? this.turn : this.nextTurnOf(pi) - 1 });
+          this.log(`${op.name}は${a.until === 'turn' ? 'このターン' : '次の' + me.name + 'のターンのはじめまで'}${a.maxCost ? 'コスト' + a.maxCost + '以下の' : ''}${a.spell ? '呪文を唱えられない' : 'クリーチャーを出せない'}`);
+          break;
+        case 'discardAll':
+          for (const c of [...op.hand]) await this.discardCard(c, pi);
+          break;
+        case 'revealHand':
+          this.log(`${op.name}の手札：${op.hand.map((c) => c.def.name).join('、') || 'なし'}`);
+          break;
+        case 'untapMana':
+          for (const c of me.mana) c.tapped = false;
+          this.log(`${me.name}はマナをすべてアンタップした`);
+          break;
+        case 'teamWinTurn':
+          me.teamWinTurn = this.turn;
+          this.log(`このターン、${me.name}のクリーチャーはすべてのバトルに勝つ`);
+          break;
+        case 'turnGrant': {
+          const r = await this.pickCards(pi, me.battle.filter((c) => this.isCreature(c)), a.n, false, `${nm}: 能力を与える自分のクリーチャー`, 'recover');
+          me.tempGrants = me.tempGrants || [];
+          me.tempGrants.push({ names: a.names, until: this.turn, uids: r.map((c) => c.uid) });
+          if (r.length) this.log(`このターン、${r.map((c) => '「' + c.def.name + '」').join('')}に${a.names.map((x) => '「' + x + '」').join('と')}`);
+          break;
+        }
+        case 'extraTurn':
+          if (a.notInExtra && this.inExtraTurn) {
+            this.log('追加ターン中なので、追加ターンは得られない');
+            break;
+          }
+          me.extraTurns = (me.extraTurns || 0) + 1;
+          this.log(`${me.name}はこのターンの後にもう1ターン行う`);
+          break;
         case 'tempWinAll':
           if (this.zoneOf(src) === 'battle') {
             src.winAllUntil = a.until === 'turn' ? this.turn : this.nextTurnOf(pi) - 1;
@@ -1794,6 +1888,9 @@
       const k = this.kw(card);
       if (k.cantAttack) return [];
       if (card.noAttackTurn === this.turn) return [];
+      if ((card.lockedUntil || 0) >= this.turn) return [];
+      if (k.attackNeedGrave && this.p[pi].grave.length < k.attackNeedGrave) return [];
+      if (card.enteredTurn === this.turn && this.permanents(1 - pi).some((s) => this.kw(s).oppNoAttackOnEntry)) return [];
       for (const src of this.permanents(1 - pi)) {
         const sc = this.sc(src);
         if (sc && sc.forbidAttack && sc.forbidAttack(this, src, card)) return [];
@@ -1901,8 +1998,8 @@
           }
         }
         // ブロック
-        if (!this.kw(card).unblockable) {
-          const blockers = op.battle.filter((c) => !c.tapped && this.isCreature(c) && this.kw(c).blocker && c !== tgtCard);
+        if (!this.kw(card).unblockable && !((card.unblockableTurn || 0) === this.turn)) {
+          const blockers = op.battle.filter((c) => !c.tapped && this.isCreature(c) && this.kw(c).blocker && c !== tgtCard && !((c.lockedUntil || 0) >= this.turn));
           if (blockers.length) {
             const r = await this.choose(op.idx, {
               kind: 'block',
@@ -1994,8 +2091,9 @@
       const pd = this.power(d);
       this.log(`バトル: 「${a.def.name}」${pa} vs 「${d.def.name}」${pd}`);
       const lose = [];
-      const wa = this.kw(a).winAllBattles || (a.winAllUntil || 0) >= this.turn;
-      const wd = this.kw(d).winAllBattles || (d.winAllUntil || 0) >= this.turn;
+      const teamWin = (c) => this.permanents(c.owner).some((s) => this.kw(s).teamWinAll) || (this.p[c.owner].teamWinTurn || 0) === this.turn;
+      const wa = this.kw(a).winAllBattles || (a.winAllUntil || 0) >= this.turn || teamWin(a);
+      const wd = this.kw(d).winAllBattles || (d.winAllUntil || 0) >= this.turn || teamWin(d);
       if ((pa >= pd || wa) && !wd) lose.push(d);
       if ((pd >= pa || wd) && !wa) lose.push(a);
       if (wa && wd) lose.push(a, d);
