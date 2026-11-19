@@ -212,7 +212,7 @@
       if (r.count < 10) return alert(`「${d.name}」のカードが少なすぎます（${r.count}枚）`);
       if ($('#setup-strict').checked) {
         const per = {};
-        for (const e of r.entries) per[e.def.name] = (per[e.def.name] || 0) + e.n;
+        for (const e of r.entries) if (!parsed(e.def).kw.noCopyLimit) per[e.def.name] = (per[e.def.name] || 0) + e.n;
         const over = Object.entries(per).filter(([, n]) => n > 4);
         const bad = [];
         if (r.count !== 40) bad.push(`デッキは40枚ちょうどです（今は${r.count}枚）`);
@@ -757,7 +757,7 @@
       if (parsed(def).kw.shieldTrigger) trig++;
     }
     out.append(`　文明: ${Object.entries(civ).map(([c, n]) => CIV_LABEL[c] + n).join(' ')}　S・トリガー: ${trig}枚`);
-    const over = r.entries.reduce((m, e) => ((m[e.def.name] = (m[e.def.name] || 0) + e.n), m), {});
+    const over = r.entries.filter((e) => !parsed(e.def).kw.noCopyLimit).reduce((m, e) => ((m[e.def.name] = (m[e.def.name] || 0) + e.n), m), {});
     const o4 = Object.entries(over).filter(([, n]) => n > 4);
     if (o4.length) out.append(el('div', { class: 'warn', text: '5枚以上: ' + o4.map(([k, n]) => `${k}×${n}`).join('、') }));
     if (r.unknown.length) out.append(el('div', { class: 'bad', text: '未登録のカード: ' + r.unknown.join('、') }));
@@ -787,7 +787,7 @@
     const counts = new Map();
     for (const e of r.entries) counts.set(e.def, (counts.get(e.def) || 0) + e.n);
     const n = Math.max(0, (counts.get(def) || 0) + delta);
-    if (delta > 0 && n > 4 && !confirm(`「${def.name}」が5枚以上になります。追加しますか？`)) return;
+    if (delta > 0 && n > 4 && !parsed(def).kw.noCopyLimit && !confirm(`「${def.name}」が5枚以上になります。追加しますか？`)) return;
     if (n) counts.set(def, n);
     else counts.delete(def);
     const unknown = r.unknown.map((u) => `1 ${u}`);

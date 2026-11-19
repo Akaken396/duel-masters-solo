@@ -347,7 +347,7 @@
 
     // 「自分の○○」の数を数える（タップしているクリーチャー、「ブロッカー」を持つクリーチャー、種族など）
     countOwn(pi, what) {
-      const w = String(what || '');
+      const w = String(what || '').replace(/^(バトルゾーンにある)?(、)?(自分の)?(他の)?(、)?/, '');
       let pool = this.p[pi].battle;
       if (/タマシード/.test(w)) pool = pool.filter((c) => c.def.type === 'tamaseed');
       else if (/クリーチャー/.test(w) || !/カード/.test(w)) pool = pool.filter((c) => this.isCreature(c));
@@ -370,7 +370,10 @@
         .replace(/(タップしている|アンタップしている|(光|水|闇|火|自然)の)/g, '')
         .replace(/(・)?(クリーチャー|カード|タマシード)$/, '')
         .trim();
-      if (race) pool = pool.filter((c) => ((c.def.races || []).join('/') + c.def.name).includes(race));
+      if (race) {
+        const alts = race.split(/または|および|か、|、/).map((x) => x.replace(/(・)?(クリーチャー|カード)$/, '').trim()).filter(Boolean);
+        pool = pool.filter((c) => alts.some((r) => ((c.def.races || []).join('/') + c.def.name).includes(r)));
+      }
       return pool.length;
     }
 
@@ -888,7 +891,7 @@
     async chargeMana(pi, uid) {
       const f = this.find(uid);
       if (!f || !this.canCharge(pi, f.card)) return false;
-      const multi = (f.card.def.civs || []).length > 1;
+      const multi = (f.card.def.civs || []).length > 1 && !parsed(f.card.def).kw.chargeUntapped;
       this.moveTo(f.card, 'mana', { tapped: multi });
       this.manaCharged = true;
       this.log(`${this.p[pi].name}は「${f.card.def.name}」をマナに置いた`);
@@ -1045,7 +1048,8 @@
       if (cost <= 0) return [];
       if (avail.length < cost) return null;
       const chosen = [];
-      const civsOf = (m) => m.def.civs || [];
+      const rainbow = this.permanents(pi).some((s) => this.kw(s).rainbowMana);
+      const civsOf = (m) => (rainbow ? ['light', 'water', 'darkness', 'fire', 'nature'] : m.def.civs || []);
       // 必要な文明を1枚ずつ確保（文明数が少ないカードから）
       const sorted = [...avail].sort((a, b) => civsOf(a).length - civsOf(b).length);
       const covered = new Set();
@@ -1796,6 +1800,9 @@
       if (a.act === 'tap') pool = pool.filter((c) => !c.tapped);
       if (a.tappedOnly) pool = pool.filter((c) => c.tapped);
       if (a.untappedOnly) pool = pool.filter((c) => !c.tapped);
+      if (a.notEvo) pool = pool.filter((c) => !this.evoKind(c.def));
+      if (a.notMulti) pool = pool.filter((c) => (c.def.civs || []).filter((x) => x !== 'zero').length < 2);
+      if (a.exceptCiv) pool = pool.filter((c) => !(c.def.civs || []).includes(a.exceptCiv));
       if (a.others && this._actSrc) pool = pool.filter((c) => c !== this._actSrc);
       if (a.races && a.races.length) pool = pool.filter((c) => c.owner !== pi || a.races.some((r) => ((c.def.races || []).join('/') + '/' + c.def.name).includes(r)));
       return pool;
@@ -2150,9 +2157,24 @@
           if (und.length) this.log(`${nm}の下にあったカード${und.length}枚を手札に加えた`);
           break;
         }
-        case 'pickTarget': {
+        case 'moveTarget': {
           const pool = this.targetsFor(a, pi);
-          const r = await this.pickCards(pi, pool, a.n, a.optional, `${nm}: クリーチャーを${a.n}体選んでください`, a.side === 'self' ? 'recover' : 'target', 'destroy');
+          const r = a.all ? pool : await this.pickCards(pi, pool, a.n, a.optional, `${nm}: ${ZONE_LABEL[a.to] || a.to}に置くカード`, 'target', 'bounce');
+          for (const c of r) {
+            const ok = a.to === 'deckBottom' ? await this.leave(c, 'deck', { byOpp: c.owner !== pi, moveOpt: { top: false } }) : await this.leave(c, a.to, { byOpp: c.owner !== pi });
+            if (ok) {
+              this.log(`「${c.def.name}」は持ち主の${{ grave: '墓地', mana: 'マナゾーン', shields: 'シールド', deckBottom: '山札の下', hand: '手札' }[a.to]}に置かれた`);
+              if (a.to === 'shields') await this.shieldAdded(c.owner);
+            }
+          }
+          break;
+        }
+        case 'pickTarget': {
+          let pool = this.targetsFor(a, pi);
+          if (a.friendly && me.isAI && pool.some((c) => c.owner === pi)) pool = pool.filter((c) => c.owner === pi);
+          if (a.friendly) this._friendlyPick = true;
+          const r = await this.pickCards(pi, pool, a.n, a.optional, `${nm}: クリーチャーを${a.n}体選んでください`, a.side === 'self' || a.friendly ? 'recover' : 'target', a.friendly ? undefined : 'destroy');
+          this._friendlyPick = false;
           this.chosenHist = (this.chosenHist || []).concat(r).slice(-4);
           if (!r.length) {
             this.lastChosen = [];
@@ -2783,7 +2805,8 @@
           return tu && (!tu.who || ((card.def.races || []).join('/') + card.def.name).includes(tu.who));
         });
         if (!teamUnb && !this.kw(card).unblockable && !((card.unblockableTurn || 0) === this.turn)) {
-          const blockers = op.battle.filter((c) => !c.tapped && this.isCreature(c) && this.kw(c).blocker && c !== tgtCard && !((c.lockedUntil || 0) >= this.turn));
+          const ub = this.kw(card).unblockableBy;
+          const blockers = op.battle.filter((c) => !c.tapped && this.isCreature(c) && this.kw(c).blocker && c !== tgtCard && !((c.lockedUntil || 0) >= this.turn) && !(ub && ((ub.maxPower != null && this.power(c) <= ub.maxPower) || (ub.lessThanSelf && this.power(c) < this.power(card)))));
           if (blockers.length) {
             const r = await this.choose(op.idx, {
               kind: 'block',
@@ -2899,6 +2922,8 @@
         if (this.kw(loser).slayer) lose.push(winner);
       }
       await this.destroyMany(lose);
+      const after = [a, d].filter((x) => !lose.includes(x) && this.zoneOf(x) === 'battle' && this.kw(x).dieAfterBattle);
+      if (after.length) await this.destroyMany(after, { byOpp: false });
       for (const w of [a, d]) if (!lose.includes(w) && this.zoneOf(w) === 'battle') {
         await this.trigger(w, 'battleWin', w.owner);
         await this.fireAll(w.owner, 'allyBattleWin');
