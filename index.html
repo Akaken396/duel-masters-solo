@@ -102,6 +102,17 @@
           <div class="row"><input id="card-search" type="search" placeholder="名前・テキストで検索" /></div>
           <ul id="card-list" class="list"></ul>
           <hr />
+          <div class="col official">
+            <b>公式から取り込む</b>
+            <input id="off-url" type="text" placeholder="公式カードページのURLを貼る" />
+            <button id="off-open" class="primary">公式ページを開く</button>
+            <small class="muted">開いたページでブックマーク「DM取り込み」を押すと、画像・テキスト・フレーバーが自動で入ります。</small>
+            <small class="muted">はじめに下のボタンをブックマークバーへドラッグして登録してください →
+              <a id="off-bookmarklet" class="bookmarklet" href="#">DM取り込み</a></small>
+            <textarea id="off-paste" rows="2" placeholder="うまく送れない時は、コピーされたデータをここに貼る"></textarea>
+            <button id="off-paste-btn">貼り付けて追加</button>
+          </div>
+          <hr />
           <div class="col">
             <button id="img-bulk">画像をまとめて読み込む</button>
             <small class="muted">ファイル名がカード名（またはID）と同じ画像を、そのカードの画像にします。</small>
@@ -181,6 +192,9 @@
         <p>ターン開始のアンタップ・ドロー、マナの支払い、召喚酔い、攻撃とバトル、シールドブレイク、S・トリガー、ブロック、ダイレクトアタック・山札切れの勝敗判定。</p>
         <p>キーワード：ブロッカー／スピードアタッカー／W・T・Q・ワールド・ブレイカー／パワーアタッカー／スレイヤー／S・トリガー／マッハファイター／ブロックされない／攻撃できない／プレイヤーを攻撃できない。</p>
         <p>効果文：「出た時」「攻撃する時」「破壊された時」「自分のターンのはじめに」と呪文の、ドロー・マナ加速・シールド追加・破壊・手札に戻す・タップ・手札破壊・墓地/マナ回収・シールドブレイク・パワー＋。パワー○以下／コスト○以下／すべて／してもよい／○体まで に対応。</p>
+        <h3>認識するキーワード一覧</h3>
+        <p class="muted">「自動」は対戦中に自動で処理します。「手動」は認識して説明を表示し、処理は右クリックで行います。</p>
+        <div id="kw-list" class="kwlist"></div>
         <h3>データについて</h3>
         <p>カード・デッキ・画像はこのPCのブラウザの中だけに保存され、どこにも送信しません。ブラウザのデータを消すと消えるので、ときどき「バックアップを保存」してください。</p>
       </div>
@@ -189,12 +203,14 @@
     <div id="menu" class="menu" hidden></div>
     <div id="modal" class="modal" hidden><div class="modal-box"></div></div>
 
+    <script src="js/keywords.js"></script>
     <script src="js/textparse.js"></script>
     <script src="js/samples.js"></script>
     <script src="js/cardscripts.js"></script>
     <script src="js/engine.js"></script>
     <script src="js/ai.js"></script>
     <script src="js/storage.js"></script>
+    <script src="js/official.js"></script>
     <script src="js/ui.js"></script>
   </body>
 </html>

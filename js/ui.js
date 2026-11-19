@@ -61,6 +61,10 @@
     return c;
   }
 
+  function uniqKnown(p) {
+    const seen = new Set();
+    return (p.known || []).filter((k) => !seen.has(k.name) && seen.add(k.name));
+  }
   function officialUrl(def) {
     if (def.officialUrl) return def.officialUrl;
     return 'https://www.google.com/search?q=' + encodeURIComponent(`site:dm.takaratomy.co.jp ${def.name}`);
@@ -82,6 +86,7 @@
     const auto = TextParse.describe(p);
     if (auto.length) z.append(el('div', { class: 'zauto', text: '自動: ' + auto.join(' / ') }));
     if (p.manual.length) z.append(el('div', { class: 'zman', text: '手動: ' + p.manual.join(' / ') }));
+    for (const k of uniqKnown(p)) z.append(el('div', { class: 'zknown' }, el('b', { text: k.name }), '：' + k.desc));
     if (!String(def.id || '').startsWith('s-')) {
       z.append(el('a', { class: 'zlink', href: officialUrl(def), target: '_blank', rel: 'noopener noreferrer', text: def.officialUrl ? '公式ページで見る ↗' : '公式サイトで探す ↗' }));
     }
@@ -827,6 +832,7 @@
       imageUrl: $('#cf-url').value.trim(),
       flavor: $('#cf-flavor').value,
       officialUrl: $('#cf-official').value.trim(),
+      evolution: (Store.byId(cardSel) || draft || {}).evolution || '',
       twin: $('#cf-tname').value.trim() ? { name: $('#cf-tname').value.trim(), cost: +$('#cf-tcost').value || 0, text: $('#cf-ttext').value } : null,
     };
   }
@@ -851,6 +857,7 @@
     const auto = TextParse.describe(p);
     out.append(el('div', { class: 'good', text: auto.length ? '✓ ' + auto.join(' / ') : '（自動処理する能力なし）' }));
     if (p.manual.length) out.append(el('div', { class: 'warn' }, '手動で処理する文:', el('ul', {}, p.manual.map((m) => el('li', { text: m })))));
+    for (const k of uniqKnown(p)) out.append(el('div', { class: 'muted' }, `認識：${k.name}（${k.desc}）`));
     if (!c.civs.length) out.append(el('div', { class: 'bad', text: '文明を選んでください' }));
   }
   document.querySelectorAll('#card-edit input, #card-edit select, #card-edit textarea').forEach((i) => {
@@ -1066,6 +1073,7 @@
       imageUrl: r.imageUrl || r.image || '',
       flavor: r.flavor || '',
       officialUrl: r.officialUrl || '',
+      evolution: r.evolution || '',
       twin: r.twin && r.twin.name ? { name: String(r.twin.name), cost: +r.twin.cost || 0, text: r.twin.text || '' } : null,
     };
   }
@@ -1079,6 +1087,70 @@
     cardSel = null;
     renderCardList();
   });
+
+  // =====================================================================
+  // 公式から取り込む
+  // =====================================================================
+  $('#off-bookmarklet').href = Official.bookmarkletHref();
+  $('#off-bookmarklet').addEventListener('click', (e) => {
+    e.preventDefault();
+    alert('このボタンはクリックではなく、ブラウザのブックマークバーへドラッグして登録してください。\n登録後、公式のカード詳細ページを開いた状態でそのブックマークを押します。');
+  });
+  $('#off-open').addEventListener('click', () => {
+    const url = $('#off-url').value.trim();
+    if (!/^https:\/\/dm\.takaratomy\.co\.jp\/card\/detail\/\?id=/.test(url)) {
+      return alert('公式のカード詳細ページのURL（https://dm.takaratomy.co.jp/card/detail/?id=…）を貼ってください');
+    }
+    // 取り込みデータを送り返してもらうため、opener を残して開く
+    window.open(url, 'dmofficial');
+  });
+  window.addEventListener('message', (e) => {
+    const d = e.data;
+    if (d && d.app === 'dmsolo-official') importOfficial(d);
+  });
+  $('#off-paste-btn').addEventListener('click', () => {
+    try {
+      const d = parseJsonLoose($('#off-paste').value);
+      if (!d || d.app !== 'dmsolo-official') throw new Error('取り込みデータではありません');
+      importOfficial(d);
+      $('#off-paste').value = '';
+    } catch (err) {
+      alert('読み込めませんでした: ' + err.message);
+    }
+  });
+
+  async function importOfficial(d) {
+    let c;
+    try {
+      c = Official.toCard(d);
+    } catch (err) {
+      return alert(err.message);
+    }
+    const old = Store.byName(c.name);
+    if (old) {
+      c.id = old.id;
+      Object.assign(old, c);
+    } else {
+      c.id = Store.newId();
+      Store.cards.push(c);
+    }
+    // 公式画像を優先して表示する（手元の画像は外す）
+    if (Store.imageUrls[c.id]) await Store.setImage(c.id, null).catch(() => {});
+    Store.saveCards();
+    showTab('cards');
+    selectCard(c.id);
+    const p = TextParse.parseCard(c);
+    alert(`「${c.name}」を${old ? '更新' : '追加'}しました。\n自動処理: ${TextParse.describe(p).join(' / ') || 'なし'}${p.manual.length ? `\n手動の文: ${p.manual.length}件` : ''}`);
+  }
+
+  // キーワード一覧（使い方タブ）
+  (function () {
+    const box = $('#kw-list');
+    if (!box || !window.Keywords) return;
+    for (const k of Keywords.list) {
+      box.append(el('div', { class: 'kw ' + (k.auto ? 'auto' : 'man') }, el('span', { class: 'tag', text: k.auto ? '自動' : '手動' }), el('b', { text: k.name }), el('span', { class: 'muted', text: '　' + k.desc })));
+    }
+  })();
 
   // ===== 起動 =====
   Store.init().then(() => {

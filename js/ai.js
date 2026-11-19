@@ -85,7 +85,7 @@
   }
 
   function breaks(g, c) {
-    return Math.min(g.kw(c).breaker, 99);
+    return Math.min(g.breakCount ? g.breakCount(c) : g.kw(c).breaker, 99);
   }
 
   async function attackPhase(g, pi) {
@@ -195,6 +195,10 @@
         return [sorted[0].id];
       }
       case 'recover': {
+        if (/進化元/.test(req.prompt)) {
+          const sorted = opts.slice().sort((a, b) => value(g, a.card) - value(g, b.card));
+          return [sorted[0].id];
+        }
         const sorted = opts.slice().sort((a, b) => value(g, b.card) - value(g, a.card));
         return sorted.slice(0, req.max).map((o) => o.id);
       }

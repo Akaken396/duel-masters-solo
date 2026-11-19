@@ -147,45 +147,104 @@
     return acts.length ? acts : null;
   }
 
+  const KWD = () => G.Keywords || (typeof require !== 'undefined' ? require('./keywords.js') : null);
+  const CIVJ = { 光: 'light', 水: 'water', 闇: 'darkness', 火: 'fire', 自然: 'nature' };
+
   // def: {type, text}
   function parseCard(def) {
     const kw = { breaker: 1, powerAttacker: 0 };
-    const abilities = []; // {when, acts}
+    const abilities = []; // {when, acts, cond}
     const manual = []; // 自動化できない文
+    const known = []; // 認識したが手動のキーワード {name, desc}
+    const hyper = { kw: { breaker: 1, powerAttacker: 0 }, abilities: [] }; // ハイパーモード中だけ有効
+    let hyperUsed = false;
+    let inHyper = false;
     const lines = normalize(def.text)
       .split('\n')
-      .map((l) => l.replace(/^[■▪・●◆]\s*/, '').trim())
+      .map((l) => l.replace(/^[■▪・●◆▶►]\s*/, '').trim())
       .filter(Boolean);
+    const Kd = KWD();
 
     for (const raw of lines) {
-      const line = stripReminder(raw);
+      let line = stripReminder(raw);
       if (!line) continue;
-      const kwHit = KEYWORDS.find((k) => k.re.test(line));
-      if (kwHit) {
-        kwHit.set(kw, line.match(kwHit.re));
+      // ハイパーモードの区切り
+      const hm = line.match(/^ハイパーモード\s*(\d+)?/);
+      if (hm) {
+        inHyper = true;
+        hyperUsed = true;
+        if (hm[1]) kw.hyperPower = +hm[1];
         continue;
       }
-      let when = null;
+      const K = inHyper ? hyper.kw : kw;
+      const A = inHyper ? hyper.abilities : abilities;
+      // キーワード辞書
+      const hit = Kd && Kd.match(line, raw);
+      if (hit) {
+        if (hit.e.set) hit.e.set(K, hit.m, raw);
+        if (!hit.e.auto) known.push({ name: hit.e.name, desc: hit.e.desc, text: raw });
+        continue;
+      }
+      // 旧来の書式（後方互換）
+      const kwHit = KEYWORDS.find((k) => k.re.test(line));
+      if (kwHit) {
+        kwHit.set(K, line.match(kwHit.re));
+        continue;
+      }
+      // マナ武装N：… → 条件付きの能力
+      let cond = null;
+      const ma = line.match(/^マナ武装\s*(\d+)[：:]\s*(.*)$/);
+      if (ma) {
+        line = ma[2];
+        cond = { manaCiv: null, n: +ma[1] };
+      }
+      const mc = line.match(/自分のマナゾーンに(光|水|闇|火|自然)のカードが(\d+)枚以上あれば、/);
+      if (mc) {
+        cond = { manaCiv: CIVJ[mc[1]], n: +mc[2] };
+        line = line.replace(mc[0], '');
+      }
+      // マナ武装の召喚コスト軽減
+      const mcost = line.match(/^このクリーチャーの召喚コストを(\d+)少なくする。?$/);
+      if (mcost && cond) {
+        K.manaArmedCost = { ...cond, n2: +mcost[1] };
+        continue;
+      }
+      // 封印
+      const seal = line.match(/封印を(\d+)つ付ける/);
+      let whens = [];
       let body = line;
-      for (const t of TRIGGERS) {
-        if (t.re.test(line)) {
-          when = t.when;
-          body = line.replace(t.re, '');
-          break;
+      // 「出た時または攻撃する時」
+      const both = line.match(/^このクリーチャーが(バトルゾーンに)?出た時(または|か|、)攻撃する時、/);
+      if (both) {
+        whens = ['summon', 'attack'];
+        body = line.replace(both[0], '');
+      } else {
+        for (const t of TRIGGERS) {
+          if (t.re.test(line)) {
+            whens = [t.when];
+            body = line.replace(t.re, '');
+            break;
+          }
         }
       }
-      if (!when) {
-        if (def.type === 'spell') when = 'cast';
+      if (seal && !whens.length) whens = ['summon'];
+      if (!whens.length) {
+        if (def.type === 'spell') whens = ['cast'];
         else {
           manual.push(raw);
+          if (Kd) for (const e of Kd.mentions(line)) known.push({ name: e.name, desc: e.desc, text: raw });
           continue;
         }
       }
-      const acts = parseEffects(body);
-      if (acts) abilities.push({ when, acts, text: raw });
-      else manual.push(raw);
+      const acts = seal ? [{ act: 'seal', n: +seal[1] }] : parseEffects(body);
+      if (acts) for (const w of whens) A.push({ when: w, acts, cond, text: raw });
+      else {
+        manual.push(raw);
+        if (Kd) for (const e of Kd.mentions(line)) known.push({ name: e.name, desc: e.desc, text: raw });
+      }
     }
-    return { kw, abilities, manual };
+    // パワーアタッカー・ブレイカーなどの初期値
+    return { kw, abilities, manual, known, hyper: hyperUsed ? hyper : null };
   }
 
   const ACT_LABEL = {
@@ -203,6 +262,7 @@
     selfDiscard: (a) => `自分の手札${a.n}枚捨て`,
     mill: (a) => `山札から${a.n}枚墓地へ`,
     untapSelf: () => `自身をアンタップ`,
+    seal: (a) => `封印を${a.n}つ付ける`,
   };
   function sideJ(s) {
     return s === 'opp' ? '相手の' : s === 'self' ? '自分の' : '';
@@ -212,6 +272,9 @@
   }
   const WHEN_LABEL = { summon: '出た時', attack: '攻撃時', destroyed: '破壊時', turnStart: 'ターン開始時', turnEnd: 'ターン終了時', shieldAdded: 'シールド追加時', cast: '呪文' };
 
+  function civJ(c) {
+    return { light: '光', water: '水', darkness: '闇', fire: '火', nature: '自然' }[c] || '';
+  }
   function describe(parsed) {
     const out = [];
     const k = parsed.kw;
@@ -231,8 +294,26 @@
     if (k.breakSubstitute) out.push('ブレイク身代わり');
     if (k.exLife) out.push('EXライフ');
     if (k.gStrike) out.push('G・ストライク');
-    for (const ab of parsed.abilities) {
-      out.push(`${WHEN_LABEL[ab.when]}: ` + ab.acts.map((a) => ACT_LABEL[a.act](a) + (a.optional ? '(任意)' : '')).join(' → '));
+    const flags = {
+      justDiver: 'ジャストダイバー', shieldGo: 'シールド・ゴー', escape: 'エスケープ', guardman: 'ガードマン', poweredBreaker: 'パワード・ブレイカー',
+      attackUntapped: 'アンタップ攻撃可', untargetable: '相手に選ばれない', sinkarize: 'シンカライズ', zRush: 'Zラッシュ',
+    };
+    for (const [f, label] of Object.entries(flags)) if (k[f]) out.push(label);
+    if (k.ninjaStrike) out.push(`ニンジャ・ストライク${k.ninjaStrike}`);
+    if (k.bad) out.push(`B・A・D${k.bad}`);
+    if (k.sasage) out.push(`ササゲール${k.sasage}${k.sasageFor ? '（' + k.sasageFor + '）' : ''}`);
+    if (k.sympathy) out.push(`シンパシー（${k.sympathy}）`);
+    if (k.revChange) out.push(`革命チェンジ（${k.revChange.text}）`);
+    if (k.invasion) out.push(`侵略（${k.invasion.text}）`);
+    if (k.evolution) out.push(k.evolution === 'neo' ? 'NEO進化' : '進化');
+    if (k.gZero) out.push(`G・ゼロ（${k.gZero}）`);
+    if (k.spellLockMax != null) out.push(`相手のコスト${k.spellLockMax}以下の呪文を封じる`);
+    if (k.manaArmedCost) out.push(`マナ武装${k.manaArmedCost.n}: コスト-${k.manaArmedCost.n2}`);
+    const ab = (x) => `${WHEN_LABEL[x.when]}: ` + (x.cond ? `[マナに${x.cond.manaCiv ? civJ(x.cond.manaCiv) : ''}${x.cond.n}枚以上なら] ` : '') + x.acts.map((a) => ACT_LABEL[a.act](a) + (a.optional ? '(任意)' : '')).join(' → ');
+    for (const x of parsed.abilities) out.push(ab(x));
+    if (parsed.hyper) {
+      const hk = describe({ kw: parsed.hyper.kw, abilities: parsed.hyper.abilities });
+      out.push(`ハイパーモード${k.hyperPower ? '(' + k.hyperPower + ')' : ''}: ${hk.join('・') || '—'}`);
     }
     return out;
   }

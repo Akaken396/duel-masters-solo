@@ -143,16 +143,12 @@
   }
   S['覇王の頭蓋 髑髏魔城'] = {
     summon(g, card) {
-      addSeals(g, card, 7);
+      g.addSeals(card, 7);
     },
     async turnStart(g, card) {
-      await removeSeal(g, card, () => skullAllGone(g, card));
+      await g.removeSeal(card); // 自分のコマンドが出た時の封印外しはエンジン側の共通ルール
     },
-    // 自分の闇のコマンドが出たら封印を1つ外す
-    async onAnyEnter(g, src, card) {
-      if (card.owner !== src.owner || !hasCiv(card, 'darkness') || !hasRace(card, 'コマンド')) return;
-      await removeSeal(g, src, () => skullAllGone(g, src));
-    },
+    sealsGone: (g, card) => skullAllGone(g, card),
   };
 
   S['ア・ストラ・ゼーレの電影'] = {
@@ -160,8 +156,7 @@
       for (const p of [pi, 1 - pi]) if (g.p[p].hand.length) await discard(g, p, 1, card);
     },
     graveUse: (g, src, pi, card) => src.usedTurn !== g.turn && isCreature(g, card) && hasRace(card, 'ディスペクター'),
-    costMod: sasage3,
-    sasage: sasageOk,
+    // ササゲールはテキストの「ササゲール3」を汎用処理
   };
 
   S['邪杯と魔術の決断'] = {
@@ -224,8 +219,6 @@
       }
       g.log(`${me.name}は山札の上から4枚見て1枚を手札に加えた`);
     },
-    costMod: sasage3,
-    sasage: sasageOk,
     destroyed(g, card) {
       g.log(`【手動】${name(card)}: 次の自分のターンのはじめまで、自分のクリーチャー1体は相手の呪文で選ばれない`);
     },
