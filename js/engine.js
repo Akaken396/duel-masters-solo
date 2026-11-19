@@ -203,7 +203,17 @@
     selectable(card, chooserPi) {
       if (card.owner === chooserPi || this.zoneOf(card) !== 'battle') return true;
       const k = this.kw(card);
-      if (k.untargetable) return false;
+      if (k.untargetable === true) return false;
+      if (k.untargetable && this.protectOk(k.untargetable, card)) return false;
+      for (const src of this.p[card.owner].battle) {
+        for (const pr of this.kw(src).protects || []) {
+          if (!this.protectOk(pr, card)) continue;
+          if (/^他の/.test(pr.who) && card === src) continue;
+          if (!pr._cond) pr._cond = G.TextParse && G.TextParse.lookCond ? G.TextParse.lookCond(pr.who.replace(/^他の(、)?/, '').replace(/^(タップされている|タップしている)/, '')) : {};
+          if (/^タップ(されて|して)いる/.test(pr.who) && !card.tapped) continue;
+          if (this.fitLook(card, pr._cond)) return false;
+        }
+      }
       if ((card.jdUntil || 0) >= this.turn) return false;
       const sc = this.sc(card);
       if (sc && sc.untargetable && sc.untargetable(this, card)) return false;
@@ -217,6 +227,17 @@
       if ((card.protectUntil || 0) >= this.turn) return false;
       // アアルカイトの電影：呪文で選ばれない
       if ((card.spellShieldUntil || 0) >= this.turn && this.currentSource && this.currentSource.type === 'spell') return false;
+      return true;
+    }
+    // 「選ばれない」の条件が今満たされているか
+    protectOk(o, card) {
+      const src = this.currentSource;
+      if (o.unknown) return false;
+      if (o.bySpell && !(src && src.type === 'spell')) return false;
+      if (o.exceptCiv && src && (src.civs || []).includes(o.exceptCiv)) return false;
+      if (o.onlyCiv && !(src && (src.civs || []).includes(o.onlyCiv))) return false;
+      if (o.oppTurn && this.active === card.owner) return false;
+      if (o.count || o.faceUpShieldsGE) return this.condOk2(card.owner, o, card);
       return true;
     }
     // 「火または自然のコスト5以上のドラゴン」などの条件に合うか
@@ -2323,14 +2344,22 @@
       }
       const op = this.opp(pi);
       const t = [];
-      const canHit = (c) => this.isCreature(c) && !((c.jdUntil || 0) >= this.turn);
+      const canHit = (c) => {
+        if (!this.isCreature(c) || (c.jdUntil || 0) >= this.turn) return false;
+        const nb = this.kw(c).noBeAttacked;
+        if (nb === true) return false;
+        if (nb && nb.byCiv && (card.def.civs || []).includes(nb.byCiv)) return false;
+        if (nb && nb.needOther && op.battle.some((x) => x !== c && this.isCreature(x))) return false;
+        return true;
+      };
       // 「可能ならこのクリーチャーを攻撃する」
       const forced = op.battle.filter((c) => canHit(c) && this.kw(c).forceAttack && (c.tapped || k.attackUntapped || card.sick));
       if (card.sick) {
         if (k.machFighter && card.enteredTurn === this.turn) t.push(...op.battle.filter(canHit));
         return t;
       }
-      const noPlayer = k.cantAttackPlayer || lackCreatures || (k.playerAttackNeedShieldAdded && this.p[pi].shieldAddedTurn !== this.turn);
+      const guard = op.battle.some((s) => this.isCreature(s) && this.kw(s).playerGuardPower && this.power(card) < this.power(s));
+      const noPlayer = guard || k.cantAttackPlayer || lackCreatures || (k.playerAttackNeedShieldAdded && this.p[pi].shieldAddedTurn !== this.turn);
       if (!noPlayer) t.push('player');
       t.push(...op.battle.filter((c) => canHit(c) && (c.tapped || k.attackUntapped)));
       if (forced.length) return t.filter((x) => x !== 'player' && forced.includes(x));
@@ -2430,7 +2459,11 @@
           }
         }
         // ブロック
-        if (!this.kw(card).unblockable && !((card.unblockableTurn || 0) === this.turn)) {
+        const teamUnb = this.permanents(pi).some((s) => {
+          const tu = this.kw(s).teamUnblock;
+          return tu && (!tu.who || ((card.def.races || []).join('/') + card.def.name).includes(tu.who));
+        });
+        if (!teamUnb && !this.kw(card).unblockable && !((card.unblockableTurn || 0) === this.turn)) {
           const blockers = op.battle.filter((c) => !c.tapped && this.isCreature(c) && this.kw(c).blocker && c !== tgtCard && !((c.lockedUntil || 0) >= this.turn));
           if (blockers.length) {
             const r = await this.choose(op.idx, {

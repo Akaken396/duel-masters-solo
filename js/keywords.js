@@ -154,6 +154,43 @@
     { name: '攻撃できない', re: /^このクリーチャーは(、)?攻撃できない。?$/, auto: true, set: (k) => (k.cantAttack = true), desc: '攻撃できない' },
     { name: 'プレイヤー攻撃不可', re: /^このクリーチャーは(、)?(相手)?プレイヤーを攻撃できない。?$/, auto: true, set: (k) => (k.cantAttackPlayer = true), desc: 'プレイヤーを攻撃できない' },
     { name: 'アンタップ攻撃', re: /^このクリーチャーは(、)?(相手の)?アンタップしている(相手の)?クリーチャーを攻撃できる。?$/, auto: true, set: (k) => (k.attackUntapped = true), desc: 'アンタップしているクリーチャーも攻撃できる' },
+    { name: '選ばれない（条件・呪文つき）', re: /^(?<turn>相手のターン中、)?(?<by>(?<bciv>光以外の|(光|水|闇|火|自然)の)?(呪文(の効果)?|呪文またはクリーチャーの能力|呪文の効果やクリーチャーの能力)によって、?)?((相手が(、)?(バトルゾーンにある)?(自分の)?クリーチャーを選ぶ時|バトルゾーンにある(自分の)?クリーチャーを相手が選ぶ時|自分のクリーチャーを相手が選ぶ時|相手が自分のクリーチャーを選ぶ時)、)?(?<cond>[^、。]+?(あれば|なら)、)?(このクリーチャー(は|を)(、)?(相手に)?(選べない|選ばれない|選ぶことはできない)|自分の(?<who>[^、。]+?)(は(、)?(呪文によって)?(相手に)?選ばれない|を選ぶことはできない|は選べない))。?$/, auto: true,
+      test: (line) => /選/.test(line) && !/攻撃またはブロック/.test(line),
+      set: (k, m) => {
+        const g = m.groups;
+        const o = {};
+        if (g.by || /呪文によって/.test(m[0])) o.bySpell = true;
+        if (g.bciv) {
+          const cv = g.bciv.match(/(光|水|闇|火|自然)/)[1];
+          if (/以外/.test(g.bciv)) o.exceptCiv = CIVJ[cv];
+          else o.onlyCiv = CIVJ[cv];
+        }
+        if (g.turn) o.oppTurn = true;
+        if (g.cond) {
+          const c = g.cond;
+          let mm;
+          if ((mm = c.match(/^(バトルゾーンに)?自分の(他の)?([^、。]+?)が(\d+)(体|つ)以上あれば、$/))) o.count = { what: mm[3], n: +mm[4], others: !!mm[2] };
+          else if ((mm = c.match(/^(バトルゾーンに)?自分の(他の)?([^、。]+?)があれば、$/))) o.count = { what: mm[3], n: 1, others: !!mm[2] };
+          else if (/シールドゾーンに表向きであれば/.test(c)) o.faceUpShieldsGE = 1;
+          else o.unknown = true;
+        }
+        if (g.who) {
+          (k.protects = k.protects || []).push({ ...o, who: g.who.replace(/^、/, '') });
+        } else k.untargetable = Object.keys(o).length ? o : true;
+      }, desc: '相手に選ばれない（条件つき）' },
+    { name: '攻撃されない', re: /^(?<other>自分の他のクリーチャーがあれば、)?このクリーチャーは(、)?((?<civ>光|水|闇|火|自然)のクリーチャー(から|に))?攻撃(?<blk>またはブロック)?されない。?$/, auto: true,
+      set: (k, m) => {
+        k.noBeAttacked = m.groups.other || m.groups.civ ? { needOther: !!m.groups.other, byCiv: m.groups.civ ? CIVJ[m.groups.civ] : null } : true;
+        if (m.groups.blk) k.unblockable = true;
+      }, desc: '攻撃されない' },
+    { name: '自分より小さいクリーチャーにプレイヤーが攻撃されない', re: /^自分はこのクリーチャーよりパワーが小さいクリーチャーに攻撃されない。?$/, auto: true, set: (k) => (k.playerGuardPower = true), desc: 'このクリーチャーよりパワーが小さいクリーチャーは自分を攻撃できない' },
+    { name: '種族がブロックされない', re: /^自分の(?<who>[^、。「」]+?)(すべてに「(?<g>.+?)」を与え、それらはすべて|は(、)?)ブロックされない。?$/, auto: true,
+      test: (line) => !/^自分のクリーチャーは/.test(line) || true,
+      set: (k, m) => {
+        const who = m.groups.who.replace(/(・)?クリーチャー$/, '');
+        k.teamUnblock = { who: who === '' ? null : who };
+        if (m.groups.g) k.grant = { who: who || null, names: [m.groups.g] };
+      }, desc: '自分の（種族の）クリーチャーはブロックされない' },
     { name: '選べない', re: /^相手は(、)?このクリーチャーを選べない。?$/, auto: true, set: (k) => (k.untargetable = true), desc: '相手に選ばれない' },
     { name: 'タップして出てアンタップしない', re: /^このクリーチャーは(、)?タップして(バトルゾーンに)?出て、自分のターンのはじめにアンタップしない。?$/, auto: true, set: (k) => ((k.enterTapped = true), (k.noUntap = true)), desc: 'タップ状態で出て、自分のターンのはじめにアンタップしない' },
     { name: 'タップして出る', re: /^このクリーチャーは(、)?タップして(バトルゾーンに)?出る。?$/, auto: true, set: (k) => (k.enterTapped = true), desc: 'タップ状態で出る' },
