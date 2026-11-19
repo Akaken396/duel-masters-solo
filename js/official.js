@@ -40,22 +40,88 @@
       else if (!sent) prompt('このデータをコピーしてツールに貼ってください', json); else done(false);
     };
     if (document.querySelector('.card-itself')) { send(extract(document, location.href), ''); return; }
+    // 進み具合を画面に出す
+    var box = document.createElement('div');
+    box.style.cssText = 'position:fixed;z-index:99999;left:12px;bottom:12px;background:#111c32;color:#fff;padding:10px 14px;border-radius:8px;font:14px sans-serif;box-shadow:0 4px 16px rgba(0,0,0,.5)';
+    var show = function (t) { box.textContent = t; if (!box.parentNode) document.body.appendChild(box); };
+    var readCard = function (u) {
+      return fetch(u, { credentials: 'same-origin' }).then(function (r) { return r.text(); }).then(function (html) {
+        var doc = new DOMParser().parseFromString(html, 'text/html');
+        return doc.querySelector('.card-name') ? extract(doc, u) : null;
+      }).catch(function () { return null; });
+    };
+    // 取り込み済みのカードID（ツールに問い合わせる。応答がなければ空）
+    var known = {};
+    var askKnown = function (cb) {
+      if (!window.opener) return cb();
+      var done = false;
+      var h = function (e) {
+        if (e.data && e.data.app === 'dmsolo-known') {
+          (e.data.ids || []).forEach(function (i) { known[String(i).toLowerCase()] = 1; });
+          done = true; window.removeEventListener('message', h); cb();
+        }
+      };
+      window.addEventListener('message', h);
+      try { window.opener.postMessage({ app: 'dmsolo-ask-known' }, '*'); } catch (e) {}
+      setTimeout(function () { if (!done) { window.removeEventListener('message', h); cb(); } }, 1500);
+    };
+    var idOf = function (u) { var m = String(u).match(/[?&]id=([a-z0-9-]+)/i); return m ? m[1].toLowerCase() : ''; };
+    var knownCount = function () { return Object.keys(known).length; };
+
+    // パック単位：パックの記号から、カード番号 001, 002, … を順に読む（番号が続けて見つからなくなったら終了）
+    var pm = location.hash.match(/dmsolo-pack=([a-z0-9]+)/i);
+    var links0 = q('a[href*="/card/detail/?id="]');
+    var pack = pm ? pm[1] : (!links0.length ? prompt('取り込むパックの記号を入れてください（例: dm26ex4, dm26rp1）') : null);
+    if (pack) {
+      pack = pack.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+      if (!pack) return;
+      askKnown(function () {
+        var mine = Object.keys(known).filter(function (i) { return i.indexOf(pack + '-') === 0; }).length;
+        if (!confirm('パック「' + pack + '」のカードを、番号順にすべて取り込みますか？（1枚ずつ読むので数分かかることがあります）')) return;
+        var skip = mine ? confirm('このパックで取り込み済みのカードが' + mine + '枚あります。取り込み済みは飛ばしますか？\n（キャンセルを押すと、全部取り込み直します）') : false;
+        var outP = [], num = 1, miss = 0, skipped = 0;
+        var stepP = function () {
+          if (miss >= 3 || num > 400) {
+            show('パック「' + pack + '」: ' + outP.length + '枚読み込み' + (skipped ? '・' + skipped + '枚スキップ' : ''));
+            if (!outP.length && !skipped) { alert('パック「' + pack + '」のカードが見つかりませんでした。記号を確かめてください（例: dm26ex4）'); return; }
+            send({ app: 'dmsolo-official-batch', cards: outP, pack: pack, skipped: skipped }, 'パック「' + pack + '」の' + outP.length + '枚を読み込みました' + (skipped ? '（取り込み済み' + skipped + '枚はスキップ）' : '') + '。');
+            return;
+          }
+          var id = pack + '-' + ('00' + num).slice(-3);
+          num++;
+          if (skip && known[id]) { skipped++; miss = 0; stepP(); return; }
+          show('パック「' + pack + '」を取り込み中… ' + id + '（' + outP.length + '枚' + (skipped ? '・スキップ' + skipped : '') + '）');
+          readCard('https://dm.takaratomy.co.jp/card/detail/?id=' + id).then(function (c) {
+            if (c) { outP.push(c); miss = 0; } else miss++;
+            setTimeout(stepP, 400);
+          });
+        };
+        stepP();
+      });
+      return;
+    }
     // 一覧ページ：表示中のカード詳細へのリンクを集める
     var seen = {}, links = [];
-    q('a[href*="/card/detail/?id="]').forEach(function (a) { var u = new URL(a.getAttribute('href'), location.href).href; if (!seen[u]) { seen[u] = 1; links.push(u); } });
+    links0.forEach(function (a) { var u = new URL(a.getAttribute('href'), location.href).href; if (!seen[u]) { seen[u] = 1; links.push(u); } });
     if (!links.length) { alert('このページにはカードが見つかりません。カード詳細ページか、カード一覧（検索結果）ページで押してください。'); return; }
-    if (!confirm('このページに表示されている' + links.length + '枚のカードを取り込みますか？（1枚ずつ読むので少し時間がかかります）')) return;
-    var out = [], k = 0, title = document.title;
-    var next = function () {
-      if (k >= links.length) { document.title = title; send({ app: 'dmsolo-official-batch', cards: out }, out.length + '枚読み込みました。'); return; }
-      var u = links[k++];
-      document.title = '取り込み中 ' + k + '/' + links.length;
-      fetch(u, { credentials: 'same-origin' }).then(function (r) { return r.text(); }).then(function (html) {
-        var doc = new DOMParser().parseFromString(html, 'text/html');
-        if (doc.querySelector('.card-name')) out.push(extract(doc, u));
-      }).catch(function () {}).then(function () { setTimeout(next, 400); });
-    };
-    next();
+    askKnown(function () {
+      var already = links.filter(function (u) { return known[idOf(u)]; });
+      if (!confirm('このページに表示されている' + links.length + '枚のカードを取り込みますか？（1枚ずつ読むので少し時間がかかります）')) return;
+      var skip = already.length ? confirm('このうち' + already.length + '枚は取り込み済みです。飛ばしますか？\n（キャンセルを押すと、全部取り込み直します）') : false;
+      var todo = skip ? links.filter(function (u) { return !known[idOf(u)]; }) : links;
+      var out = [], k = 0;
+      var next = function () {
+        if (k >= todo.length) {
+          show(out.length + '枚読み込み' + (skip ? '・' + already.length + '枚スキップ' : ''));
+          send({ app: 'dmsolo-official-batch', cards: out, skipped: skip ? already.length : 0 }, out.length + '枚読み込みました' + (skip && already.length ? '（取り込み済み' + already.length + '枚はスキップ）' : '') + '。');
+          return;
+        }
+        var u = todo[k++];
+        show('取り込み中 ' + k + '/' + todo.length);
+        readCard(u).then(function (c) { if (c) out.push(c); setTimeout(next, 400); });
+      };
+      next();
+    });
     /* eslint-enable */
   }
 

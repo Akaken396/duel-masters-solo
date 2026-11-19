@@ -1236,9 +1236,18 @@
   window.addEventListener('message', (e) => {
     const d = e.data;
     if (d && d.app === 'dmsolo-official') importOfficial(d);
-    if (d && d.app === 'dmsolo-official-batch') importOfficialBatch(d.cards || []);
+    if (d && d.app === 'dmsolo-official-batch') importOfficialBatch(d.cards || [], d.skipped || 0);
+    // 公式ページのブックマークから「取り込み済みのカード」を聞かれたら答える
+    if (d && d.app === 'dmsolo-ask-known' && e.source) {
+      const ids = Store.cards.map((c) => Official.idFromUrl(c.officialUrl)).filter(Boolean);
+      try {
+        e.source.postMessage({ app: 'dmsolo-known', ids }, '*');
+      } catch (err) {
+        /* 送れなければスキップなしで進む */
+      }
+    }
   });
-  async function importOfficialBatch(list) {
+  async function importOfficialBatch(list, skipped = 0) {
     let add = 0;
     let upd = 0;
     let manualCards = 0;
@@ -1247,16 +1256,23 @@
         const r = await importOfficial(d, true);
         if (r === 'add') add++;
         else if (r === 'update') upd++;
-        if (r && TextParse.parseCard(Store.byName(Official.toCard(d).name)).manual.length) manualCards++;
+        const nm = Official.toCard(d).name;
+        if (r && !(window.CardScripts && CardScripts.get(nm)) && TextParse.parseCard(Store.byName(nm)).manual.length) manualCards++;
       } catch (e) {
         /* 読めなかったカードは飛ばす */
       }
     }
     Store.saveCards();
     showTab('cards');
-    alert(`${list.length}枚を取り込みました（追加 ${add}・更新 ${upd}）。\n手動の文が残っているカード: ${manualCards}枚`);
+    alert(`${list.length}枚を取り込みました（追加 ${add}・更新 ${upd}${skipped ? `・取り込み済みでスキップ ${skipped}` : ''}）。\n手動の文が残っているカード: ${manualCards}枚`);
   }
   $('#off-search').addEventListener('click', () => window.open('https://dm.takaratomy.co.jp/card/', 'dmofficial'));
+  $('#off-pack-btn').addEventListener('click', () => {
+    const code = $('#off-pack').value.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (!code) return alert('パックの記号を入れてください（例: dm26ex4）。公式サイトの商品ページURLの最後の部分です');
+    window.open('https://dm.takaratomy.co.jp/card/#dmsolo-pack=' + code, 'dmofficial');
+    alert(`公式サイトを開きました。開いたページで、ブックマーク「DM取り込み」を押してください。\nパック「${code}」のカードを番号順に取り込みます。`);
+  });
   $('#off-paste-btn').addEventListener('click', () => {
     try {
       const d = parseJsonLoose($('#off-paste').value);
