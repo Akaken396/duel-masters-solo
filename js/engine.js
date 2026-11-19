@@ -752,6 +752,10 @@
       src.usedTurn = this.turn;
       this.log(`${this.p[pi].name}は「${src.def.name}」の効果で墓地から使う`);
       await this.putIntoPlay(pi, f.card, false);
+      if (this.sc(src)?.graveCastTo === 'deckBottom' && this.zoneOf(f.card) === 'grave') {
+        this.moveTo(f.card, 'deck', { top: false });
+        this.log(`「${f.card.def.name}」は墓地のかわりに山札の下に置かれた`);
+      }
       return true;
     }
 

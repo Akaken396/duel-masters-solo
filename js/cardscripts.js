@@ -200,8 +200,12 @@
   };
 
   S['切札縫合 アビス記号jS'] = {
-    // 墓地の呪文を唱えられる（軽減量は未確認のため通常コスト）
-    graveUse: (g, src, pi, card) => card.def.type === 'spell',
+    // 出た時の「2枚引いて2枚捨てる」はテキスト解析で処理
+    // 各ターン1度、墓地から呪文を唱えられる。唱えた後は山札の下へ
+    graveUse: (g, src, pi, card) => card.def.type === 'spell' && src.usedTurn !== g.turn,
+    graveCastTo: 'deckBottom',
+    // 自分の墓地にあるカードのコストを2下げる（1未満にはならない）
+    costMod: (g, src, pi, card) => (src.owner === pi && g.zoneOf(card) === 'grave' && g.zoneOf(src) === 'battle' ? { n: 2 } : null),
   };
 
   S['アアルカイトの電影'] = {
