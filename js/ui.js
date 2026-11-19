@@ -426,7 +426,7 @@
       can = g.canPlay(pi, c) || g.canPlayTwin(pi, c) || g.canCharge(pi, c);
     } else if (mine && z === 'battle') {
       const t = g.attackTargets(c);
-      clickable = can = t.length > 0;
+      clickable = can = t.length > 0 || g.canTapAbility(c);
     }
     const e = cardFace(c.def, { inst: c, click: clickable, nameBadge: z !== 'mana' });
     if (c.tapped) e.classList.add('tapped');
@@ -477,18 +477,19 @@
     const g = game;
     const pi = c.owner;
     const ts = g.attackTargets(c);
+    const extra = g.canTapAbility(c) ? [{ label: '攻撃するかわりに、タップして能力を使う', run: () => g.act(() => g.useTapAbility(pi, c.uid), 'タップ能力') }] : [];
     openMenu(
       ev.clientX,
       ev.clientY,
       `${c.def.name}（${g.power(c)}）で攻撃`,
-      ts.map((t) =>
+      extra.concat(ts.map((t) =>
         t === 'player'
           ? {
               label: `${g.opp(pi).name}を攻撃（シールド${g.opp(pi).shields.length}）`,
               run: () => g.act(() => g.attack(pi, c.uid, 'player')),
             }
           : { label: `「${t.def.name}」(${g.power(t)})を攻撃`, run: () => g.act(() => g.attack(pi, c.uid, t.uid)) }
-      )
+      ))
     );
   }
 

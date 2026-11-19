@@ -67,6 +67,9 @@
     { re: /^このクリーチャーが(相手のクリーチャーの攻撃を)?ブロック(した|する)(時|とき)、/, when: 'block' },
     { re: /^このクリーチャーが(バトルゾーンを)?離れた(時|とき)、/, when: 'left' },
     { re: /^このクリーチャーがバトルに負けた(時|とき)、/, when: 'battleLose' },
+    { re: /^このクリーチャーがタップした(時|とき)、/, when: 'tapped' },
+    { re: /^このクリーチャーが(自分のターンのはじめに)?アンタップした(時|とき)、/, when: 'untapped' },
+    { re: /^シンカパワー[：:]この(クリーチャー|タマシード)が(進化する|進化元になる)(時|とき)、/, when: 'evolveSource' },
     { re: /^このクリーチャーが攻撃された(時|とき)(または相手に選ばれた(時|とき))?、/, when: 'attacked' },
     { re: /^このクリーチャーがバトルに勝った時、/, when: 'battleWin' },
     { re: /^相手のターンのはじめに、/, when: 'oppTurnStart' },
@@ -195,6 +198,11 @@
       return { act: 'tapOrUntap', n: +m[1] };
     }
     if (/^このクリーチャーをアンタップしてもよい$/.test(s)) return { act: 'untapSelf', optional: true };
+    if (/^(この|その)ターン、この(進化した)?クリーチャーはすべてのバトルに勝つ$/.test(s)) return { act: 'tempWinAll', until: 'turn' };
+    if (/^次の自分のターンのはじめまで、この(進化した)?クリーチャーはすべてのバトルに勝つ$/.test(s)) return { act: 'tempWinAll', until: 'next' };
+    if ((m = s.match(/^次の自分のターンのはじめまで、この(進化した)?クリーチャーは「(.+?)」(と「(.+?)」)?を得(る)?$/))) return { act: 'selfTempGrant', names: [m[2], m[4]].filter(Boolean) };
+    if (/^このクリーチャーはシールドを1つブレイクしてもよい$/.test(s)) return { act: 'breakShield', n: 1, optional: true };
+    if ((m = s.match(/^相手の(コスト(\d+)以下の)?クリーチャーを(\d+)体選んでもよい[。、]相手はそれをシールド化する$/))) return { act: 'toShield', side: 'opp', n: +m[3], optional: true, maxCost: m[2] ? +m[2] : null };
     if ((m = s.match(/^次の自分のターンのはじめまで、自分のクリーチャー(すべて|(\d+)体)に「(.+?)」(と「(.+?)」)?を与える$/))) {
       return { act: 'tempGrant', all: m[1] === 'すべて', n: m[2] ? +m[2] : 0, names: [m[3], m[5]].filter(Boolean) };
     }
@@ -317,6 +325,7 @@
       .replace(/相手のクリーチャーを(\d+)体選ぶ。(この|その)ターン、そのクリーチャーのパワーを/g, '相手のクリーチャーを$1体選び、パワーを')
       .replace(/自分の手札を(\d+)枚捨て、(その後、)?カードを(\d+)枚引く/g, '自分の手札を$1枚捨てる。カードを$3枚引く')
       .replace(/バトルゾーンにある自分のクリーチャーを(\d+)体選ぶ。次の自分のターンのはじめまで、相手がバトルゾーンにあるクリーチャーを選ぶ時、そのクリーチャーを選ぶことはできない/g, '自分のクリーチャーを$1体選んで次のターンまで選ばれなくする')
+      .replace(/選んでもよい。相手はそれをシールド化する/g, '選んでもよい。相手はそれをシールド化する'.replace('。', '、'))
       .replace(/(バトルゾーンにある)?相手のクリーチャーを(\d+)体選ぶ。そのクリーチャーと、バトルゾーンにある同じ名前を持つクリーチャーをすべてタップする/g, '相手のクリーチャーを$2体選び、同じ名前のクリーチャーをすべてタップする')
       .replace(/相手のクリーチャーを(\d+)体選んでもよい。その選んだクリーチャーとこのクリーチャーをバトルさせる/g, '相手のクリーチャーを$1体選んでバトルさせる')
       .split(/。その後、|、その後、|。/)
@@ -360,10 +369,31 @@
     }
     const Kd = KWD();
 
+    let tapNext = false;
     for (const rawObj of lines) {
       const raw = String(rawObj);
       let line = stripReminder(raw);
       if (!line) continue;
+      // タップ能力：「このクリーチャーで攻撃するかわりに、タップして（次の）能力を使ってもよい」
+      const tapAb = line.match(/^このクリーチャーで攻撃するかわりに、(このクリーチャーと自分のマナゾーンのタップされていないカードを(\d+)枚)?タップして(、)?(次の|その)?\s*([a-z]\s*)?能力を使ってもよい。?\s*(.*)$/);
+      if (tapAb) {
+        kw.tapAbility = { mana: tapAb[2] ? +tapAb[2] : 0 };
+        const rest = (tapAb[6] || '').replace(/^[a-z]\s+/, '').trim();
+        if (rest) {
+          const acts = parseEffects(rest);
+          if (acts) abilities.push({ when: 'tapAbility', acts, text: raw });
+          else manual.push(raw);
+        } else tapNext = true;
+        continue;
+      }
+      if (tapNext) {
+        tapNext = false;
+        const acts = parseEffects(line.replace(/^[a-z]\s+/, ''));
+        if (acts) {
+          abilities.push({ when: 'tapAbility', acts, text: raw });
+          continue;
+        }
+      }
       // 選択肢つきの能力（「次の中から1つ選ぶ」＋ ▶ の行）
       const inline = !rawObj.opts && line.match(/^(.*?)(次の(中|うち)から|以下から)?(\d+|いずれか1|好きな数|いくつでも)(回|つ)?選ぶ[。：:]\s*(.+)$/);
       if (rawObj.opts || (inline && /[／/]/.test(inline[6]))) {
@@ -417,6 +447,11 @@
         line = ma[2];
         cond = { manaCiv: null, n: +ma[1] };
       }
+      const cc = line.match(/(バトルゾーンに)?自分の(.+?)が(\d+)(体|枚|つ)以上あれば、/);
+      if (cc && !/マナゾーンに/.test(cc[0])) {
+        cond = { ...(cond || {}), count: { what: cc[2], n: +cc[3] } };
+        line = line.replace(cc[0], '');
+      }
       const mc = line.match(/自分のマナゾーンに(光|水|闇|火|自然)のカードが(\d+)枚以上あれば、/);
       if (mc) {
         cond = { manaCiv: CIVJ[mc[1]], n: +mc[2] };
@@ -450,12 +485,20 @@
       }
       const both = line.match(/^このクリーチャーが(バトルゾーンに)?出た時(、)?(または|か|、)攻撃する時、/);
       const atkBlk = line.match(/^このクリーチャーが攻撃(する時)?(または|か|、)ブロックした時、/);
+      const evoBoth = line.match(/^このクリーチャーが、?進化して出た時、?(または|か)進化元になる時、/);
+      const sumUntap = line.match(/^このクリーチャーが(召喚によって)?出た時、?(または)(自分のターンのはじめに)?アンタップした時、/);
       if (both) {
         whens = ['summon', 'attack'];
         body = line.replace(both[0], '');
       } else if (atkBlk) {
         whens = ['attack', 'block'];
         body = line.replace(atkBlk[0], '');
+      } else if (evoBoth) {
+        whens = ['summon', 'evolveSource'];
+        body = line.replace(evoBoth[0], '');
+      } else if (sumUntap) {
+        whens = [sumUntap[1] ? 'summonOnly' : 'summon', 'untapped'];
+        body = line.replace(sumUntap[0], '');
       } else {
         for (const t of TRIGGERS) {
           if (t.re.test(line)) {
@@ -503,6 +546,8 @@
     lookTop: (a) => `山札の上から${a.n}枚${a.reveal ? '表向き' : '見る'}→${a.cond.text || 'カード'}を${a.take === 'all' ? 'すべて' : a.take + (a.upTo ? 'まで' : '')}${{ hand: '手札', battle: '場', mana: 'マナ', grave: '墓地', shields: 'シールド' }[a.dest]}へ・残り${{ deckBottom: '山札の下', grave: '墓地', mana: 'マナ', hand: '手札', deckTop: '山札の上' }[a.rest]}`,
     mekuraid: (a) => `${a.race ? a.race + '・' : ''}メクレイド${a.n}`,
     fight: () => '相手1体とバトル',
+    tempWinAll: (a) => `${a.until === 'turn' ? 'このターン' : '次のターンまで'}すべてのバトルに勝つ`,
+    selfTempGrant: (a) => `次のターンまで${a.names.join('・')}`,
     protectOwn: (a) => `自分の${a.n}体を次のターンまで選ばれなくする`,
     tapSameName: () => '選んだクリーチャーと同名をすべてタップ',
     untapOwn: (a) => `自分のクリーチャー${a.n}体${a.optional ? 'まで' : ''}アンタップ`,
@@ -533,7 +578,7 @@
   function filt(a) {
     return (a.tappedOnly ? 'タップ中の' : '') + (a.untappedOnly ? 'アンタップ中の' : '') + (a.maxPower ? `パワー${a.maxPower}以下` : '') + (a.maxCost ? `コスト${a.maxCost}以下` : '');
   }
-  const WHEN_LABEL = { battleLose: 'バトルに負けた時', allyEnter: '味方が出た時', left: '離れた時', attacked: '攻撃された時', summonOnly: '召喚で出た時', summon: '出た時', attack: '攻撃時', destroyed: '破壊時', turnStart: 'ターン開始時', turnEnd: 'ターン終了時', shieldAdded: 'シールド追加時', cast: '呪文', block: 'ブロック時', battleWin: 'バトルに勝った時', oppTurnStart: '相手のターン開始時', broke: 'ブレイクした時' };
+  const WHEN_LABEL = { tapped: 'タップした時', untapped: 'アンタップした時', evolveSource: '進化元になる時', tapAbility: 'タップ能力', battleLose: 'バトルに負けた時', allyEnter: '味方が出た時', left: '離れた時', attacked: '攻撃された時', summonOnly: '召喚で出た時', summon: '出た時', attack: '攻撃時', destroyed: '破壊時', turnStart: 'ターン開始時', turnEnd: 'ターン終了時', shieldAdded: 'シールド追加時', cast: '呪文', block: 'ブロック時', battleWin: 'バトルに勝った時', oppTurnStart: '相手のターン開始時', broke: 'ブレイクした時' };
 
   function civJ(c) {
     return { light: '光', water: '水', darkness: '闇', fire: '火', nature: '自然' }[c] || '';
@@ -558,6 +603,7 @@
     if (k.exLife) out.push('EXライフ');
     if (k.gStrike) out.push('G・ストライク');
     if (k.yobinion) out.push('ヨビニオン');
+    if (k.tapAbility) out.push('タップ能力' + (k.tapAbility.mana ? `（マナ${k.tapAbility.mana}枚タップ）` : ''));
     const flags = {
       justDiver: 'ジャストダイバー', shieldGo: 'シールド・ゴー', escape: 'エスケープ', guardman: 'ガードマン', poweredBreaker: 'パワード・ブレイカー',
       attackUntapped: 'アンタップ攻撃可', untargetable: '相手に選ばれない', sinkarize: 'シンカライズ', zRush: 'Zラッシュ',

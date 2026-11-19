@@ -62,10 +62,7 @@
     const picked = await pick(g, pi, pl.hand.slice(), n, false, `${src ? name(src) + ': ' : ''}捨てる手札を${n}枚選んでください`, 'discard', (pool, m) =>
       pool.slice().sort((a, b) => val(g, a) - val(g, b)).slice(0, m)
     );
-    for (const c of picked) {
-      g.moveTo(c, 'grave');
-      g.log(`${pl.name}は手札の「${c.def.name}」を捨てた`);
-    }
+    for (const c of picked) await g.discardCard(c, src ? src.owner : pi);
   }
 
   function draw(g, pi, n) {
