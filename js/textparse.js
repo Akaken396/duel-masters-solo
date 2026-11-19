@@ -64,7 +64,9 @@
     { re: /^自分のターンのはじめに、/, when: 'turnStart' },
     { re: /^自分のターンの(終わり|おわり)に、/, when: 'turnEnd' },
     { re: /^(自分のシールドゾーンにカードが|カードが自分のシールドゾーンに)置かれた時、/, when: 'shieldAdded' },
-    { re: /^このクリーチャーが(相手のクリーチャーの攻撃を)?ブロックした時、/, when: 'block' },
+    { re: /^このクリーチャーが(相手のクリーチャーの攻撃を)?ブロック(した|する)(時|とき)、/, when: 'block' },
+    { re: /^このクリーチャーが(バトルゾーンを)?離れた(時|とき)、/, when: 'left' },
+    { re: /^このクリーチャーが攻撃された(時|とき)(または相手に選ばれた(時|とき))?、/, when: 'attacked' },
     { re: /^このクリーチャーがバトルに勝った時、/, when: 'battleWin' },
     { re: /^相手のターンのはじめに、/, when: 'oppTurnStart' },
     { re: /^このクリーチャーが(相手の)?シールドをブレイクした時、/, when: 'broke' },
@@ -104,7 +106,7 @@
       const civ = m[4] ? { 光: 'light', 水: 'water', 闇: 'darkness', 火: 'fire', 自然: 'nature' }[m[4]] : null;
       return { act: 'reanimate', kinds, civ, maxCost: m[3] ? +m[3] : m[6] ? +m[6] : null, n: +(m[10] || 1), optional };
     }
-    if ((m = s.match(/^(コスト(\d+)以下の)?(光|水|闇|火|自然)?の?(コスト(\d+)以下の)?(クリーチャー|タマシード)(または|か)?(クリーチャー|タマシード)?を(\d+)(体|つ|枚)(まで)?、?(自分の)?墓地から(バトルゾーンに)?出/))) {
+    if ((m = s.replace(/、?進化ではない、?/, '').match(/^(コスト(\d+)以下の)?(光|水|闇|火|自然)?の?(コスト(\d+)以下の)?(クリーチャー|タマシード)(または|か)?(クリーチャー|タマシード)?を(\d+)(体|つ|枚)(まで)?、?(自分の)?墓地から(バトルゾーンに)?出/))) {
       const kinds = [m[6], m[8]].filter(Boolean).map((k) => (k === 'クリーチャー' ? 'creature' : 'tamaseed'));
       const civ = m[3] ? { 光: 'light', 水: 'water', 闇: 'darkness', 火: 'fire', 自然: 'nature' }[m[3]] : null;
       return { act: 'reanimate', kinds, civ, maxCost: m[2] ? +m[2] : m[5] ? +m[5] : null, n: +m[9], optional };
@@ -118,7 +120,8 @@
     if ((m = s.match(/^自分の山札の上から(\d+)枚(目)?(まで)?を?(タップして)?(自分の)?マナゾーンに(タップして)?置/))) {
       return { act: 'manaBoost', n: +m[1], optional };
     }
-    if ((m = s.match(/^自分の山札の上から(\d+)枚(目)?(まで)?をシールド化する|^自分の山札の上から(\d+)枚(目)?を(自分の)?シールドゾーンに(裏向きのまま)?(加える|置く)/))) {
+    if ((m = s.match(/^自分の山札の上から(\d+)枚(目)?(まで)?をシールド化(する|してもよい)|^自分の山札の上から(\d+)枚(目)?を(自分の)?シールドゾーンに(裏向きのまま)?(加える|置く)/))) {
+      if (m[5]) m[4] = m[5];
       return { act: 'shieldAdd', n: +(m[1] || m[4]), optional };
     }
     if (/クリーチャー/.test(s) && /破壊する$|破壊してもよい$/.test(s)) {
@@ -153,7 +156,29 @@
     if ((m = s.match(/^相手のシールドを(\d+)つ選び、持ち主の墓地に置く$/))) {
       return { act: 'shieldBurn', n: +m[1] };
     }
-    if ((m = s.match(/^相手のクリーチャーを(\d+)体選ぶ。(この|その)ターン、そのクリーチャーのパワーを-(\d+)する$/))) {
+    if ((m = s.match(/^相手のクリーチャーを(\d+)体選び、パワーを(-(\d+)する|0にする)$/))) {
+      return { act: 'powerDown', side: 'opp', n: +m[1], amount: m[3] ? +m[3] : 'all' };
+    }
+    if ((m = s.match(/^相手のクリーチャーを(\d+)体選んでバトルさせる$/))) {
+      return { act: 'fight', n: +m[1], optional: true };
+    }
+    if ((m = s.match(/^(コスト(\d+)以下の)?(呪文|クリーチャー|カード|タマシード)を(\d+)(枚|体|つ)、?自分の墓地から手札に(戻|加え)/))) {
+      return { act: 'graveToHand', n: +m[4], creatureOnly: m[3] === 'クリーチャー', spellOnly: m[3] === '呪文', maxCost: m[2] ? +m[2] : null, optional: /てもよい/.test(s) };
+    }
+    if ((m = s.match(/^(コスト(\d+)以下の)?(、)?(進化ではない)?(、)?(クリーチャー|タマシード)を(\d+)(体|つ|枚)、?自分の手札から(バトルゾーンに)?出/))) {
+      return { act: 'putFromHand', maxCost: m[2] ? +m[2] : null, notEvo: !!m[4], kinds: [m[6] === 'クリーチャー' ? 'creature' : 'tamaseed'], n: +m[7], optional: /てもよい/.test(s) };
+    }
+    if ((m = s.match(/^(コスト(\d+)以下の)?呪文を(\d+)枚、?自分の手札からコストを支払わずに唱え/))) {
+      return { act: 'castFromHand', maxCost: m[2] ? +m[2] : null, n: +m[3], optional: /てもよい/.test(s) };
+    }
+    if ((m = s.match(/^クリーチャーを(\d+)体選び、タップまたはアンタップする$/))) {
+      return { act: 'tapOrUntap', n: +m[1] };
+    }
+    if (/^このクリーチャーをアンタップしてもよい$/.test(s)) return { act: 'untapSelf', optional: true };
+    if ((m = s.match(/^次の自分のターンのはじめまで、自分のクリーチャー(すべて|(\d+)体)に「(.+?)」(と「(.+?)」)?を与える$/))) {
+      return { act: 'tempGrant', all: m[1] === 'すべて', n: m[2] ? +m[2] : 0, names: [m[3], m[5]].filter(Boolean) };
+    }
+    if ((m = s.match(/^相手のクリーチャーを(\d+)体選ぶ。このターン、そのクリーチャーのパワーを-(\d+)する$/))) {
       return { act: 'powerDown', side: 'opp', n: +m[1], amount: +m[3] };
     }
     if ((m = s.match(/^相手のクリーチャーを(\d+)体選ぶ。このターン、そのクリーチャーのパワーを-(\d+)する$/))) {
@@ -251,6 +276,8 @@
     }
     const parts = body
       .replace(/(引き|引いて)、(その後、)?(自分の)?(手札を)?(\d+枚)(選び、)?捨てる/g, '引く。自分の手札を$5捨てる')
+      .replace(/相手のクリーチャーを(\d+)体選ぶ。(この|その)ターン、そのクリーチャーのパワーを/g, '相手のクリーチャーを$1体選び、パワーを')
+      .replace(/相手のクリーチャーを(\d+)体選んでもよい。その選んだクリーチャーとこのクリーチャーをバトルさせる/g, '相手のクリーチャーを$1体選んでバトルさせる')
       .split(/。その後、|、その後、|。/)
       .map((x) => x.trim())
       .filter(Boolean);
@@ -425,6 +452,11 @@
     untapSelf: () => `自身をアンタップ`,
     lookTop: (a) => `山札の上から${a.n}枚${a.reveal ? '表向き' : '見る'}→${a.cond.text || 'カード'}を${a.take === 'all' ? 'すべて' : a.take + (a.upTo ? 'まで' : '')}${{ hand: '手札', battle: '場', mana: 'マナ', grave: '墓地', shields: 'シールド' }[a.dest]}へ・残り${{ deckBottom: '山札の下', grave: '墓地', mana: 'マナ', hand: '手札', deckTop: '山札の上' }[a.rest]}`,
     mekuraid: (a) => `${a.race ? a.race + '・' : ''}メクレイド${a.n}`,
+    fight: () => '相手1体とバトル',
+    putFromHand: (a) => `手札から${a.maxCost ? 'コスト' + a.maxCost + '以下の' : ''}クリーチャーを${a.n}体出す`,
+    castFromHand: (a) => `手札から${a.maxCost ? 'コスト' + a.maxCost + '以下の' : ''}呪文を${a.n}枚唱える`,
+    tapOrUntap: (a) => `クリーチャー${a.n}体をタップかアンタップ`,
+    tempGrant: (a) => `次のターンまで自分のクリーチャー${a.all ? 'すべて' : a.n + '体'}に${a.names.join('・')}`,
     manualNote: (a) => `［手動: ${String(a.text).slice(0, 16)}…］`,
     seal: (a) => `封印を${a.n}つ付ける`,
     freezeLast: () => 'それはアンタップしない',
@@ -446,7 +478,7 @@
   function filt(a) {
     return (a.tappedOnly ? 'タップ中の' : '') + (a.untappedOnly ? 'アンタップ中の' : '') + (a.maxPower ? `パワー${a.maxPower}以下` : '') + (a.maxCost ? `コスト${a.maxCost}以下` : '');
   }
-  const WHEN_LABEL = { summonOnly: '召喚で出た時', summon: '出た時', attack: '攻撃時', destroyed: '破壊時', turnStart: 'ターン開始時', turnEnd: 'ターン終了時', shieldAdded: 'シールド追加時', cast: '呪文', block: 'ブロック時', battleWin: 'バトルに勝った時', oppTurnStart: '相手のターン開始時', broke: 'ブレイクした時' };
+  const WHEN_LABEL = { left: '離れた時', attacked: '攻撃された時', summonOnly: '召喚で出た時', summon: '出た時', attack: '攻撃時', destroyed: '破壊時', turnStart: 'ターン開始時', turnEnd: 'ターン終了時', shieldAdded: 'シールド追加時', cast: '呪文', block: 'ブロック時', battleWin: 'バトルに勝った時', oppTurnStart: '相手のターン開始時', broke: 'ブレイクした時' };
 
   function civJ(c) {
     return { light: '光', water: '水', darkness: '闇', fire: '火', nature: '自然' }[c] || '';
