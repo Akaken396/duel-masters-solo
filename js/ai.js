@@ -71,7 +71,7 @@
           if (worthPlaying(g, pi, { def: t })) cand.push({ c, twin: true, cost: +t.cost || 0, v: 0 });
         }
       }
-      for (const c of me.grave) {
+      for (const c of [...me.grave, ...me.mana]) {
         if (g.canPlayFromGrave(pi, c) && worthPlaying(g, pi, c)) cand.push({ c, grave: true, cost: +c.def.cost || 0, v: value(g, c) });
       }
       if (!cand.length) return;
@@ -136,6 +136,15 @@
             target = 'player';
             break;
           }
+        }
+      }
+      if (!chosen) {
+        // 「可能なら毎ターン攻撃する」クリーチャーは攻撃させる
+        const must = attackers.find((c) => g.mustAttack(c));
+        if (must) {
+          const tg = g.attackTargets(must);
+          chosen = must;
+          target = tg.includes('player') ? 'player' : tg[0];
         }
       }
       if (!chosen) return;

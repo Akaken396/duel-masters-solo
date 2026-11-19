@@ -549,7 +549,7 @@
         e.addEventListener('contextmenu', (ev) => {
           manualMenu(ev, c, z);
         });
-        const usable = z === 'grave' && g.winner == null && isHuman(pi) && g.active === pi && !g.busy && g.canPlayFromGrave(pi, c);
+        const usable = (z === 'grave' || z === 'mana') && g.winner == null && isHuman(pi) && g.active === pi && !g.busy && g.canPlayFromGrave(pi, c);
         if (usable) {
           e.classList.add('click', 'can');
           e.addEventListener('click', () => {

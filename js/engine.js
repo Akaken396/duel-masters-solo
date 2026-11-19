@@ -230,6 +230,15 @@
       if ((card.spellShieldUntil || 0) >= this.turn && this.currentSource && this.currentSource.type === 'spell') return false;
       return true;
     }
+    // 「可能なら毎ターン攻撃する」
+    mustAttack(card) {
+      if (this.kw(card).mustAttack === 'self') return true;
+      for (const q of [0, 1]) for (const s of this.permanents(q)) {
+        const m = this.kw(s).mustAttack;
+        if (m === 'all' || (m === 'opp' && q !== card.owner)) return true;
+      }
+      return false;
+    }
     // 「選ばれない」の条件が今満たされているか
     protectOk(o, card) {
       const src = this.currentSource;
@@ -673,6 +682,7 @@
           else await new Promise((res) => (this._endTurnResolve = res));
           if (this._undoTo) this._undoTo = null;
           if (this.winner != null || this.aborted) break;
+          if (!me.isAI) for (const c of me.battle) if (this.isCreature(c) && this.mustAttack(c) && this.attackTargets(c).length) this.log(`【注意】「${c.def.name}」は可能なら攻撃しなければならない（まだ攻撃できる）`);
           for (const c of this.permanents(this.active)) if (this.isOnField(c)) await this.trigger(c, 'turnEnd', c.owner, c.def, null, { defer: true });
           await this.resolvePending();
           await this.endTurnEffects();
@@ -1162,7 +1172,9 @@
 
     // 墓地から使えるか（ア・ストラ・ゼーレ、アビス記号など）
     graveUse(pi, card) {
-      if (this.active !== pi || card.owner !== pi || this.zoneOf(card) !== 'grave') return null;
+      if (this.active !== pi || card.owner !== pi) return null;
+      if (this.zoneOf(card) === 'mana') return parsed(card.def).kw.manaSummon ? card : null;
+      if (this.zoneOf(card) !== 'grave') return null;
       if (parsed(card.def).kw.graveSummon) return card;
       for (const src of this.permanents(pi)) {
         const sc = this.sc(src);
@@ -1171,16 +1183,48 @@
       return null;
     }
     canPlayFromGrave(pi, card) {
-      return !!this.graveUse(pi, card) && !this.locked(pi, card.def) && !!this.payment(pi, card);
+      if (!this.graveUse(pi, card) || this.locked(pi, card.def)) return false;
+      return this.withoutMana(pi, card, () => !!this.payment(pi, card));
+    }
+    // マナゾーンから召喚する時、そのカード自身は支払いに使えない
+    withoutMana(pi, card, fn) {
+      const mana = this.p[pi].mana;
+      const i = mana.indexOf(card);
+      if (i < 0) return fn();
+      mana.splice(i, 1);
+      try {
+        return fn();
+      } finally {
+        mana.splice(i, 0, card);
+      }
     }
     async playFromGrave(pi, uid) {
       const f = this.find(uid);
       if (!f || !this.canPlayFromGrave(pi, f.card)) return false;
       const src = this.graveUse(pi, f.card);
+      const fromMana = this.zoneOf(f.card) === 'mana';
+      if (fromMana) {
+        const mana = this.p[pi].mana;
+        mana.splice(mana.indexOf(f.card), 1);
+        this.p[pi].hand.push(f.card); // 支払いの間は手札扱い（自分自身は支払いに使えない）
+        f.card.tapped = false;
+      }
       await this.pay(pi, f.card, f.card.def);
+      if (fromMana) {
+        this.log(`${this.p[pi].name}は「${f.card.def.name}」をマナゾーンから召喚する`);
+        await this.putIntoPlay(pi, f.card, false);
+        return true;
+      }
       if (src !== f.card) src.usedTurn = this.turn;
       this.log(src === f.card ? `${this.p[pi].name}は「${src.def.name}」を墓地から召喚する` : `${this.p[pi].name}は「${src.def.name}」の効果で墓地から使う`);
       await this.putIntoPlay(pi, f.card, false);
+      if (src === f.card && parsed(f.card.def).kw.abyssRush && this.zoneOf(f.card) === 'battle') {
+        f.card.abyssTurn = this.turn;
+        const me = this.p[pi];
+        me.endTurnActs = me.endTurnActs || [];
+        me.endTurnActs.push({ uid: f.card.uid, to: 'deckBottom', turn: this.turn });
+        this.log(`アビスラッシュ：「${f.card.def.name}」はこのターン、プレイヤーを攻撃できる`);
+      }
       if (this.sc(src)?.graveCastTo === 'deckBottom' && this.zoneOf(f.card) === 'grave') {
         this.moveTo(f.card, 'deck', { top: false });
         this.log(`「${f.card.def.name}」は墓地のかわりに山札の下に置かれた`);
@@ -2106,6 +2150,64 @@
           if (und.length) this.log(`${nm}の下にあったカード${und.length}枚を手札に加えた`);
           break;
         }
+        case 'pickTarget': {
+          const pool = this.targetsFor(a, pi);
+          const r = await this.pickCards(pi, pool, a.n, a.optional, `${nm}: クリーチャーを${a.n}体選んでください`, a.side === 'self' ? 'recover' : 'target', 'destroy');
+          this.chosenHist = (this.chosenHist || []).concat(r).slice(-4);
+          if (!r.length) {
+            this.lastChosen = [];
+            this.lastChosenSeq = (this._seq = (this._seq || 0) + 1);
+          }
+          break;
+        }
+        case 'powerLast':
+          for (const c of (this.lastChosen || []).filter((x) => this.zoneOf(x) === 'battle')) {
+            c.tempPower = (c.tempPower || 0) + a.n;
+            if (a.names) {
+              const pl = this.p[c.owner];
+              (pl.tempGrants = pl.tempGrants || []).push({ names: a.names, until: this.turn, uids: [c.uid], power: 0 });
+            }
+            this.log(`「${c.def.name}」のパワーはこのターン${a.n > 0 ? '+' : ''}${a.n}（${this.power(c)}）`);
+          }
+          {
+            const dead = (this.lastChosen || []).filter((x) => this.zoneOf(x) === 'battle' && this.isCreature(x) && this.power(x) <= 0);
+            if (dead.length) await this.destroyMany(dead);
+          }
+          break;
+        case 'lockLast':
+          for (const c of (this.lastChosen || []).filter((x) => this.zoneOf(x) === 'battle')) {
+            c.lockedUntil = this.nextTurnOf(pi) - 1;
+            this.log(`「${c.def.name}」は次の${me.name}のターンのはじめまで攻撃もブロックもできない`);
+          }
+          break;
+        case 'fightLast': {
+          const t = (this.lastChosen || []).find((x) => this.zoneOf(x) === 'battle');
+          if (t && src && this.zoneOf(src) === 'battle' && t !== src) await this.battle(src, t);
+          break;
+        }
+        case 'fightLastTwo': {
+          const h = (this.chosenHist || []).filter((x) => this.zoneOf(x) === 'battle');
+          const x = h[h.length - 2], y = h[h.length - 1];
+          if (x && y && x !== y) await this.battle(x, y);
+          else if (y && src && this.zoneOf(src) === 'battle' && y !== src) await this.battle(src, y);
+          break;
+        }
+        case 'moveLast':
+          for (const c of (this.lastChosen || []).filter((x) => this.zoneOf(x) === 'battle')) {
+            if (a.to === 'deckShuffle') {
+              if (await this.leave(c, 'deck', { byOpp: c.owner !== pi, shuffleAfter: true })) this.log(`「${c.def.name}」は山札に加えられた`);
+            } else if (a.to === 'deckBottom') {
+              if (await this.leave(c, 'deck', { byOpp: c.owner !== pi, moveOpt: { top: false } })) this.log(`「${c.def.name}」は山札の下に置かれた`);
+            } else if (await this.leave(c, a.to, { byOpp: c.owner !== pi })) this.log(`「${c.def.name}」は${ZONE_LABEL[a.to]}に置かれた`);
+          }
+          break;
+        case 'discardOwnAll': {
+          if (!me.hand.length) break;
+          if (a.optional && !(await this.yesNo(pi, `${nm}: 手札をすべて捨てますか？`, src))) break;
+          for (const c of me.hand.slice()) this.moveTo(c, 'grave');
+          this.log(`${me.name}は手札をすべて捨てた`);
+          break;
+        }
         case 'pairFight': {
           const mine = await this.pickCards(pi, me.battle.filter((c) => this.isCreature(c)), 1, a.optional, `${nm}: バトルさせる自分のクリーチャー`, 'recover');
           if (!mine.length) break;
@@ -2571,14 +2673,14 @@
       };
       // 「可能ならこのクリーチャーを攻撃する」
       const forced = op.battle.filter((c) => canHit(c) && this.kw(c).forceAttack && (c.tapped || k.attackUntapped || card.sick));
-      if (card.sick) {
+      if (card.sick && card.abyssTurn !== this.turn) {
         if (k.machFighter && card.enteredTurn === this.turn) t.push(...op.battle.filter(canHit));
         return t;
       }
       const guard = op.battle.some((s) => this.isCreature(s) && this.kw(s).playerGuardPower && this.power(card) < this.power(s)) || this.permanents(1 - pi).some((s) => this.kw(s).noPlayerAttack);
       const noPlayer = guard || needNoPlayer || k.cantAttackPlayer || lackCreatures || (k.playerAttackNeedShieldAdded && this.p[pi].shieldAddedTurn !== this.turn);
       if (!noPlayer) t.push('player');
-      t.push(...op.battle.filter((c) => canHit(c) && (c.tapped || k.attackUntapped)));
+      if (!k.cantAttackCreature && !(card.sick && card.abyssTurn === this.turn)) t.push(...op.battle.filter((c) => canHit(c) && (c.tapped || k.attackUntapped)));
       if (forced.length) return t.filter((x) => x !== 'player' && forced.includes(x));
       return t;
     }
