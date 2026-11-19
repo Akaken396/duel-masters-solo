@@ -43,9 +43,34 @@
     // 進み具合を画面に出す
     var box = document.createElement('div');
     box.style.cssText = 'position:fixed;z-index:99999;left:12px;bottom:12px;background:#111c32;color:#fff;padding:10px 14px;border-radius:8px;font:14px sans-serif;box-shadow:0 4px 16px rgba(0,0,0,.5)';
-    var show = function (t) { box.textContent = t; if (!box.parentNode) document.body.appendChild(box); };
+    // 進み具合の表示と「中止」ボタン（中止すると、そこまでに読んだ分を送る）
+    var stopped = false;
+    var msg = document.createElement('span');
+    var stopBtn = document.createElement('button');
+    stopBtn.textContent = '中止して、ここまでを取り込む';
+    stopBtn.style.cssText = 'margin-left:10px;padding:2px 8px;cursor:pointer';
+    stopBtn.onclick = function () { stopped = true; stopBtn.disabled = true; stopBtn.textContent = '中止しています…'; };
+    box.appendChild(msg);
+    box.appendChild(stopBtn);
+    var show = function (t) { msg.textContent = t; if (!box.parentNode) document.body.appendChild(box); };
+    var failed = 0;
+    // 時間切れ付きの読み込み（20秒）。失敗したら1回だけやり直す
+    var fetchT = function (u, opt, retry) {
+      var ctl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+      var timer = setTimeout(function () { if (ctl) ctl.abort(); }, 20000);
+      var o = Object.assign({ credentials: 'same-origin' }, opt || {});
+      if (ctl) o.signal = ctl.signal;
+      return fetch(u, o).then(function (r) { clearTimeout(timer); if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
+        .catch(function (e) {
+          clearTimeout(timer);
+          if (!retry) return new Promise(function (res) { setTimeout(res, 1500); }).then(function () { return fetchT(u, opt, true); });
+          failed++;
+          return null;
+        });
+    };
     var readCard = function (u) {
-      return fetch(u, { credentials: 'same-origin' }).then(function (r) { return r.text(); }).then(function (html) {
+      return fetchT(u).then(function (html) {
+        if (!html) return null;
         var doc = new DOMParser().parseFromString(html, 'text/html');
         return doc.querySelector('.card-name') ? extract(doc, u) : null;
       }).catch(function () { return null; });
@@ -81,7 +106,8 @@
         var skip = mine ? confirm('このパックで取り込み済みのカードが' + mine + '枚あります。取り込み済みは飛ばしますか？\n（キャンセルを押すと、全部取り込み直します）') : false;
         var outP = [], num = 1, miss = 0, skipped = 0;
         var stepP = function () {
-          if (miss >= 3 || num > 400) {
+          if (miss >= 3 || num > 400 || stopped) {
+            stopBtn.remove();
             show('パック「' + pack + '」: ' + outP.length + '枚読み込み' + (skipped ? '・' + skipped + '枚スキップ' : ''));
             if (!outP.length && !skipped) { alert('パック「' + pack + '」のカードが見つかりませんでした。記号を確かめてください（例: dm26ex4）'); return; }
             send({ app: 'dmsolo-official-batch', cards: outP, pack: pack, skipped: skipped }, 'パック「' + pack + '」の' + outP.length + '枚を読み込みました' + (skipped ? '（取り込み済み' + skipped + '枚はスキップ）' : '') + '。');
@@ -138,13 +164,14 @@
         return body.toString();
       };
       var stepPage = function () {
-        if (page > lastPage) return cb();
-        show('検索結果をめくっています… ' + page + '/' + lastPage + 'ページ（' + links.length + '枚）');
+        if (page > lastPage || stopped) return cb();
+        show('検索結果をめくっています… ' + page + '/' + lastPage + 'ページ（' + links.length + '枚' + (failed ? '・読めなかったページ' + failed : '') + '）');
         if (page === curPage) { page++; return stepPage(); }
         var pg = page++;
-        fetch(action, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8', 'X-Requested-With': 'XMLHttpRequest' }, body: buildBody(pg) })
-          .then(function (r) { return r.text(); })
-          .then(function (html) { addLinks(new DOMParser().parseFromString(html, 'text/html'), action); })
+        var body;
+        try { body = buildBody(pg); } catch (e) { failed++; return setTimeout(stepPage, 400); }
+        fetchT(action, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8', 'X-Requested-With': 'XMLHttpRequest' }, body: body })
+          .then(function (html) { if (html) addLinks(new DOMParser().parseFromString(html, 'text/html'), action); })
           .catch(function () {})
           .then(function () { setTimeout(stepPage, 400); });
       };
@@ -158,13 +185,14 @@
         var todo = skip ? links.filter(function (u) { return !known[idOf(u)]; }) : links;
         var out = [], k = 0;
         var next = function () {
-          if (k >= todo.length) {
-            show(out.length + '枚読み込み' + (skip ? '・' + already.length + '枚スキップ' : ''));
+          if (k >= todo.length || stopped) {
+            show(out.length + '枚読み込み' + (skip ? '・' + already.length + '枚スキップ' : '') + (failed ? '・読めなかった' + failed : '') + (stopped ? '（中止）' : ''));
+            stopBtn.remove();
             send({ app: 'dmsolo-official-batch', cards: out, skipped: skip ? already.length : 0 }, out.length + '枚読み込みました' + (skip && already.length ? '（取り込み済み' + already.length + '枚はスキップ）' : '') + '。');
             return;
           }
           var u = todo[k++];
-          show('取り込み中 ' + k + '/' + todo.length);
+          show('取り込み中 ' + k + '/' + todo.length + (failed ? '（読めなかった' + failed + '）' : ''));
           readCard(u).then(function (c) { if (c) out.push(c); setTimeout(next, 400); });
         };
         next();
