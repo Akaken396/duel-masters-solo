@@ -817,7 +817,7 @@
     }
     // 効果の前後で盤面が変わったか（「そうしたら」の判定用）
     stateSig() {
-      return this.p.map((pl) => ['hand', 'mana', 'battle', 'grave', 'shields', 'deck'].map((z) => pl[z].length).join(',') + ':' + [...pl.battle, ...pl.mana].filter((c) => c.tapped).length).join('|');
+      return this.p.map((pl) => ['hand', 'mana', 'battle', 'grave', 'shields', 'deck'].map((z) => pl[z].length).join(',') + ':' + [...pl.battle, ...pl.mana].filter((c) => c.tapped).length + ':' + pl.battle.reduce((s, c) => s + (c.under || []).length, 0)).join('|') + '#' + (this.showCount || 0);
     }
 
     async yesNo(pi, prompt, card) {
@@ -2228,7 +2228,9 @@
           break;
         }
         case 'selfDiscard': {
-          const picked = await this.pickCards(pi, me.hand.slice(), a.n, false, `${nm}: 捨てる手札を${a.n}枚選んでください`, 'discard');
+          const dpool = me.hand.filter((c) => !a.cond || this.fitLook(c, a.cond));
+          if (a.cond && dpool.length < a.n) break;
+          const picked = await this.pickCards(pi, dpool, a.n, !!a.optional, `${nm}: 捨てる手札を${a.n}枚選んでください`, 'discard');
           for (const c of picked) {
             this.moveTo(c, 'grave');
             this.log(`${me.name}は手札の「${c.def.name}」を捨てた`);
@@ -2433,7 +2435,8 @@
           break;
         }
         case 'handToMana': {
-          const r = await this.pickCards(pi, me.hand.slice(), a.n, a.optional, `${nm}: マナゾーンに置く手札`, 'discard');
+          if (a.all && a.optional && !(await this.yesNo(pi, `${nm}: 手札をすべてマナゾーンに置きますか？`, src))) break;
+          const r = a.all ? me.hand.slice() : await this.pickCards(pi, me.hand.slice(), a.n, a.optional, `${nm}: マナゾーンに置く手札`, 'discard');
           for (const c of r) {
             this.moveTo(c, 'mana', { tapped: (c.def.civs || []).length > 1 });
             this.log(`${me.name}は手札の「${c.def.name}」をマナゾーンに置いた`);
@@ -2494,6 +2497,34 @@
             this.log(`${me.name}はGR召喚した`);
             await this.enterBattle(c, pi, 'gr');
           }
+          break;
+        }
+        case 'showOwn': {
+          const pool = me.hand.filter((c) => this.fitLook(c, a.cond));
+          if (pool.length < a.n) break;
+          const r = await this.pickCards(pi, pool, a.n, a.optional, `${nm}: 相手に見せる手札（${a.cond.text}）`, 'recover');
+          if (r.length < a.n) break;
+          this.log(`${me.name}は手札の${r.map((c) => '「' + c.def.name + '」').join('')}を見せた`);
+          this.showCount = (this.showCount || 0) + 1; // 「そうしたら」判定用
+          break;
+        }
+        case 'tapManaCost': {
+          const pool = me.mana.filter((c) => !c.tapped);
+          if (pool.length < a.n) break;
+          if (a.optional && !(await this.yesNo(pi, `${nm}: マナを${a.n}枚タップしますか？`, src))) break;
+          const r = me.isAI ? pool.slice(0, a.n) : await this.pickCards(pi, pool, a.n, false, `${nm}: タップするマナ`, 'discard');
+          for (const c of r) c.tapped = true;
+          this.log(`${me.name}はマナを${r.length}枚タップした`);
+          break;
+        }
+        case 'underToGrave': {
+          const und = (src && src.under) || [];
+          if (und.length < a.n) break;
+          if (a.optional && !(await this.yesNo(pi, `${nm}: 下にあるカードを${a.n}枚墓地に置きますか？`, src))) break;
+          const r = und.slice(-a.n);
+          src.under = und.slice(0, und.length - a.n);
+          for (const c of r) this.p[c.owner].grave.push(c);
+          this.log(`${nm}の下のカード${r.length}枚を墓地に置いた`);
           break;
         }
         case 'destroyOwn': {
@@ -2772,6 +2803,8 @@
           break;
         }
         case 'ownShieldToGrave': {
+          if (a.optional && me.shields.length < a.n) break;
+          if (a.optional && !(await this.yesNo(pi, `${nm}: 自分のシールドを${a.n}つ墓地に置きますか？`, src))) break;
           const r = await this.pickCards(pi, me.shields.slice(), a.n, false, `${nm}: 墓地に置く自分のシールド`, 'discard');
           for (const c of r) this.moveTo(c, 'grave');
           if (r.length) {

@@ -393,7 +393,12 @@
     if ((m = s.match(/^自分の山札の上から(\d+)枚(目)?を(、)?(裏向きのまま|裏向きにして|表向きにし|表向きにして)?(、)?(新しいシールドとして)?(、)?(自分の)?(シールド(ゾーン)?|シールド(\d+)つの上)に(表向きにして)?(裏向きにして)?(加え|置い?)(る|く|てもよい)$/))) return { act: 'shieldAdd', n: +m[1], optional: /てもよい/.test(s) };
     if ((m = s.match(/^自分の山札の上から(\d+)枚(目)?を表向きにして、?自分のシールド(\d+)つの上に置く$/))) return { act: 'shieldAdd', n: +m[1] };
     if (/^自分のシールドをすべて手札に加える(。ただし、その「S・トリガー」は使えない)?$/.test(s)) return { act: 'shieldToHand', n: 99, noTrigger: true };
-    if ((m = s.match(/^自分のシールドを(\d+)(つ|枚)、?墓地に置く$/))) return { act: 'ownShieldToGrave', n: +m[1] };
+    if ((m = s.match(/^自分のシールドを(\d+)(つ|枚)(選び)?、?(自分の)?墓地に置(く|いてもよい)$/))) return { act: 'ownShieldToGrave', n: +m[1], optional: m[5] !== 'く' };
+    if ((m = s.match(/^([^、。]*?)を(\d+)(体|枚)、自分の手札から捨て(る|てもよい)$/))) return { act: 'selfDiscard', n: +m[2], optional: m[4] !== 'る', cond: lookCond(m[1]) };
+    if ((m = s.match(/^自分の手札(にある|から)([^、。]*?)を(\d+)(体|枚)(、)?相手に見せ(る|てもよい)$/))) return { act: 'showOwn', n: +m[3], cond: lookCond(m[2]), optional: m[6] !== 'る' };
+    if ((m = s.match(/^自分のマナゾーンの(カード|[^、。]*?カード)を(\d+)枚タップ(する|してもよい)$/))) return { act: 'tapManaCost', n: +m[2], optional: m[3] !== 'する' };
+    if ((m = s.match(/^このクリーチャーの下にあるカードを(\d+)枚(、)?(自分の)?墓地に置(く|いてもよい)$/))) return { act: 'underToGrave', n: +m[1], optional: m[4] !== 'く' };
+    if (/^自分の手札をすべて(、)?マナゾーンに置(く|いてもよい)$/.test(s)) return { act: 'handToMana', n: 99, all: true, optional: /もよい/.test(s) };
     if ((m = s.match(/^自分のシールドを(\d+)枚山札の下に置いて(\d+)枚引く$/))) return { act: 'shieldToDeckDraw', n: +m[1], draw: +m[2], optional: true };
     // 呪文をマナ（または墓地）から手札へ
     if ((m = s.match(/^(自分のマナゾーンから)?呪文を(\d+)枚(選び、)?(、)?(自分の)?(マナゾーン(または墓地)?から)?(自分の)?手札に戻(す|してもよい|してよい)$/))) return { act: 'manaToHand', n: +m[2], spellOnly: true, alsoGrave: !!m[7], optional: /もよい|てよい/.test(s) };
@@ -726,7 +731,7 @@
       }
     }
     // 「Aしてもよい。そうしたら、B」
-    const ifm = body.match(/^(.+?)(てもよい|る|す|く)。(そうしたら|そうした場合|そうすれば)、(.+)$/);
+    const ifm = body.replace(/^その後、/, '').match(/^(.+?)(てもよい|る|す|く)。(そうしたら|そうした場合|そうすれば)、(.+)$/);
     if (ifm && !/。/.test(ifm[1])) {
       const first = parseEffect(ifm[1] + ifm[2]);
       const then = parseEffects(ifm[4]);
@@ -1148,6 +1153,9 @@
     moveTarget: (a) => `${{ opp: '相手の', self: '自分の', any: '' }[a.side]}${a.all ? 'すべて' : a.n + '枚'}を${{ grave: '墓地', mana: 'マナ', shields: 'シールド', deckBottom: '山札の下' }[a.to]}へ`,
     handToMana: (a) => `手札${a.n}枚をマナへ`,
     oppTeamPower: (a) => `相手のクリーチャーすべてのパワー${a.n}`,
+    showOwn: (a) => `手札の${a.cond.text}を${a.n}枚見せる`,
+    tapManaCost: (a) => `マナを${a.n}枚タップ`,
+    underToGrave: (a) => `下のカード${a.n}枚を墓地へ`,
     destroyOwn: (a) => `自分の${a.who || 'クリーチャー'}を${a.n}つ破壊`,
     teamBuff: (a) => `${a.until === 'turn' ? 'このターン' : '次のターンまで'}、自分の${a.who || ''}クリーチャー${a.all ? 'すべて' : a.n + '体'}${a.power ? 'のパワー+' + a.power : ''}${a.names.length ? '・' + a.names.map((x) => '「' + x.slice(0, 12) + '」').join('') : ''}`,
     noLose: (a) => `${a.until === 'turn' ? 'このターン' : '次のターンまで'}負けない`,
