@@ -19,6 +19,8 @@
       .replace(/\[[a-z]{1,3}\d{0,3}\]/g, '') // マナ記号 [ll02] など
       .replace(/^l\s+/gm, '') // 能力を与える時の記号
       .replace(/\?\?|\uFFFD{1,2}/g, '\n▶')
+      .replace(/。\s*▼\s*/g, '。\n▶')
+      .replace(/^\s*▼\s*/gm, '▶')
       .replace(/^\s*[▶►]\s*/gm, (m) => m.trim());
   }
 
@@ -165,6 +167,9 @@
     if (/アンタップしている|アンタップされている/.test(s)) f.untappedOnly = true;
     let m = s.match(/パワー(\d+)以下/);
     if (m) f.maxPower = +m[1];
+    if (/自分の他の/.test(s)) f.others = true;
+    const rm = s.match(/自分の(他の)?(、)?([^、。のをが「」《》\d]{2,12}?)((または|か)([^、。のをが「」《》\d]{2,12}?))?の?クリーチャーを/);
+    if (rm && !/^(光|水|闇|火|自然|進化|タップ|アンタップ|コスト|パワー)/.test(rm[3])) f.races = [rm[3], rm[6]].filter(Boolean).map((x) => x.replace(/・$/, ''));
     m = s.match(/コスト(\d+)以下/);
     if (m) f.maxCost = +m[1];
     return f;
@@ -177,9 +182,27 @@
 
   // 一つの効果文（トリガー部分は除去済み）を action に変換。読めなければ null
   function parseEffect(body) {
-    const s = body.replace(/。$/, '');
+    const s = body.replace(/。$/, '').replace(/^自分は(、)?(?=カードを)/, '').replace(/\s+/g, '');
     const optional = /てもよい|まで/.test(s);
     let m;
+    if (/^この(クリーチャー|タマシード|カード|フィールド|クロスギア)を破壊(する|してもよい)$/.test(s)) return { act: 'selfDestroy', optional: /もよい/.test(s) };
+    // すべてアンタップ
+    if ((m = s.match(/^(バトルゾーンにある)?自分の(他の)?(、)?(名前に《(.+?)》とある)?(進化)?((.+?)・)?クリーチャー(をすべて|すべてを)アンタップする$/)))
+      return { act: 'untapAll', others: !!m[2], nameHas: m[5] || null, evoOnly: !!m[6], race: m[8] || null };
+    if (/^(このクリーチャーを)?アンタップする$/.test(s)) return { act: 'untapSelf', optional: false };
+    if ((m = s.match(/^クリーチャーを(\d+)体選び、タップまたはアンタップしてもよい$/))) return { act: 'tapOrUntap', n: +m[1], optional: true };
+    if ((m = s.match(/^(自分の手札を|カードを)(\d+)枚(、自分の手札から)?捨ててもよい$/))) return { act: 'selfDiscard', n: +m[2], optional: true };
+    if ((m = s.match(/^カードを(\d+)枚、自分のマナゾーンから墓地に置(く|いてもよい)$/))) return { act: 'manaToGrave', n: +m[1], optional: m[2] !== 'く' };
+    if ((m = s.match(/^カードを(\d+)枚、自分のマナゾーンから手札に戻(す|してもよい)$/))) return { act: 'manaToHand', n: +m[1], optional: m[2] !== 'す' };
+    if (/^このカードを(自分の)?墓地に置く$/.test(s)) return { act: 'selfToGrave' };
+    if (/^(自分の)?山札をシャッフルする$/.test(s)) return { act: 'shuffleDeck' };
+    if ((m = s.match(/^(光|水|闇|火|自然)?の?(コスト(\d+)以下の)?呪文を(\d+)枚まで、自分の墓地から手札に戻(す|してもよい)$/)))
+      return { act: 'graveToHand', n: +m[4], civ: m[1] ? CIVJ[m[1]] : null, spellOnly: true, maxCost: m[3] ? +m[3] : null, optional: true };
+    // 条件つきの呪文・クリーチャーを手札（または墓地）から
+    if ((m = s.match(/^(名前に《(.+?)》とある|「(.+?)」を持つ)?(光|水|闇|火|自然)?の?(コスト(\d+)以下の)?呪文を(\d+)枚、(自分の手札(または墓地)?から)?コストを支払わずに(自分の手札(または墓地)?から)?唱え(る|てもよい)$/)))
+      return { act: 'castFromHand', nameHas: m[2] || null, hasText: m[3] || null, civ: m[4] ? CIVJ[m[4]] : null, maxCost: m[6] ? +m[6] : null, n: +m[7], alsoGrave: !!(m[9] || m[11]), optional: m[12] !== 'る' };
+    if ((m = s.match(/^(名前に《(.+?)》とある|「(.+?)」を持つ)(光|水|闇|火|自然)?の?(コスト(\d+)以下の)?(進化ではない)?(、)?クリーチャーを(\d+)体、自分の手札(または墓地)?から(バトルゾーンに)?出(す|してもよい)$/)))
+      return { act: 'putFromHand', nameHas: m[2] || null, hasText: m[3] || null, civ: m[4] ? CIVJ[m[4]] : null, maxCost: m[6] ? +m[6] : null, notEvo: !!m[7], kinds: ['creature'], n: +m[9], alsoGrave: !!m[10], optional: m[13] !== 'す' };
 
     if ((m = s.match(/墓地から(.*?)(コスト(\d+)以下の)?(光|水|闇|火|自然)?の?(コスト(\d+)以下の)?(クリーチャー|タマシード)(または|か)?(クリーチャー|タマシード)?を?(\d+)(体|つ)?(まで)?(選び、)?(バトルゾーンに)?出/))) {
       const kinds = [m[7], m[9]].filter(Boolean).map((k) => (k === 'クリーチャー' ? 'creature' : 'tamaseed'));
@@ -246,7 +269,7 @@
     }
     if (/^相手は(、)?自身の手札をすべて捨てる$/.test(s)) return { act: 'discardAll' };
     // シールドを増やす（いろいろな書き方）
-    if ((m = s.match(/^自分の山札の上から(\d+)枚(目)?を(、)?(裏向きのまま|裏向きにして|表向きにし|表向きにして)?(、)?(新しいシールドとして)?(、)?(自分の)?(シールド(ゾーン)?|シールド(\d+)つの上)に(表向きにして)?(加え|置)(る|く|てもよい)$/))) return { act: 'shieldAdd', n: +m[1], optional: /てもよい/.test(s) };
+    if ((m = s.match(/^自分の山札の上から(\d+)枚(目)?を(、)?(裏向きのまま|裏向きにして|表向きにし|表向きにして)?(、)?(新しいシールドとして)?(、)?(自分の)?(シールド(ゾーン)?|シールド(\d+)つの上)に(表向きにして)?(裏向きにして)?(加え|置い?)(る|く|てもよい)$/))) return { act: 'shieldAdd', n: +m[1], optional: /てもよい/.test(s) };
     if ((m = s.match(/^自分の山札の上から(\d+)枚(目)?を表向きにして、?自分のシールド(\d+)つの上に置く$/))) return { act: 'shieldAdd', n: +m[1] };
     if (/^自分のシールドをすべて手札に加える(。ただし、その「S・トリガー」は使えない)?$/.test(s)) return { act: 'shieldToHand', n: 99, noTrigger: true };
     if ((m = s.match(/^自分のシールドを(\d+)(つ|枚)、?墓地に置く$/))) return { act: 'ownShieldToGrave', n: +m[1] };
@@ -373,6 +396,19 @@
     t = String(t || '');
     const c = {};
     let m;
+    if ((m = t.match(/^(.+?)か、(.+)$/)) && !/または/.test(t)) {
+      c.any = [lookCond(m[1]), lookCond(m[2])];
+      c.text = t;
+      return c;
+    }
+    if ((m = t.match(/「(.+?)」を持つ、?/))) {
+      c.hasText = m[1];
+      t = t.replace(m[0], '');
+    }
+    if ((m = t.match(/名前に《(.+?)》とある、?/))) {
+      c.nameHas = m[1];
+      t = t.replace(m[0], '');
+    }
     if ((m = t.match(/コスト(\d+)以下/))) c.maxCost = +m[1];
     if ((m = t.match(/コスト(\d+)以上/))) c.minCost = +m[1];
     if (/進化ではない/.test(t)) c.notEvo = true;
@@ -425,7 +461,59 @@
   // 「その後、」や「。」で区切った複数効果を読む。全部読めた時だけ配列を返す
   // 「山札の上から1枚を表向きにする。それが○○なら出す。それ以外なら△に置く」をひとまとめに
   const REVEAL_RE = /^自分の山札の上から1枚(目)?を表向きにする。それが(.+?)(なら|であれば)(、)?(バトルゾーンに)?出(す|してもよい)。(それ以外なら|こうして出さなければ)(、)?(自分の)?(山札の下|マナゾーン|墓地|手札)に(置く|加える)。?/;
+  // 山札全体から探す：「自分の山札を見る。その中から○○を1枚手札に加えてもよい。その後、山札をシャッフルする」
+  const SEARCH_RE = /^(自分の山札を見る。その中から|自分の山札から)(、)?(?<cond>[^。]+?)を(?<n>\d+)(枚|体|つ)(?<upto>まで)?(、)?(選び、|さがして(相手に見せ、)?|表向きにし(て)?、|相手に見せ(て|、))?(自分の)?(タップして)?(?<dest>手札に加え|バトルゾーンに出し|出し|マナゾーンに置き|墓地に置き|シールド化し)(?<may>てもよい|る|す|く)?。?((その後、)?(自分の)?山札をシャッフルする。?)?/;
+  // 山札の上を並べ替える
+  const ARRANGE_RE = /^(自分の)?山札の上から(?<n>\d+)枚を見る。(その後、)?(それら|そのカード|見たカード)を(好きな順序で)?(自分の)?山札の(?<where>上または下|上か下|上|下|一番下|一番上)に(好きな順序で)?(置く|戻す)。?/;
+  // 山札の上1枚をチェック：「それが○○なら手札に加える。それ以外なら山札の下に置く」など
+  const TOPCHECK_RE = /^(自分の)?山札の上から1枚(目)?を(?<how>見る|表向きにする)(?<may0>てもよい)?。(それ|そのカード)が(?<cond>.+?)(なら|であれば)(、)?(表向きにして|相手に見せて|相手に見せ、)?(自分の)?(タップして)?(?<then>手札に加え|バトルゾーンに出し|出し|マナゾーンに置き|墓地に置き|コストを支払わずに唱え)(?<may>てもよい|る|す|く)?。?((?<elseh>それ以外なら|そうでなければ|そうでない場合|こうして出さなければ|こうして加えなければ|こうして唱えなければ|呪文でなければ|クリーチャーでなければ)(、)?(自分の)?(?<else>山札の(一番)?下|山札の(一番)?上|墓地|マナゾーン|手札)に(置く|加える|戻す|置いてもよい|戻してもよい)。?)?/;
+  const ZONE_OF = (t) => (/下/.test(t) ? 'deckBottom' : /上/.test(t) ? 'deckTop' : t === '墓地' ? 'grave' : t === 'マナゾーン' ? 'mana' : 'hand');
+  const DEST_OF = (t) => ({ 手札に加え: 'hand', バトルゾーンに出し: 'battle', 出し: 'battle', マナゾーンに置き: 'mana', 墓地に置き: 'grave', シールド化し: 'shields', コストを支払わずに唱え: 'cast' }[t]);
+  function afterActs(remain) {
+    remain = remain.replace(/^その後、/, '').trim();
+    if (!remain) return [];
+    return parseEffects(remain) || [{ act: 'manualNote', text: remain }];
+  }
   function parseEffects(body) {
+    body = String(body || '').replace(/パワーを\s*-∞\s*する/g, 'パワーを0にする');
+    // 「自分の山札をシャッフルし、（その後、）上からN枚を…」
+    let sh = body.match(/^自分の山札をシャッフルし、(その後、)?(自分の山札の)?上から/);
+    if (sh) {
+      const rest = parseEffects('自分の山札の上から' + body.slice(sh[0].length));
+      return rest ? [{ act: 'shuffleDeck' }, ...rest] : null;
+    }
+    // 「Aしてもよい。そうしたら、B」
+    const ifm = body.match(/^(.+?)(てもよい|る|す|く)。(そうしたら|そうした場合|そうすれば)、(.+)$/);
+    if (ifm && !/。/.test(ifm[1])) {
+      const first = parseEffect(ifm[1] + ifm[2]);
+      const then = parseEffects(ifm[4]);
+      if (first && first.act !== 'manualNote' && then) return [{ act: 'ifDo', first: { ...first, optional: false }, optional: ifm[2] === 'てもよい', acts: then, text: ifm[1] + ifm[2] }];
+    }
+    let mm;
+    if ((mm = body.match(SEARCH_RE))) {
+      const g = mm.groups;
+      return [{ act: 'searchDeck', cond: lookCond(g.cond), n: +g.n, upTo: !!g.upto || g.may === 'てもよい', dest: DEST_OF(g.dest) }, ...(afterActs(body.slice(mm[0].length)) || [])];
+    }
+    if ((mm = body.match(ARRANGE_RE))) {
+      const w = mm.groups.where;
+      return [{ act: 'arrangeTop', n: +mm.groups.n, where: /または|か/.test(w) ? 'both' : /下/.test(w) ? 'bottom' : 'top' }, ...afterActs(body.slice(mm[0].length))];
+    }
+    if ((mm = body.match(TOPCHECK_RE))) {
+      const g = mm.groups;
+      return [
+        {
+          act: 'topCheck',
+          reveal: g.how === '表向きにする',
+          optional0: !!g.may0,
+          cond: lookCond(g.cond),
+          then: DEST_OF(g.then),
+          optional: g.may === 'てもよい',
+          else: g.else ? ZONE_OF(g.else) : g.how === '表向きにする' ? 'deckTop' : 'deckTop',
+          text: g.cond,
+        },
+        ...afterActs(body.slice(mm[0].length)),
+      ];
+    }
     const rv = body.match(REVEAL_RE);
     if (rv) {
       const act = { act: 'revealTop', cond: lookCond(rv[2]), optional: /てもよい/.test(rv[6]), rest: { 山札の下: 'deckBottom', マナゾーン: 'mana', 墓地: 'grave', 手札: 'hand' }[rv[10]] };
@@ -732,6 +820,15 @@
     untapAtEnd: (a) => `ターンの終わりに自分の${a.n}体をアンタップ`,
     drawPer: (a) => `${a.what}${a.per}つにつき${a.n}枚ドロー`,
     revealTop: (a) => `山札の上を表向き→${a.cond.text}なら出す`,
+    untapAll: (a) => `自分の${a.nameHas ? '《' + a.nameHas + '》' : a.race || ''}クリーチャーをすべてアンタップ`,
+    manaToGrave: (a) => `マナから${a.n}枚墓地へ`,
+    selfToGrave: () => 'このカードを墓地へ',
+    shuffleDeck: () => '山札をシャッフル',
+    searchDeck: (a) => `山札から${a.cond.text}を${a.n}枚${{ hand: '手札へ', battle: '出す', mana: 'マナへ', grave: '墓地へ', shields: 'シールドへ' }[a.dest] || ''}→シャッフル`,
+    arrangeTop: (a) => `山札の上${a.n}枚を見て${{ both: '上か下', bottom: '下', top: '上' }[a.where]}に好きな順で置く`,
+    topCheck: (a) => `山札の上を${a.reveal ? '表向き' : '見る'}→${a.text}なら${{ hand: '手札へ', battle: '出す', mana: 'マナへ', grave: '墓地へ', cast: '唱える' }[a.then]}${a.else && a.else !== 'deckTop' ? '、違えば' + { deckBottom: '山札の下', grave: '墓地', mana: 'マナ', hand: '手札' }[a.else] : ''}`,
+    selfDestroy: () => 'このカードを破壊',
+    ifDo: (a) => `${a.text}→そうしたら${a.acts.map((x) => (ACT_LABEL[x.act] ? ACT_LABEL[x.act](x) : x.act)).join('、')}`,
     lockCreature: (a) => `相手${a.n}体を次のターンまで攻撃・ブロック不可`,
     tempUnblockable: (a) => `自分${a.n}体をこのターンブロックされない`,
     oppLock: (a) => `${a.until === 'turn' ? 'このターン' : '次のターンまで'}相手は${a.maxCost ? 'コスト' + a.maxCost + '以下の' : ''}${a.spell ? '呪文を唱えられない' : 'クリーチャーを出せない'}`,
@@ -817,8 +914,8 @@
     const ab = (x) =>
       x.modal
         ? `${WHEN_LABEL[x.when]}: 選択（${x.modal.count === 'any' ? '好きな数' : x.modal.count + (x.modal.repeat ? '回・重複可' : 'つ')}${x.modal.bothCond ? '・条件で全部' : ''}）` +
-          x.modal.options.map((o) => '［' + (o.acts ? o.acts.map((a) => ACT_LABEL[a.act](a)).join('→') : '手動') + '］').join('')
-        : `${WHEN_LABEL[x.when]}: ` + (x.cond ? `[マナに${x.cond.manaCiv ? civJ(x.cond.manaCiv) : ''}${x.cond.n}枚以上なら] ` : '') + x.acts.map((a) => ACT_LABEL[a.act](a) + (a.optional ? '(任意)' : '')).join(' → ');
+          x.modal.options.map((o) => '［' + (o.acts ? o.acts.map((a) => (ACT_LABEL[a.act] ? ACT_LABEL[a.act](a) : a.act)).join('→') : '手動') + '］').join('')
+        : `${WHEN_LABEL[x.when]}: ` + (x.cond && x.cond.n != null ? `[マナに${x.cond.manaCiv ? civJ(x.cond.manaCiv) : ''}${x.cond.n}枚以上なら] ` : '') + x.acts.map((a) => (ACT_LABEL[a.act] ? ACT_LABEL[a.act](a) : a.act) + (a.optional ? '(任意)' : '')).join(' → ');
     for (const x of parsed.abilities) out.push(ab(x));
     if (parsed.hyper) {
       const hk = describe({ kw: parsed.hyper.kw, abilities: parsed.hyper.abilities });
@@ -827,6 +924,6 @@
     return out;
   }
 
-  G.TextParse = { parseCard, describe, normalize };
+  G.TextParse = { parseCard, describe, normalize, parseEffects, parseTriggerHead };
   if (typeof module !== 'undefined') module.exports = G.TextParse;
 })(typeof globalThis !== 'undefined' ? globalThis : window);

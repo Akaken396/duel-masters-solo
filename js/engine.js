@@ -562,6 +562,28 @@
       return r;
     }
 
+    // 山札を見る効果の条件にカードが合うか
+    fitLook(c, cd) {
+      cd = cd || {};
+      if (cd.any) return cd.any.some((x) => this.fitLook(c, x));
+      const hay = (c.def.races || []).join('/') + '/' + c.def.name;
+      return (
+        (cd.maxCost == null || (+c.def.cost || 0) <= cd.maxCost) &&
+        (cd.minCost == null || (+c.def.cost || 0) >= cd.minCost) &&
+        (!cd.notEvo || !this.evoKind(c.def)) &&
+        (!cd.types || cd.types.includes(c.def.type === 'creature' || !NON_CREATURE.includes(c.def.type) ? 'creature' : c.def.type)) &&
+        (!cd.civs || !cd.civs.length || (c.def.civs || []).some((x) => cd.civs.includes(x))) &&
+        (!cd.race || hay.includes(cd.race)) &&
+        (!cd.races || cd.races.some((r) => hay.includes(r))) &&
+        (!cd.hasText || (c.def.text || '').includes(cd.hasText)) &&
+        (!cd.nameHas || c.def.name.includes(cd.nameHas))
+      );
+    }
+    // 効果の前後で盤面が変わったか（「そうしたら」の判定用）
+    stateSig() {
+      return this.p.map((pl) => ['hand', 'mana', 'battle', 'grave', 'shields', 'deck'].map((z) => pl[z].length).join(',') + ':' + [...pl.battle, ...pl.mana].filter((c) => c.tapped).length).join('|');
+    }
+
     async yesNo(pi, prompt, card) {
       const r = await this.choose(pi, {
         kind: 'yesno',
@@ -1577,6 +1599,8 @@
       if (a.act === 'tap') pool = pool.filter((c) => !c.tapped);
       if (a.tappedOnly) pool = pool.filter((c) => c.tapped);
       if (a.untappedOnly) pool = pool.filter((c) => !c.tapped);
+      if (a.others && this._actSrc) pool = pool.filter((c) => c !== this._actSrc);
+      if (a.races && a.races.length) pool = pool.filter((c) => c.owner !== pi || a.races.some((r) => ((c.def.races || []).join('/') + '/' + c.def.name).includes(r)));
       return pool;
     }
 
@@ -1602,6 +1626,7 @@
 
     async doAction(a, src, pi) {
       this.currentSource = src && src.def;
+      this._actSrc = src;
       const me = this.p[pi];
       const op = this.opp(pi);
       const nm = `「${src.def.name}」`;
@@ -1738,14 +1763,7 @@
           for (const c of look) me.deck.splice(me.deck.indexOf(c), 1); // 見ている間は山札から外す
           this.log(`${me.name}は山札の上から${look.length}枚を${a.reveal ? '表向きにした：' + look.map((c) => c.def.name).join('、') : '見た'}`);
           const cd = a.cond || {};
-          const fit = (c) =>
-            (cd.maxCost == null || (+c.def.cost || 0) <= cd.maxCost) &&
-            (cd.minCost == null || (+c.def.cost || 0) >= cd.minCost) &&
-            (!cd.notEvo || !this.evoKind(c.def)) &&
-            (!cd.types || cd.types.includes(c.def.type === 'creature' || !NON_CREATURE.includes(c.def.type) ? 'creature' : c.def.type)) &&
-            (!cd.civs || !cd.civs.length || (c.def.civs || []).some((x) => cd.civs.includes(x))) &&
-            (!cd.race || ((c.def.races || []).join('/') + '/' + c.def.name).includes(cd.race)) &&
-            (!cd.races || cd.races.some((r) => ((c.def.races || []).join('/') + '/' + c.def.name).includes(r)));
+          const fit = (c) => this.fitLook(c, cd);
           const ok = look.filter(fit);
           let chosen;
           const maxTake = a.take === 'any' ? ok.length : a.take === 'each' ? a.each * (cd.races ? cd.races.length : 1) : a.take;
@@ -1809,6 +1827,106 @@
         case 'manualNote':
           this.log(`【手動】${nm}: ${a.text}`);
           break;
+        case 'untapAll': {
+          const r = me.battle.filter(
+            (c) => this.isCreature(c) && c.tapped && (!a.others || c !== src) && (!a.nameHas || c.def.name.includes(a.nameHas)) && (!a.evoOnly || this.evoKind(c.def)) && (!a.race || ((c.def.races || []).join('/') + c.def.name).includes(a.race))
+          );
+          for (const c of r) c.tapped = false;
+          this.log(`${me.name}はクリーチャーを${r.length}体アンタップした`);
+          break;
+        }
+        case 'manaToGrave': {
+          const r = await this.pickCards(pi, me.mana.slice(), a.n, a.optional, `${nm}: マナゾーンから墓地に置くカード`, 'discard');
+          for (const c of r) {
+            this.moveTo(c, 'grave');
+            this.log(`${me.name}はマナゾーンの「${c.def.name}」を墓地に置いた`);
+          }
+          break;
+        }
+        case 'selfDestroy':
+          if (src && this.zoneOf(src) === 'battle') await this.destroyMany([src], { byOpp: false });
+          break;
+        case 'selfToGrave':
+          if (src && this.zoneOf(src) && this.zoneOf(src) !== 'grave') {
+            this.moveTo(src, 'grave');
+            this.log(`${nm}を墓地に置いた`);
+          }
+          break;
+        case 'shuffleDeck':
+          shuffle(me.deck, this.rng);
+          this.log(`${me.name}は山札をシャッフルした`);
+          break;
+        case 'searchDeck': {
+          const pool = me.deck.filter((c) => this.fitLook(c, a.cond) && (a.dest !== 'battle' || this.isCreature(c)));
+          const r = await this.pickCards(pi, pool, a.n, a.upTo || !pool.length, `${nm}: 山札から${(a.cond && a.cond.text) || 'カード'}を選んでください`, 'recover');
+          for (const c of r) {
+            if (a.dest === 'battle') await this.enterBattle(c, pi, 'other');
+            else {
+              this.moveTo(c, a.dest === 'shields' ? 'shields' : a.dest);
+              this.log(`${me.name}は山札から「${c.def.name}」を${ZONE_LABEL[a.dest] || a.dest}に置いた`);
+            }
+          }
+          if (!r.length) this.log(`${nm}: 山札から何も選ばなかった`);
+          shuffle(me.deck, this.rng);
+          this.log(`${me.name}は山札をシャッフルした`);
+          break;
+        }
+        case 'arrangeTop': {
+          const look = me.deck.slice(0, a.n);
+          if (!look.length) break;
+          this.log(`${me.name}は山札の上から${look.length}枚を見た`);
+          let bottom = [];
+          if (a.where === 'bottom') bottom = look.slice();
+          else if (a.where === 'both') {
+            if (me.isAI) bottom = look.filter((c) => (+c.def.cost || 0) > me.mana.length + 2);
+            else bottom = await this.pickCards(pi, look, look.length, true, `${nm}: 山札の下に置くカード（選ばなかったカードは上に戻す）`, 'discard');
+          }
+          let top = look.filter((c) => !bottom.includes(c));
+          if (top.length > 1 && me.isAI) top.sort((x, y) => (+x.def.cost || 0) - (+y.def.cost || 0));
+          else if (top.length > 1) {
+            const ord = await this.pickCards(pi, top, top.length, false, `${nm}: 山札の上に置く順番に選んでください（最初が一番上）`, 'recover');
+            if (ord.length === top.length) top = ord;
+          }
+          for (const c of look) me.deck.splice(me.deck.indexOf(c), 1);
+          me.deck.unshift(...top);
+          me.deck.push(...bottom);
+          this.log(`${me.name}は${top.length}枚を山札の上、${bottom.length}枚を山札の下に置いた`);
+          break;
+        }
+        case 'topCheck': {
+          const c = me.deck[0];
+          if (!c) break;
+          if (a.optional0 && !(await this.yesNo(pi, `${nm}: 山札の上を${a.reveal ? '表向きに' : '見'}しますか？`, src))) break;
+          if (a.reveal) this.log(`${me.name}は山札の上の「${c.def.name}」を表向きにした`);
+          else this.log(`${me.name}は山札の上を見た`);
+          const ok = this.fitLook(c, a.cond) && (a.then !== 'battle' || this.isCreature(c)) && (a.then !== 'cast' || (c.def.type === 'spell' && !this.locked(pi, c.def)));
+          if (ok && (!a.optional || (await this.yesNo(pi, `${nm}: 「${c.def.name}」を${{ hand: '手札に加え', battle: '出し', mana: 'マナゾーンに置き', grave: '墓地に置き', cast: '唱え' }[a.then]}ますか？`, c)))) {
+            if (a.then === 'battle') await this.enterBattle(c, pi, 'other');
+            else if (a.then === 'cast') await this.putIntoPlay(pi, c, true);
+            else {
+              this.moveTo(c, a.then);
+              this.log(`「${c.def.name}」を${ZONE_LABEL[a.then] || a.then}に置いた`);
+            }
+          } else if (a.else === 'deckBottom') {
+            this.moveTo(c, 'deck', { top: false });
+            this.log(`${a.reveal ? '「' + c.def.name + '」' : 'そのカード'}を山札の下に置いた`);
+          } else if (a.else && a.else !== 'deckTop') {
+            this.moveTo(c, a.else);
+            this.log(`「${c.def.name}」を${ZONE_LABEL[a.else] || a.else}に置いた`);
+          }
+          break;
+        }
+        case 'ifDo': {
+          if (a.optional && !(await this.yesNo(pi, `${nm}: ${a.text}`, src))) break;
+          const before = this.stateSig();
+          await this.doAction(a.first, src, pi);
+          if (this.stateSig() === before) {
+            this.log(`${nm}: できなかったので、その後の効果はない`);
+            break;
+          }
+          for (const x of a.acts) await this.doAction(x, src, pi);
+          break;
+        }
         case 'mill':
           if (a.optional && !(await this.yesNo(pi, `${nm}: 山札の上から${a.n}枚を墓地に置きますか？`, src))) return;
           for (let i = 0; i < a.n && me.deck.length; i++) {
@@ -2031,6 +2149,9 @@
           if (a.maxCost != null) pool = pool.filter((c) => (+c.def.cost || 0) <= a.maxCost);
           if (a.notEvo) pool = pool.filter((c) => !this.evoKind(c.def));
           if (a.civ) pool = pool.filter((c) => (c.def.civs || []).includes(a.civ));
+          if (a.nameHas) pool = pool.filter((c) => c.def.name.includes(a.nameHas));
+          if (a.hasText) pool = pool.filter((c) => (c.def.text || '').includes(a.hasText));
+          if (a.act === 'castFromHand') pool = pool.filter((c) => !this.locked(pi, c.def));
           const r = await this.pickCards(pi, pool, a.n, a.optional, `${nm}: 手札から${a.act === 'castFromHand' ? '唱える呪文' : '出すクリーチャー'}`, 'recover');
           for (const c of r) {
             if (a.act === 'castFromHand') await this.putIntoPlay(pi, c, true);
