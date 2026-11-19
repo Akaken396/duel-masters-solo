@@ -363,6 +363,8 @@
           pool = pool.filter((c) => keys.every((k) => this.kw(c)[k]) || (probe.breaker > 1 && this.kw(c).breaker >= probe.breaker));
         }
       }
+      if (/^進化(クリーチャー)?$/.test(w)) return pool.filter((c) => this.evoKind(c.def)).length;
+      if (/^多色(クリーチャー)?$/.test(w)) return pool.filter((c) => (c.def.civs || []).filter((x) => x !== 'zero').length > 1).length;
       const civ = w.match(/^(光|水|闇|火|自然)の/);
       if (civ) pool = pool.filter((c) => (c.def.civs || []).includes({ 光: 'light', 水: 'water', 闇: 'darkness', 火: 'fire', 自然: 'nature' }[civ[1]]));
       const race = w
@@ -1798,6 +1800,7 @@
     modalCondOk(pi, cond) {
       const civs = cond.civs || [];
       const pool = this.p[pi].battle;
+      if (cond.count && this.countOwn(pi, cond.count.what) < cond.count.n) return false;
       return civs.every((c) => pool.some((x) => (x.def.civs || []).includes(c)));
     }
 
@@ -2179,6 +2182,21 @@
               if (a.to === 'shields') await this.shieldAdded(c.owner);
             }
           }
+          break;
+        }
+        case 'handToMana': {
+          const r = await this.pickCards(pi, me.hand.slice(), a.n, a.optional, `${nm}: マナゾーンに置く手札`, 'discard');
+          for (const c of r) {
+            this.moveTo(c, 'mana', { tapped: (c.def.civs || []).length > 1 });
+            this.log(`${me.name}は手札の「${c.def.name}」をマナゾーンに置いた`);
+          }
+          break;
+        }
+        case 'oppTeamPower': {
+          for (const c of op.battle) if (this.isCreature(c)) c.tempPower = (c.tempPower || 0) + a.n;
+          this.log(`${op.name}のクリーチャーすべてのパワーがこのターン${a.n}`);
+          const dead = op.battle.filter((c) => this.isCreature(c) && this.power(c) <= 0);
+          if (dead.length) await this.destroyMany(dead);
           break;
         }
         case 'pickTarget': {

@@ -240,7 +240,11 @@
     if (/^(その2体|その二体)を?バトルさせる$|^そうした場合、その2体はバトルする$/.test(s)) return { act: 'fightLastTwo' };
     if ((m = s.match(/^相手は(それ|そのクリーチャー)を(持ち主の|自身の)?(墓地に置く|手札に戻す|マナゾーンに置く|山札に加えてシャッフルする|山札の下に置く)$/))) return { act: 'moveLast', to: { 墓地に置く: 'grave', 手札に戻す: 'hand', マナゾーンに置く: 'mana', 山札に加えてシャッフルする: 'deckShuffle', 山札の下に置く: 'deckBottom' }[m[3]] };
     if (/^自分の手札をすべて捨て(る|てもよい)$/.test(s)) return { act: 'discardOwnAll', optional: /もよい/.test(s) };
-    if ((m = s.match(/^相手のシールドを(\d+)(枚|つ)ブレイクする$/))) return { act: 'breakShield', n: +m[1] };
+    if ((m = s.match(/^相手のシールドを(\d+)(枚|つ)(選び、)?ブレイク(する|してもよい)$/))) return { act: 'breakShield', n: +m[1], optional: m[4] !== 'する' };
+    if ((m = s.match(/^(その|この)ターン、このクリーチャーのパワー(は|を)\+(\d+)(される|する)$/))) return { act: 'powerUp', n: +m[3] };
+    if ((m = s.match(/^(自分の)?手札を(\d+)枚(、)?(自分の)?マナゾーンに置(く|いてもよい)$/))) return { act: 'handToMana', n: +m[2], optional: m[5] !== 'く' };
+    if ((m = s.match(/^(このターン|そのターン)、相手のクリーチャーすべてのパワーを-(\d+)する$/))) return { act: 'oppTeamPower', n: -m[2] };
+    if ((m = s.match(/^(クリーチャー|呪文|カード)を(\d+)(体|枚)(まで)?、自分のマナゾーンから手札に戻(す|してもよい)$/))) return { act: 'manaToHand', n: +m[2], creatureOnly: m[1] === 'クリーチャー', spellOnly: m[1] === '呪文', optional: !!m[4] || m[5] !== 'す' };
     // 細かい言い回し
     if ((m = s.match(/^相手は(、)?自身の山札の上から(\d+)枚(目)?(まで)?を墓地に置く$/))) return { act: 'oppMill', n: +m[2] };
     if ((m = s.match(/^相手の手札を見て(\d+)枚(まで)?選び、捨てさせる$/))) return { act: 'discard', n: +m[1], random: false, byMe: true, optional: !!m[2] };
@@ -766,6 +770,28 @@
       } else lines.push(Object.assign(new String(l.replace(/^[■▪・●◆]\s*/, '')), {}));
     }
     const Kd = KWD();
+    // 記号のない古い書き方：「次のうちいずれか1つを選ぶ。」の後の行を選択肢にする
+    for (let i = 0; i < lines.length; i++) {
+      const head = String(lines[i]);
+      if (lines[i].opts || !/(次の(うち|中から))?(いずれか)?(\d+)つ(を)?選ぶ。?$/.test(head) || /[▶►]/.test(head)) continue;
+      const opts = [];
+      let j = i + 1;
+      while (j < lines.length && opts.length < 6) {
+        const t = String(lines[j]);
+        const st = stripReminder(t).trim();
+        if (!st || /^[(（]/.test(t) || /両方|すべて選んでもよい/.test(t) || (Kd && Kd.match(st, t))) break;
+        opts.push(t);
+        j++;
+      }
+      if (opts.length < 2) continue;
+      lines[i].opts = opts;
+      // 「両方とも選んでもよい」の行（爆進ダブルなど）
+      if (j < lines.length && /両方|すべて選んでもよい/.test(String(lines[j]))) {
+        lines[i].bothNote = String(lines[j]);
+        j++;
+      }
+      lines.splice(i + 1, j - i - 1);
+    }
 
     let tapNext = false;
     for (const rawObj of lines) {
@@ -809,9 +835,10 @@
         const cm = (rawObj.opts ? head : line).match(/(\d+)(回|つ)選ぶ/);
         const count = /好きな数|いくつでも/.test(line) ? 'any' : cm ? +cm[1] : 1;
         const repeat = /同じものを(選んでも|何度)|同じ(もの|選択肢)を2回/.test(raw + (rawObj.opts || []).join(''));
-        const bothLine = [raw, ...(rawObj.opts || [])].find((x) => /両方|すべて選んでもよい|全部選/.test(x)) || '';
+        const bothLine = [raw, ...(rawObj.opts || []), rawObj.bothNote || ''].find((x) => /両方|すべて選んでもよい|全部選/.test(x)) || '';
         const bc = bothLine.match(/(光|水|闇|火|自然)(と|、)(光|水|闇|火|自然)/);
-        const bothCond = bothLine ? { civs: bc ? [CIVJ[bc[1]], CIVJ[bc[3]]] : [], text: bothLine } : null;
+        const bcnt = bothLine.match(/(バトルゾーンに)?自分の([^、。()（）]+?)があれば/);
+        const bothCond = bothLine ? { civs: bc ? [CIVJ[bc[1]], CIVJ[bc[3]]] : [], count: !bc && bcnt ? { what: bcnt[2], n: 1 } : null, text: bothLine } : null;
         const options = optTexts.map((t) => ({ text: t.trim(), acts: parseEffects(stripReminder(t.trim()).replace(/。$/, '')) }));
         for (const w of whens) A_PUSH(w, { when: w, acts: [], modal: { count, repeat, bothCond, options }, text: raw });
         continue;
@@ -1053,6 +1080,8 @@
     graveToDeck: () => '墓地を山札に戻してシャッフル',
     underToHand: () => '下にあったカードを手札へ',
     moveTarget: (a) => `${{ opp: '相手の', self: '自分の', any: '' }[a.side]}${a.all ? 'すべて' : a.n + '枚'}を${{ grave: '墓地', mana: 'マナ', shields: 'シールド', deckBottom: '山札の下' }[a.to]}へ`,
+    handToMana: (a) => `手札${a.n}枚をマナへ`,
+    oppTeamPower: (a) => `相手のクリーチャーすべてのパワー${a.n}`,
     pickTarget: (a) => `${{ opp: '相手の', self: '自分の', any: '' }[a.side]}クリーチャーを${a.n}体選ぶ`,
     powerLast: (a) => `そのクリーチャーのパワー${a.n > 0 ? '+' : ''}${a.n}`,
     lockLast: () => 'そのクリーチャーは次のターンまで攻撃もブロックもできない',
