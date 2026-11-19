@@ -196,6 +196,10 @@
     if ((m = s.match(/^自分の山札の上から(\d+)枚(目)?を(、)?シールド化(する|してもよい)$/))) return { act: 'shieldAdd', n: +m[1], optional: m[4] !== 'する' };
     if ((m = s.match(/^自分と相手のクリーチャーを1体ずつ選(ぶ|んでもよい)。その2体をバトルさせる$/))) return { act: 'pairFight', optional: m[1] !== 'ぶ' };
     if ((m = s.match(/^(バトルゾーンにある)?相手の(タップされている|タップしている)?クリーチャーはすべて、次の相手のターンのはじめにアンタップ(されない|しない)$/))) return { act: 'freezeAll', tappedOnly: !!m[2] };
+    if ((m = s.match(/^(バトルゾーンにある)?相手の(コスト(\d+)以下の)?クリーチャーを(\d+)体選び、(表向きに|裏向きにして)?(、)?シールド化する$/))) return { act: 'toShield', side: 'opp', n: +m[4], optional: false, maxCost: m[3] ? +m[3] : null };
+    // 「自分の○○をN体（つ）タップしてもよい」：コストとして自分のクリーチャーをタップ
+    if ((m = s.match(/^(自分の|バトルゾーンの)(他の)?(、)?([^、。]*?)を(\d+)(体|つ)(、)?タップ(する|してもよい)$/)) && !/相手/.test(s))
+      return { act: 'tapOwnCost', who: m[4].replace(/(・)?クリーチャー$/, ''), others: !!m[2], n: +m[5], optional: m[8] !== 'する' };
     // 直前に出した・選んだカード（そのクリーチャー）への効果
     if ((m = s.match(/^((次の自分のターンのはじめまで|このターン|そのターン)、)?(そのクリーチャー|それ|そのドラゴン|それら)(は|に)(、)?「(.+?)」(と「(.+?)」)?を(得る|与える)$/)))
       return { act: 'grantLast', names: [m[6], m[8]].filter(Boolean), until: !m[2] ? 'perm' : /次の自分/.test(m[2]) ? 'next' : 'turn' };
@@ -577,6 +581,8 @@
       const rest = parseEffects('自分の山札の上から' + body.slice(sh[0].length));
       return rest ? [{ act: 'shuffleDeck' }, ...rest] : null;
     }
+    const hm = body.match(/^自分の山札の上から1枚(目)?を見る。(そのカード|それ)を(自分の)?手札に加えるか、(タップして)?(自分の)?マナゾーンに置く。?/);
+    if (hm) return [{ act: 'topHandOrMana', tapped: !!hm[4] }, ...afterActs(body.slice(hm[0].length))];
     const pf = body.match(/^自分と相手のクリーチャーを1体ずつ選(ぶ|んでもよい)。その2体をバトルさせる。?/);
     if (pf) return [{ act: 'pairFight', optional: pf[1] !== 'ぶ' }, ...afterActs(body.slice(pf[0].length))];
     // 「条件なら、効果」
@@ -782,7 +788,9 @@
         [/自分のシールドの数が相手より多ければ、/, { shieldsMore: true }],
         [/バトルゾーンにある自分のクリーチャーの数が相手より多ければ、/, { creaturesMore: true }],
         [/相手のマナゾーンにあるカードの(数|枚数)が自分のより多ければ、/, { oppManaMore: true }],
-        [/自分のシールドが(\d+)(枚|つ)以下であれば、/, (m) => ({ shieldsLE: +m[1] })],
+        [/自分のシールドが(\d+)(枚|つ)以下(であれば|の時|なら)、/, (m) => ({ shieldsLE: +m[1] })],
+        [/^(バトルゾーンに)?自分の([^、。]+?)が1(体|つ|枚)でもあれば、/, (m) => ({ count: { what: m[2], n: 1 } })],
+        [/^バトルゾーンに自分の([^、。]+?)がある間、/, (m) => ({ count: { what: m[1], n: 1 } })],
         [/自分のシールドが(\d+)(枚|つ)以上あれば、/, (m) => ({ shieldsGE: +m[1] })],
         [/バトルゾーンに自分のパワー(\d+)以上のクリーチャーがあれば、/, (m) => ({ powerGE: +m[1] })],
       ];
@@ -809,10 +817,18 @@
         K.manaArmedCost = { ...cond, n2: +mcost[1] };
         continue;
       }
+      // 条件を外した後の「このクリーチャーのパワーは+Nされ、「○○」を得る」
+      if (cond && !cond.manaCiv && cond.n == null) {
+        const pg2 = line.match(/^このクリーチャー(は|の)(、)?(パワーは\+(\d+)され(、|る)|パワーを\+(\d+)(する|し、))?(「(.+?)」(と「(.+?)」)?を(得る|与える))?。?$/);
+        if (pg2 && (pg2[4] || pg2[6] || pg2[9])) {
+          (K.condGrants = K.condGrants || []).push({ cond, power: +(pg2[4] || pg2[6] || 0), names: [pg2[9], pg2[11]].filter(Boolean) });
+          continue;
+        }
+      }
       // 条件つきで「このクリーチャーは（パワー+Nし、）「○○」を得る」
-      let cg = line.match(/^(.+?)(あれば|なければ|なら|もなければ|中|間|ある時)、このクリーチャー(は|に|の)(、)?(パワーを\+(\d+)し、|パワーは\+(\d+)され、)?「(.+?)」(と「(.+?)」)?を(得る|与える)。?$/);
+      let cg = line.match(/^(.+?)(あれば|なければ|なら|もなければ|中|間|ある時|する時|するとき)、このクリーチャー(は|に|の)(、)?(パワーを\+(\d+)し、|パワーは\+(\d+)され、)?「(.+?)」(と「(.+?)」)?を(得る|与える)。?$/);
       if (!cg) {
-        const pw = line.match(/^(.+?)(あれば|なければ|なら|もなければ|中|間|ある時)、このクリーチャーの?パワー(を\+(\d+)する|は\+(\d+)される)。?$/);
+        const pw = line.match(/^(.+?)(あれば|なければ|なら|もなければ|中|間|ある時|する時|するとき)、このクリーチャーの?パワー(を\+(\d+)する|は\+(\d+)される)。?$/);
         if (pw) cg = [pw[0], pw[1], pw[2], '', '', '', pw[4], pw[5], null, null, null];
       }
       if (!cg) {
@@ -826,6 +842,7 @@
         if (/^自分のターン中$/.test(ct)) c2.myTurn = true;
         else if (/^相手のターン中$/.test(ct)) c2.oppTurn = true;
         else if (/^バトル中$/.test(ct)) c2.inBattle = true;
+        else if ((mm = ct.match(/^(.+?)とバトル(中|する(時|とき))$/))) c2.inBattle = { vs: mm[1] };
         else if ((mm = ct.match(/^コスト(\d+)以下のクリーチャーとバトル中$/))) c2.inBattle = { maxCost: +mm[1] };
         else if ((mm = ct.match(/^自分のマナゾーンにカードが(\d+)枚以上あれば$/))) c2.manaGE = +mm[1];
         else if ((mm = ct.match(/^自分の手札が(\d+)枚以下なら$/))) c2.handLE = +mm[1];
@@ -967,6 +984,8 @@
     guardLast: (a) => `そのクリーチャーは${a.kind === 'noLeave' ? '離れない' : '破壊されない'}（${a.until === 'next' ? '次のターンまで' : 'このターン'}）`,
     untapLast: () => 'そのクリーチャーをアンタップ',
     endTurnLast: (a) => `ターンの終わりにそのクリーチャーを${{ destroy: '破壊', hand: '手札へ', deckBottom: '山札の下へ', mana: 'マナへ' }[a.to]}`,
+    tapOwnCost: (a) => `自分の${a.who || 'クリーチャー'}を${a.n}体タップ`,
+    topHandOrMana: () => '山札の上1枚を見て手札かマナへ',
     pairFight: () => '自分と相手のクリーチャーを1体ずつバトル',
     ifCond: (a) => `${a.text}、${a.acts.map((x) => (ACT_LABEL[x.act] ? ACT_LABEL[x.act](x) : x.act)).join('、')}`,
     lastIf: (a) => `それが${a.cond.text}なら${a.acts.map((x) => (ACT_LABEL[x.act] ? ACT_LABEL[x.act](x) : x.act)).join('、')}`,

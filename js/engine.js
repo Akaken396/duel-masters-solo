@@ -263,6 +263,7 @@
       if (c.inBattle) {
         if (!card || !card.inBattle) return false;
         if (c.inBattle.maxCost != null && (+card.inBattle.def.cost || 0) > c.inBattle.maxCost) return false;
+        if (c.inBattle.vs && !c.inBattle.vs.split(/または/).some((w) => this.fitLook(card.inBattle, G.TextParse.lookCond(w.replace(/^種族に(.+?)とある/, '$1'))))) return false;
       }
       if (c.manaGE != null && me.mana.length < c.manaGE) return false;
       if (c.handLE != null && me.hand.length > c.handLE) return false;
@@ -2045,6 +2046,33 @@
               this.log(`ターンの終わりに「${c.def.name}」を${{ destroy: '破壊する', hand: '手札に戻す', deckBottom: '山札の下に置く', mana: 'マナゾーンに置く' }[a.to]}`);
             }
           }
+          break;
+        }
+        case 'tapOwnCost': {
+          if (!a._cond) a._cond = a.who ? G.TextParse.lookCond(a.who.replace(/または/g, 'か、')) : {};
+          const pool = me.battle.filter((c) => !c.tapped && (!a.others || c !== src) && this.isCreature(c) && (!a.who || a.who.split(/または/).some((w) => this.fitLook(c, G.TextParse.lookCond(w)))));
+          if (pool.length < a.n) {
+            this.log(`${nm}: タップできる${a.who || 'クリーチャー'}が足りない`);
+            break;
+          }
+          const r = await this.pickCards(pi, pool, a.n, a.optional, `${nm}: タップする自分の${a.who || 'クリーチャー'}（${a.n}体）`, 'recover');
+          if (r.length < a.n) break;
+          for (const c of r) c.tapped = true;
+          this.log(`${me.name}は${r.map((c) => '「' + c.def.name + '」').join('、')}をタップした`);
+          break;
+        }
+        case 'topHandOrMana': {
+          const c = me.deck[0];
+          if (!c) break;
+          let toHand;
+          if (me.isAI) toHand = me.mana.length >= 6 || (+c.def.cost || 0) <= me.mana.length + 1;
+          else {
+            const [ch] = await this.choose(pi, { kind: 'mode', prompt: `${nm}: 山札の上は「${c.def.name}」。どうしますか？`, options: [{ id: 'hand', label: '手札に加える', card: c }, { id: 'mana', label: 'マナゾーンに置く', card: c }], min: 1, max: 1, aiPick: ['hand'] });
+            toHand = ch !== 'mana';
+          }
+          if (toHand) this.moveTo(c, 'hand');
+          else this.moveTo(c, 'mana', { tapped: a.tapped || (c.def.civs || []).length > 1 });
+          this.log(`${me.name}は山札の上のカードを${toHand ? '手札に加えた' : 'マナゾーンに置いた（「' + c.def.name + '」）'}`);
           break;
         }
         case 'pairFight': {
