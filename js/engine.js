@@ -155,7 +155,7 @@
       }
       // 条件つきで能力を得る
       for (const cgr of base.condGrants || []) {
-        if (!this.condOk2(card.owner, cgr.cond)) continue;
+        if (!this.condOk2(card.owner, cgr.cond, card)) continue;
         for (const nm of cgr.names) {
           const hit = G.Keywords && G.Keywords.match(nm, nm);
           if (hit && hit.e.set) {
@@ -234,8 +234,24 @@
       return true;
     }
     // 常在の条件（マナ武装・数・シールドなど）
-    condOk2(pi, c) {
+    condOk2(pi, c, card) {
       const me = this.p[pi];
+      if (c.myTurn && this.active !== pi) return false;
+      if (c.oppTurn && this.active === pi) return false;
+      if (c.inBattle) {
+        if (!card || !card.inBattle) return false;
+        if (c.inBattle.maxCost != null && (+card.inBattle.def.cost || 0) > c.inBattle.maxCost) return false;
+      }
+      if (c.manaGE != null && me.mana.length < c.manaGE) return false;
+      if (c.handLE != null && me.hand.length > c.handLE) return false;
+      if (c.oppAllTapped && this.p[1 - pi].battle.some((x) => this.isCreature(x) && !x.tapped)) return false;
+      if (c.oppHas && !this.p[1 - pi].battle.some((x) => ((x.def.races || []).join('/') + x.def.name + (x.def.type || '')).includes(c.oppHas.replace(/(・)?クリーチャー$/, '')))) return false;
+      if (c.count && c.count.others && card) {
+        const w = c.count.what.replace(/(・)?クリーチャー$/, '');
+        const n = me.battle.filter((x) => x !== card && this.isCreature(x) && (!w || ((x.def.races || []).join('/') + x.def.name).includes(w))).length;
+        if (n < c.count.n) return false;
+        return this.condOk(pi, { ...c, count: null });
+      }
       if (c.n != null && c.manaCiv !== undefined && me.mana.filter((m) => !c.manaCiv || (m.def.civs || []).includes(c.manaCiv)).length < c.n) return false;
       if (c.count && this.countOwn(pi, c.count.what) < c.count.n) return false;
       if (c.faceUpShieldsGE != null && me.shields.filter((s) => s.faceUp).length < c.faceUpShieldsGE) return false;
@@ -378,13 +394,21 @@
       const kb = parsed(card.def).kw;
       if (kb.aloneBuff && meP.battle.filter((c) => this.isCreature(c)).length === 1) extra += kb.aloneBuff;
       if (kb.selfBuff) extra += kb.selfBuff.n;
-      for (const cgr of kb.condGrants || []) if (cgr.power && this.condOk2(card.owner, cgr.cond)) extra += cgr.power;
+      for (const cgr of kb.condGrants || []) if (cgr.power && this.condOk2(card.owner, cgr.cond, card)) extra += cgr.power;
       for (const src of this.p[card.owner].battle) {
         const tp = this.kwBase(src).teamPower;
         if (!tp || (tp.others && src === card)) continue;
         if (tp.oppTurnOnly && this.active === card.owner) continue;
         if (tp.who && !((card.def.races || []).join('/') + card.def.name).includes(tp.who.replace(/(・)?クリーチャー$/, ''))) continue;
         extra += tp.n;
+      }
+      for (const src of this.p[card.owner].battle) {
+        for (const tp of this.kwBase(src).teamPowers || []) {
+          if (tp.others && src === card) continue;
+          if (tp.civ && !(card.def.civs || []).includes(tp.civ)) continue;
+          if (tp.who && !((card.def.races || []).join('/') + card.def.name).includes(tp.who)) continue;
+          extra += tp.n;
+        }
       }
       const mb = parsed(card.def).kw.manaArmedBuff;
       if (mb && this.p[card.owner].mana.filter((m) => (m.def.civs || []).includes(mb.civ)).length >= mb.n) extra += mb.power;
@@ -848,6 +872,13 @@
         cost -= n;
       }
       if (def.type === 'spell') for (const src of this.permanents(1 - pi)) cost += this.kw(src).spellTax || 0;
+      // 場にある間コストを増減する能力
+      for (const q of [pi, 1 - pi]) for (const src of this.permanents(q)) {
+        for (const au of this.kw(src).costAura || []) {
+          if ((au.side === 'self') !== (q === pi)) continue;
+          if (this.costAuraFits(au, def)) cost += au.n;
+        }
+      }
       if (k.costIfCount && this.countOwn(pi, k.costIfCount.what) >= k.costIfCount.n) cost -= k.costIfCount.minus;
       if (k.costPerShield) cost += Math.floor(me.shields.length / k.costPerShield.per) * k.costPerShield.n;
       if (def.type === 'spell') {
@@ -893,6 +924,21 @@
       // G・ゼロ：条件を満たせばコスト0
       if (k.gZero && this.gZeroOk(pi, k.gZero)) cost = 0;
       return { cost, uses };
+    }
+    costAuraFits(au, def) {
+      if (!au.cond) {
+        let t = au.subj.replace(/^(、)/, '');
+        au.notCreature = /クリーチャーではない/.test(t);
+        au.multi = /^多色/.test(t);
+        t = t.replace(/クリーチャーではない(、)?/, '').replace(/^多色(の)?/, '');
+        au.cond = G.TextParse && G.TextParse.lookCond ? G.TextParse.lookCond(t) : {};
+        if (/呪文.*タマシード|タマシード.*呪文/.test(t)) au.cond.types = ['spell', 'tamaseed'];
+        else if (/クリーチャー(と|または|か)(.+?)タマシード/.test(t)) au.cond.types = ['creature', 'tamaseed'];
+      }
+      const c = { def };
+      if (au.notCreature && !NON_CREATURE.includes(def.type)) return false;
+      if (au.multi && (def.civs || []).filter((x) => x !== 'zero').length < 2) return false;
+      return this.fitLook(c, au.cond);
     }
     gZeroOk(pi, text) {
       const m = String(text).match(/自分の(.+?)(が|を)(\d+体以上)?(いれば|あれば)/);
@@ -2482,8 +2528,11 @@
     }
 
     async battle(a, d) {
+      a.inBattle = d;
+      d.inBattle = a;
       const pa = this.power(a);
       const pd = this.power(d);
+      a.inBattle = d.inBattle = null;
       this.log(`バトル: 「${a.def.name}」${pa} vs 「${d.def.name}」${pd}`);
       const lose = [];
       const teamWin = (c) => this.permanents(c.owner).some((s) => this.kw(s).teamWinAll) || (this.p[c.owner].teamWinTurn || 0) === this.turn;

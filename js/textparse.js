@@ -739,12 +739,30 @@
         continue;
       }
       // 条件つきで「このクリーチャーは（パワー+Nし、）「○○」を得る」
-      const cg = line.match(/^(.+?)(あれば|なければ|なら|もなければ)、このクリーチャー(は|に)(、)?(パワーを\+(\d+)し、|パワーは\+(\d+)され、)?「(.+?)」(と「(.+?)」)?を(得る|与える)。?$/);
+      let cg = line.match(/^(.+?)(あれば|なければ|なら|もなければ|中|間)、このクリーチャー(は|に|の)(、)?(パワーを\+(\d+)し、|パワーは\+(\d+)され、)?「(.+?)」(と「(.+?)」)?を(得る|与える)。?$/);
+      if (!cg) {
+        const pw = line.match(/^(.+?)(あれば|なければ|なら|もなければ|中|間)、このクリーチャーの?パワー(を\+(\d+)する|は\+(\d+)される)。?$/);
+        if (pw) cg = [pw[0], pw[1], pw[2], '', '', '', pw[4], pw[5], null, null, null];
+      }
+      if (!cg) {
+        const pw = line.match(/^(.+?)(あれば|なければ|なら|もなければ|中|間)、このクリーチャーの?パワーを\+(\d+)し、「(.+?)」(と「(.+?)」)?を与える。?$/);
+        if (pw) cg = [pw[0], pw[1], pw[2], '', '', '', pw[3], null, pw[4], null, pw[6]];
+      }
       if (cg) {
         const ct = cg[1] + cg[2];
         const c2 = {};
         let mm;
-        if ((mm = ct.match(/マナ武装\s*(\d+)[：:]\s*自分のマナゾーンに(光|水|闇|火|自然)のカードが(\d+)枚以上あれば/))) Object.assign(c2, { manaCiv: CIVJ[mm[2]], n: +mm[3] });
+        if (/^自分のターン中$/.test(ct)) c2.myTurn = true;
+        else if (/^相手のターン中$/.test(ct)) c2.oppTurn = true;
+        else if (/^バトル中$/.test(ct)) c2.inBattle = true;
+        else if ((mm = ct.match(/^コスト(\d+)以下のクリーチャーとバトル中$/))) c2.inBattle = { maxCost: +mm[1] };
+        else if ((mm = ct.match(/^自分のマナゾーンにカードが(\d+)枚以上あれば$/))) c2.manaGE = +mm[1];
+        else if ((mm = ct.match(/^自分の手札が(\d+)枚以下なら$/))) c2.handLE = +mm[1];
+        else if (/^バトルゾーンにある相手のクリーチャーがすべてタップしていれば$/.test(ct)) c2.oppAllTapped = true;
+        else if ((mm = ct.match(/^相手の(.+?)がバトルゾーンにある時$/))) c2.oppHas = mm[1];
+        else if ((mm = ct.match(/^(バトルゾーンに)?自分の(他の)?([^、。]+?)が(\d+)(体|つ|枚)以上(バトルゾーンに)?あれば$/))) c2.count = { what: mm[3].replace(/^名前に《(.+?)》を持つ/, '$1'), n: +mm[4], others: !!mm[2] };
+        else if ((mm = ct.match(/^(バトルゾーンに)?自分の(他の)?([^、。]+?)があれば$/)) && !/シールド|マナ|手札|墓地/.test(mm[3])) c2.count = { what: mm[3], n: 1, others: !!mm[2] };
+        else if ((mm = ct.match(/マナ武装\s*(\d+)[：:]\s*自分のマナゾーンに(光|水|闇|火|自然)のカードが(\d+)枚以上あれば/))) Object.assign(c2, { manaCiv: CIVJ[mm[2]], n: +mm[3] });
         else if ((mm = ct.match(/自分のシールドが(\d+)(つ|枚)以上あれば/))) c2.shieldsGE = +mm[1];
         else if ((mm = ct.match(/自分のシールドが(\d+)(つ|枚)もなければ/))) c2.shieldsLE = +mm[1] - 1;
         else if ((mm = ct.match(/(バトルゾーンに)?自分のクリーチャーが(\d+)体以上あれば/))) c2.count = { what: 'クリーチャー', n: +mm[2] };
@@ -969,6 +987,6 @@
     return out;
   }
 
-  G.TextParse = { parseCard, describe, normalize, parseEffects, parseTriggerHead };
+  G.TextParse = { parseCard, describe, normalize, parseEffects, parseTriggerHead, lookCond };
   if (typeof module !== 'undefined') module.exports = G.TextParse;
 })(typeof globalThis !== 'undefined' ? globalThis : window);

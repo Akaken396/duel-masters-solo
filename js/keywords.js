@@ -51,6 +51,9 @@
     { name: '墓地から召喚', re: /^このクリーチャーを(、)?自分の墓地から召喚してもよい。?$/, auto: true, set: (k) => (k.graveSummon = true), desc: '墓地から召喚できる' },
     { name: '呪文封じ', re: /^相手は(、)?呪文を唱えられない。?$/, auto: true, set: (k) => (k.spellLockMax = 999), desc: '相手は呪文を唱えられない' },
     { name: '能力を与える', re: /^自分の(他の)?(.*?)(すべて)?に「(.+?)」(と「(.+?)」)?を与える。?$/, auto: true, set: (k, m) => (k.grant = { others: !!m[1], who: (m[2] || '').replace(/^クリーチャー$/, ''), names: [m[4], m[6]].filter(Boolean) }), desc: '自分のクリーチャーに能力を与える' },
+    { name: 'コストを増減する（場にある間）', re: /^(相手の|自分の)(、)?(?<subj>[^。]+?)(を(召喚する|唱える|実行する|使う|召喚)|の(召喚|実行))?コストを(最大)?(?<n>\d+)(?<dir>少なく|多く)する(。ただし、?コストは0以下に(は)?ならない)?。?$/, auto: true,
+      test: (line) => !/このクリーチャー|次に|につき|\d+(体|枚)目|墓地にある|手札にある|ターン/.test(line),
+      set: (k, m) => (k.costAura = (k.costAura || []).concat({ side: m[1] === '相手の' ? 'opp' : 'self', subj: m.groups.subj.replace(/(を|の)$/, ''), n: +m.groups.n * (m.groups.dir === '多く' ? 1 : -1) })), desc: '場にある間、条件に合うカードのコストを変える' },
     { name: '数だけコスト軽減', re: /^このクリーチャーの召喚コストを(、)?(自分の|相手の)?(.*?)(\d+)(体|枚|つ)につき(\d+)少なくする.*$/, auto: true, set: (k, m) => (k.costPer = { side: m[2] === '相手の' ? 'opp' : 'self', what: m[3], per: +m[4], n: +m[6] }), desc: '数に応じて召喚コストが下がる（1未満にはならない）' },
     { name: '数だけパワー', re: /^(自分の)?(マナゾーン|墓地|バトルゾーン)(にある|の)(.*?)(\d+)(枚|体|つ)につき(、)?このクリーチャーのパワーを\+(\d+)する。?$/, auto: true, set: (k, m) => (k.powerPer = { zone: m[2], what: m[4], per: +m[5], n: +m[8] }), desc: '数に応じてパワーが上がる' },
     { name: 'ガードマン', re: /^ガードマン$/, auto: true, set: (k) => (k.guardman = true), desc: '自分の他のクリーチャーが攻撃された時、攻撃先をこのクリーチャーに変えられる' },
@@ -72,6 +75,15 @@
     { name: '相手に選ばせない（場にある間）', re: /^このクリーチャーがバトルゾーンにある間、相手が(バトルゾーンにある)?クリーチャーを選ぶ(時|とき)、(自分の)?(.+?)を選ぶことはできない。?$/, auto: true, set: (k, m) => (k.protect = { who: m[4].replace(/^自分の/, '') }), desc: '場にある間、相手は指定のクリーチャーを選べない' },
     { name: '多色を選ばせない', re: /^相手が(バトルゾーンにある)?クリーチャーを選ぶ(時|とき)、自分の多色クリーチャーは選べない。?$/, auto: true, set: (k) => (k.protect = { multi: true }), desc: '相手は自分の多色クリーチャーを選べない' },
     { name: 'シールドに置かれた時に手札から出る', re: /^(自分のシールドゾーンにカードが|カードが自分のシールドゾーンに)置かれた時、このクリーチャーを自分の手札からバトルゾーンに出してもよい。?$/, auto: true, set: (k) => (k.enterOnShieldAdd = true), desc: '自分のシールドが増えた時、手札から出せる' },
+    { name: '種族や文明の全体パワー', re: /^(バトルゾーンにある)?自分の(他の)?(、)?(?<who>[^。、]*?)すべてのパワーを\+(?<n>\d+)(する|し、「(?<g1>.+?)」(と「(?<g2>.+?)」)?を与える)。?$/, auto: true,
+      set: (k, m) => {
+        let who = m.groups.who.replace(/(・)?クリーチャー$/, '');
+        const cm = who.match(/^(光|水|闇|火|自然)の/);
+        const civ = cm ? CIVJ[cm[1]] : null;
+        if (cm) who = who.slice(cm[0].length).replace(/(・)?クリーチャー$/, '');
+        (k.teamPowers = k.teamPowers || []).push({ n: +m.groups.n, others: !!m[2], who: who || null, civ });
+        if (m.groups.g1) k.grant = { others: !!m[2], who: who || null, civ, names: [m.groups.g1, m.groups.g2].filter(Boolean) };
+      }, desc: '自分の（種族・文明の）クリーチャーのパワーを上げる' },
     { name: '全体のパワー', re: /^バトルゾーンにある自分の(他の)?(.*?)(クリーチャー)?すべてのパワーは\+(\d+)される。?$/, auto: true, set: (k, m) => (k.teamPower = { n: +m[4], others: !!m[1], who: m[2] }), desc: '自分のクリーチャーのパワーを上げる' },
     { name: '唱えた後シールドの上に置く', re: /^この呪文を(自分の手札から)?唱えた後、墓地(に置く|の)かわりに(、)?(表向きのまま)?(自分の)?(表向きのまま)?シールド(ゾーンにある)?(\d+)つの上に(表向きに(して)?)?置く。?$/, auto: true, set: (k) => (k.fortifyAfterCast = true), desc: '唱えた後、シールドの上に表向きで置く（城と同じく、ブレイクされると墓地へ）' },
     { name: 'タマシードから進化でコスト減', re: /^タマシードから進化するなら、このクリーチャーの召喚コストを(\d+)少なくする。?$/, auto: true, set: (k, m) => (k.tamaEvoDiscount = +m[1]), desc: 'タマシードを進化元にすると召喚コストが下がる' },
@@ -233,7 +245,7 @@
   function match(line, raw) {
     for (const e of K) {
       const m = line.match(e.re);
-      if (m) return { e, m, raw };
+      if (m && (!e.test || e.test(line))) return { e, m, raw };
     }
     return null;
   }
