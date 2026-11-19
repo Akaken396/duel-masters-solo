@@ -796,7 +796,11 @@
     // 山札を見る効果の条件にカードが合うか
     fitLook(c, cd) {
       cd = cd || {};
+      if (cd.unknown) return false;
+      if (cd.nameIs) return c.def.name === cd.nameIs || c.def.name.replace(/\s/g, '') === cd.nameIs.replace(/\s/g, '');
       if (cd.any) return cd.any.some((x) => this.fitLook(c, x));
+      if (cd.evoOnly && !this.evoKind(c.def)) return false;
+      if (cd.twinpact && !(c.def.twin && c.def.twin.type === 'spell')) return false;
       const hay = (c.def.races || []).join('/') + '/' + c.def.name;
       return (
         (cd.maxCost == null || (+c.def.cost || 0) <= cd.maxCost) &&
@@ -2492,6 +2496,21 @@
           }
           break;
         }
+        case 'destroyOwn': {
+          let pool = me.battle.filter((c) => (!a.others || c !== src) && (this.isCreature(c) || /エレメント|カード|タマシード/.test(a.who || '')));
+          if (a.who && !/^(クリーチャー|エレメント|カード)$/.test(a.who)) {
+            const cd = G.TextParse.lookCond(a.who.replace(/(・)?(クリーチャー|エレメント|カード)$/, ''));
+            pool = pool.filter((c) => this.fitLook(c, cd));
+          }
+          if (pool.length < a.n && !a.upTo) {
+            this.log(`${nm}: 破壊できる自分の${a.who || 'クリーチャー'}が足りない`);
+            break;
+          }
+          const r = await this.pickCards(pi, pool, a.n, a.optional || a.upTo, `${nm}: 破壊する自分の${a.who || 'クリーチャー'}（${a.n}つ）`, 'discard');
+          if (r.length < a.n && !a.upTo) break;
+          await this.destroyMany(r, { byOpp: false });
+          break;
+        }
         case 'teamBuff': {
           const until = a.until === 'next' ? this.nextTurnOf(pi) - 1 : this.turn;
           let pool = me.battle.filter((c) => this.isCreature(c) && (!a.others || c !== src));
@@ -2931,6 +2950,7 @@
           if (a.civ) pool = pool.filter((c) => (c.def.civs || []).includes(a.civ));
           if (a.nameHas) pool = pool.filter((c) => c.def.name.includes(a.nameHas));
           if (a.hasText) pool = pool.filter((c) => (c.def.text || '').includes(a.hasText));
+          if (a.cond) pool = pool.filter((c) => this.fitLook(c, a.cond));
           if (a.act === 'castFromHand') pool = pool.filter((c) => !this.locked(pi, c.def));
           const r = await this.pickCards(pi, pool, a.n, a.optional, `${nm}: 手札から${a.act === 'castFromHand' ? '唱える呪文' : '出すクリーチャー'}`, 'recover');
           for (const c of r) {
@@ -3310,6 +3330,10 @@
         const loser = lose[0];
         const winner = loser === a ? d : a;
         if (this.kw(loser).slayer) lose.push(winner);
+      }
+      for (const x of lose.slice()) if (this.kw(x).noDestroyInBattle) {
+        lose.splice(lose.indexOf(x), 1);
+        this.log(`「${x.def.name}」はバトル中破壊されない`);
       }
       await this.destroyMany(lose);
       const after = [a, d].filter((x) => !lose.includes(x) && this.zoneOf(x) === 'battle' && this.kw(x).dieAfterBattle);
