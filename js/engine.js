@@ -1244,6 +1244,26 @@
           return false;
         }
       }
+      // 「クリーチャーが出る時、かわりに墓地（マナ）に置く」
+      if (this.isCreature(card)) {
+        for (const q of [1 - pi, pi]) for (const src of this.permanents(q)) {
+          for (const er of this.kw(src).enterReplace || []) {
+            if (er.side === 'opp' && q === pi) continue;
+            if (er.oppTurnOnly && this.active === q) continue;
+            if (er.nonSummon && how === 'summon') continue;
+            if (this.sc(src) && this.sc(src).replaceEnter) continue; // カード個別の処理がある時はそちらに任せる
+            if (er.who) {
+              const sw = er.who.match(/「(.+?)」で始まる能力を持つ/);
+              const hit = sw ? (card.def.text || '').split('\n').some((l) => l.startsWith(sw[1])) : er.who.split(/または/).some((w) => this.fitLook(card, G.TextParse.lookCond(w)));
+              if (hit === er.neg) continue;
+            }
+            if (er.to === 'deckBottom') this.moveTo(card, 'deck', { top: false });
+            else this.moveTo(card, er.to);
+            this.log(`「${src.def.name}」の効果で「${card.def.name}」はかわりに${{ grave: '墓地', mana: 'マナゾーン', deckBottom: '山札の下' }[er.to]}に置かれた`);
+            return false;
+          }
+        }
+      }
       const fromZone = this.zoneOf(card);
       if (fromZone && fromZone !== 'hand' && [0, 1].some((q) => this.permanents(q).some((s) => this.kw(s).noNonHandEntry))) {
         this.moveTo(card, 'hand');
@@ -1434,8 +1454,9 @@
         if (sc && sc.replaceLeave && this.isCreature(card) && (await sc.replaceLeave(this, src, card))) return false;
       }
       const ls = this.kw(card).leaveSub;
-      if (ls && !this._inLeaveSub) {
-        const pool = this.p[card.owner].battle.filter((c) => c !== card && (ls.name ? c.def.name.includes(ls.name) : this.isCreature(c)));
+      if (ls && !this._inLeaveSub && (!ls.destroyOnly || o.destroy)) {
+        if (ls.who && !ls._cond) ls._cond = G.TextParse && G.TextParse.lookCond ? G.TextParse.lookCond(ls.who) : {};
+        const pool = this.p[card.owner].battle.filter((c) => c !== card && (ls.who ? this.fitLook(c, ls._cond) : ls.name ? c.def.name.includes(ls.name) : this.isCreature(c)));
         if (pool.length) {
           const r = await this.pickCards(card.owner, pool, 1, ls.optional, `「${card.def.name}」が離れるかわりに破壊するカード${ls.optional ? '（任意）' : ''}`, 'discard');
           if (r[0]) {
@@ -1448,6 +1469,28 @@
             this.log(`「${card.def.name}」は離れず、かわりに「${r[0].def.name}」を破壊した`);
             return false;
           }
+        }
+      }
+      const ld = this.kw(card).leaveSubDiscard;
+      if (ld && (!ld.destroyOnly || o.destroy)) {
+        if (!ld._cond) ld._cond = G.TextParse && G.TextParse.lookCond ? G.TextParse.lookCond(ld.who || '') : {};
+        const pool = this.p[card.owner].hand.filter((c) => !ld.who || this.fitLook(c, ld._cond));
+        if (pool.length) {
+          const r = await this.pickCards(card.owner, pool, 1, true, `「${card.def.name}」が離れるかわりに捨てる手札（任意）`, 'discard');
+          if (r[0]) {
+            this.moveTo(r[0], 'grave');
+            this.log(`「${card.def.name}」は離れず、かわりに手札の「${r[0].def.name}」を捨てた`);
+            return false;
+          }
+        }
+      }
+      if (this.kw(card).leaveSubShield && this.p[card.owner].shields.length) {
+        const r = await this.pickCards(card.owner, this.p[card.owner].shields.slice(), 1, true, `「${card.def.name}」が離れるかわりに墓地に置くシールド（任意）`, 'discard');
+        if (r[0]) {
+          this.moveTo(r[0], 'grave');
+          this.log(`「${card.def.name}」は離れず、かわりにシールドを1つ墓地に置いた`);
+          await this.shieldsLeft(card.owner);
+          return false;
         }
       }
       let faceUp = false;
