@@ -90,7 +90,30 @@
             <button id="deck-del" class="danger">削除</button>
             <button id="deck-addmissing">足りないカードを登録画面へ</button>
           </div>
+          <div class="muted">デッキのカード：左クリックで＋1、右クリックで−1</div>
           <div id="deck-preview" class="grid"></div>
+        </div>
+        <div class="pickpane panel">
+          <b>カード一覧から追加</b>
+          <div class="row"><input id="pick-search" type="search" placeholder="名前・テキスト・種族で検索" /></div>
+          <div class="row" id="pick-civs"></div>
+          <div class="row">
+            <select id="pick-type">
+              <option value="">すべての種類</option>
+              <option value="creature">クリーチャー</option>
+              <option value="spell">呪文</option>
+              <option value="tamaseed">タマシード</option>
+              <option value="castle">城</option>
+              <option value="field">フィールド</option>
+            </select>
+            <select id="pick-cost">
+              <option value="">すべてのコスト</option>
+              <option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option>
+              <option value="5">5</option><option value="6">6</option><option value="7">7+</option>
+            </select>
+          </div>
+          <div class="muted">左クリックで＋1、右クリックで−1</div>
+          <div id="pick-grid" class="grid pick"></div>
         </div>
       </div>
     </section>

@@ -725,6 +725,7 @@
       );
     }
     loadDeckForm();
+    renderPick();
   }
   function loadDeckForm() {
     const d = Store.decks.find((x) => x.id === deckSel);
@@ -753,14 +754,78 @@
     const merged = new Map();
     for (const e of r.entries) merged.set(e.def, (merged.get(e.def) || 0) + e.n);
     for (const [def, n] of merged) {
-      const e = cardFace(def, { nameBadge: true });
+      const e = cardFace(def, { nameBadge: true, click: true });
       e.style.setProperty('--cw', '96px');
+      e.addEventListener('click', () => deckAdd(def, +1));
+      e.addEventListener('contextmenu', (ev) => {
+        ev.preventDefault();
+        deckAdd(def, -1);
+      });
       pv.append(el('div', { class: 'gi' }, e, el('span', { class: 'n', text: '×' + n })));
     }
     $('#deck-addmissing').disabled = !r.unknown.length;
     return r;
   }
   $('#deck-text').addEventListener('input', checkDeck);
+
+  // ===== 一覧からデッキを組む =====
+  // デッキのテキストを「枚数 カード名」の行にまとめ直して、枚数を増減する
+  function deckAdd(def, delta) {
+    const r = parseDeckList($('#deck-text').value);
+    const counts = new Map();
+    for (const e of r.entries) counts.set(e.def, (counts.get(e.def) || 0) + e.n);
+    const n = Math.max(0, (counts.get(def) || 0) + delta);
+    if (delta > 0 && n > 4 && !confirm(`「${def.name}」が5枚以上になります。追加しますか？`)) return;
+    if (n) counts.set(def, n);
+    else counts.delete(def);
+    const unknown = r.unknown.map((u) => `1 ${u}`);
+    const lines = [...counts].sort((a, b) => (a[0].cost ?? 0) - (b[0].cost ?? 0) || a[0].name.localeCompare(b[0].name, 'ja')).map(([d, k]) => `${k} ${d.name}`);
+    $('#deck-text').value = [...lines, ...unknown].join('\n');
+    checkDeck();
+    renderPick();
+  }
+  const pickCivs = new Set();
+  const pickCivBox = $('#pick-civs');
+  for (const c of CIVS) {
+    const b = el('button', { class: 'civbtn', text: CIV_LABEL[c], style: { borderColor: CIV_COLOR[c] } });
+    b.addEventListener('click', () => {
+      if (pickCivs.has(c)) pickCivs.delete(c);
+      else pickCivs.add(c);
+      b.classList.toggle('on', pickCivs.has(c));
+      b.style.background = pickCivs.has(c) ? CIV_COLOR[c] : '';
+      renderPick();
+    });
+    pickCivBox.append(b);
+  }
+  function renderPick() {
+    const grid = $('#pick-grid');
+    if (!grid) return;
+    const q = $('#pick-search').value.trim().normalize('NFKC').toLowerCase();
+    const type = $('#pick-type').value;
+    const cost = $('#pick-cost').value;
+    const inDeck = new Map();
+    for (const e of parseDeckList($('#deck-text').value).entries) inDeck.set(e.def, (inDeck.get(e.def) || 0) + e.n);
+    const list = Store.cards
+      .filter((c) => !q || (c.name + ' ' + (c.text || '') + ' ' + (c.races || []).join(' ')).normalize('NFKC').toLowerCase().includes(q))
+      .filter((c) => !pickCivs.size || (c.civs || []).some((x) => pickCivs.has(x)))
+      .filter((c) => !type || c.type === type)
+      .filter((c) => !cost || (cost === '7' ? (c.cost ?? 0) >= 7 : (c.cost ?? 0) === +cost))
+      .sort((a, b) => (a.cost ?? 0) - (b.cost ?? 0) || a.name.localeCompare(b.name, 'ja'));
+    grid.innerHTML = '';
+    for (const def of list) {
+      const e = cardFace(def, { nameBadge: true, click: true });
+      e.style.setProperty('--cw', '78px');
+      e.addEventListener('click', () => deckAdd(def, +1));
+      e.addEventListener('contextmenu', (ev) => {
+        ev.preventDefault();
+        deckAdd(def, -1);
+      });
+      const n = inDeck.get(def) || 0;
+      grid.append(el('div', { class: 'gi' }, e, n ? el('span', { class: 'n', text: '×' + n }) : null));
+    }
+    if (!list.length) grid.append(el('div', { class: 'muted', text: '該当するカードがありません' }));
+  }
+  ['#pick-search', '#pick-type', '#pick-cost'].forEach((sel) => $(sel).addEventListener('input', renderPick));
   $('#deck-new').addEventListener('click', () => {
     const d = { id: 'd-' + Date.now().toString(36), name: '新しいデッキ', list: '' };
     Store.decks.push(d);
