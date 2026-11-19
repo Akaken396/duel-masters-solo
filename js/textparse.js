@@ -200,6 +200,16 @@
     // 「自分の○○をN体（つ）タップしてもよい」：コストとして自分のクリーチャーをタップ
     if ((m = s.match(/^(自分の|バトルゾーンの)(他の)?(、)?([^、。]*?)を(\d+)(体|つ)(、)?タップ(する|してもよい)$/)) && !/相手/.test(s))
       return { act: 'tapOwnCost', who: m[4].replace(/(・)?クリーチャー$/, ''), others: !!m[2], n: +m[5], optional: m[8] !== 'する' };
+    // 細かい言い回し
+    if ((m = s.match(/^相手は(、)?自身の山札の上から(\d+)枚(目)?(まで)?を墓地に置く$/))) return { act: 'oppMill', n: +m[2] };
+    if ((m = s.match(/^相手の手札を見て(\d+)枚(まで)?選び、捨てさせる$/))) return { act: 'discard', n: +m[1], random: false, byMe: true, optional: !!m[2] };
+    if ((m = s.match(/^(コスト(\d+)以上の)?(コスト(\d+)以下の)?(クリーチャー|呪文|カード)を(\d+)(体|枚)(まで)?、自分の墓地から手札に(戻|加え)(す|る|してもよい|てもよい)$/)))
+      return { act: 'graveToHand', n: +m[6], creatureOnly: m[5] === 'クリーチャー', spellOnly: m[5] === '呪文', minCost: m[2] ? +m[2] : null, maxCost: m[4] ? +m[4] : null, optional: !!m[8] || /もよい/.test(m[10]) };
+    if (/^このクリーチャーを(自分の)?墓地から手札に戻(す|してもよい)$/.test(s)) return { act: 'selfToHand', optional: /もよい/.test(s) };
+    if (/^自分の墓地(のカードをすべて|を)山札に加えてシャッフルする$/.test(s)) return { act: 'graveToDeck' };
+    if ((m = s.match(/^(バトルゾーンにある)?相手の(コスト(\d+)以下の)?(カード|エレメント)を(\d+)(枚|つ)選び、破壊する$/))) return { act: 'destroy', side: 'opp', n: +m[5], any: true, maxCost: m[3] ? +m[3] : null, optional: false, all: false };
+    if ((m = s.match(/^(相手の)?エレメントを(\d+)つ(まで)?選び、シールド化する$/))) return { act: 'toShield', side: 'opp', n: +m[2], any: true, optional: !!m[3] };
+    if (/^(このクリーチャーの)?下にあったカードをすべて手札に加える$/.test(s)) return { act: 'underToHand' };
     // 直前に出した・選んだカード（そのクリーチャー）への効果
     if ((m = s.match(/^((次の自分のターンのはじめまで|このターン|そのターン)、)?(そのクリーチャー|それ|そのドラゴン|それら)(は|に)(、)?「(.+?)」(と「(.+?)」)?を(得る|与える)$/)))
       return { act: 'grantLast', names: [m[6], m[8]].filter(Boolean), until: !m[2] ? 'perm' : /次の自分/.test(m[2]) ? 'next' : 'turn' };
@@ -986,6 +996,10 @@
     endTurnLast: (a) => `ターンの終わりにそのクリーチャーを${{ destroy: '破壊', hand: '手札へ', deckBottom: '山札の下へ', mana: 'マナへ' }[a.to]}`,
     tapOwnCost: (a) => `自分の${a.who || 'クリーチャー'}を${a.n}体タップ`,
     topHandOrMana: () => '山札の上1枚を見て手札かマナへ',
+    oppMill: (a) => `相手の山札の上${a.n}枚を墓地へ`,
+    selfToHand: () => 'このクリーチャーを墓地から手札へ',
+    graveToDeck: () => '墓地を山札に戻してシャッフル',
+    underToHand: () => '下にあったカードを手札へ',
     pairFight: () => '自分と相手のクリーチャーを1体ずつバトル',
     ifCond: (a) => `${a.text}、${a.acts.map((x) => (ACT_LABEL[x.act] ? ACT_LABEL[x.act](x) : x.act)).join('、')}`,
     lastIf: (a) => `それが${a.cond.text}なら${a.acts.map((x) => (ACT_LABEL[x.act] ? ACT_LABEL[x.act](x) : x.act)).join('、')}`,

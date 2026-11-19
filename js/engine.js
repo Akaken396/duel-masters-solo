@@ -1555,6 +1555,7 @@
       const under = card.under || [];
       card.under = null;
       this.moveTo(card, toZone, o.moveOpt);
+      card.lastUnder = under.slice();
       if (faceUp) {
         card.faceUp = true;
         this.log(`「${card.def.name}」はシールド・ゴーで表向きのシールドになった`);
@@ -1883,7 +1884,12 @@
           for (let i = 0; i < a.n && op.hand.length; i++) {
             let c;
             if (a.random) c = op.hand[Math.floor(this.rng() * op.hand.length)];
-            else {
+            else if (a.byMe) {
+              // 相手の手札を見て自分が選ぶ
+              const r = await this.pickCards(pi, op.hand.slice(), 1, !!a.optional, `${nm}: 相手の手札から捨てさせるカード`, 'target');
+              c = r[0];
+              if (!c) break;
+            } else {
               const r = await this.pickCards(op.idx, op.hand, 1, false, `${nm}: 捨てる手札を選んでください`, 'discard');
               c = r[0];
             }
@@ -1899,6 +1905,7 @@
           if (a.creatureOnly) pool = pool.filter((c) => !NON_CREATURE.includes(c.def.type));
           if (a.spellOnly) pool = pool.filter((c) => c.def.type === 'spell');
           if (a.maxCost != null) pool = pool.filter((c) => (+c.def.cost || 0) <= a.maxCost);
+          if (a.minCost != null) pool = pool.filter((c) => (+c.def.cost || 0) >= a.minCost);
           const picked = await this.pickCards(pi, pool, a.n, a.optional, `${nm}: 手札に戻すカードを選んでください`, 'recover');
           for (const c of picked) {
             this.moveTo(c, 'hand');
@@ -2073,6 +2080,30 @@
           if (toHand) this.moveTo(c, 'hand');
           else this.moveTo(c, 'mana', { tapped: a.tapped || (c.def.civs || []).length > 1 });
           this.log(`${me.name}は山札の上のカードを${toHand ? '手札に加えた' : 'マナゾーンに置いた（「' + c.def.name + '」）'}`);
+          break;
+        }
+        case 'oppMill':
+          for (let i = 0; i < a.n && op.deck.length; i++) {
+            const c = op.deck[0];
+            this.moveTo(c, 'grave');
+            this.log(`${op.name}の山札の上の「${c.def.name}」を墓地に置いた`);
+          }
+          break;
+        case 'selfToHand':
+          if (src && this.zoneOf(src) === 'grave' && (!a.optional || (await this.yesNo(pi, `${nm}を墓地から手札に戻しますか？`, src)))) {
+            this.moveTo(src, 'hand');
+            this.log(`${nm}を墓地から手札に戻した`);
+          }
+          break;
+        case 'graveToDeck':
+          for (const c of me.grave.slice()) this.moveTo(c, 'deck', { top: false });
+          shuffle(me.deck, this.rng);
+          this.log(`${me.name}は墓地のカードをすべて山札に加えてシャッフルした`);
+          break;
+        case 'underToHand': {
+          const und = (src && src.lastUnder) || [];
+          for (const c of und) if (this.zoneOf(c) && this.zoneOf(c) !== 'hand') this.moveTo(c, 'hand');
+          if (und.length) this.log(`${nm}の下にあったカード${und.length}枚を手札に加えた`);
           break;
         }
         case 'pairFight': {
