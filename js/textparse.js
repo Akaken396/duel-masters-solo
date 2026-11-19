@@ -14,9 +14,11 @@
       .replace(/[，]/g, '、')
       .replace(/[．]/g, '。')
       .replace(/\r/g, '')
-      .replace(/\{[A-Za-z0-9]+\}\s*/g, '') // 公式ページのアイコン記号 {GS} など
+      .replace(/\{[^}]{1,6}\}\s*/g, '') // 公式ページのアイコン記号 {GS} {x+} など
+      .replace(/^[a-z]{1,2}[A-Z]?(?=この|自分|相手|各ターン)/gm, '') // 行頭に残ったアイコンの文字
       .replace(/\[[a-z]{1,3}\d{0,3}\]/g, '') // マナ記号 [ll02] など
       .replace(/^l\s+/gm, '') // 能力を与える時の記号
+      .replace(/\?\?|\uFFFD{1,2}/g, '\n▶')
       .replace(/^\s*[▶►]\s*/gm, (m) => m.trim());
   }
 
@@ -60,6 +62,7 @@
     { re: /^カードが表向きで自分のシールドゾーンに置かれた時、/, when: 'shieldAdded' },
     { re: /^このクリーチャーが攻撃する(時|とき)、/, when: 'attack' },
     { re: /^このクリーチャーの攻撃の終わりに、/, when: 'attackEnd' },
+    { re: /^(各ターンに1度、)?カードが自分のシールドゾーンを離れた(時|とき)、/, when: 'ownShieldLeft' },
     { re: /^このクリーチャーの各ブレイクの前に、/, when: 'beforeBreak' },
     { re: /^このクリーチャーが相手プレイヤーを攻撃してブロックされなかった(時|とき)、/, when: 'unblocked' },
     { re: /^ラビリンス[：:]このクリーチャーが(バトルゾーンに)?出た(時|とき)、/, when: 'summon' },
@@ -79,6 +82,73 @@
     { re: /^相手のターンのはじめに、/, when: 'oppTurnStart' },
     { re: /^このクリーチャーが(相手の)?シールドをブレイクした時、/, when: 'broke' },
   ];
+
+  // 発動タイミングの部品。「AまたはB、」のような組み合わせも読む
+  const TRIGGER_ATOMS = [
+    [/^(このクリーチャー|このカード|このタマシード|このフィールド|このDGフィールド|このDNフィールド|このクロスギア|このオーラ)(が|を)?(、)?(バトルゾーンに)?(出た|出した)(時|とき)/, 'summon'],
+    [/^(このクリーチャーが)?召喚によって出た(時|とき)/, 'summonOnly'],
+    [/^(このクリーチャーが)?(、)?進化して出た(時|とき)/, 'summon'],
+    [/^(このクリーチャーが)?攻撃する(時|とき)/, 'attack'],
+    [/^(このクリーチャーが|このクリーチャーを)?タップした(時|とき)/, 'tapped'],
+    [/^(このクリーチャーが)?(バトルゾーンを)?離れた(時|とき)/, 'left'],
+    [/^(このクリーチャーが)?破壊された(時|とき)/, 'destroyed'],
+    [/^(このクリーチャーが)?相手に選ばれた(時|とき)/, 'targeted'],
+    [/^相手がこのクリーチャーを選んだ(時|とき)/, 'targeted'],
+    [/^(このクリーチャーが)?ブロックした(時|とき)/, 'block'],
+    [/^(このクリーチャーの)?「EXライフ」シールドが(自分のシールドゾーンを)?離れた(時|とき)/, 'exLifeLost'],
+    [/^自分のターンのはじめに/, 'turnStart'],
+    [/^自分のターンの(終わり|おわり)に/, 'turnEnd'],
+    [/^相手のターンのはじめに/, 'oppTurnStart'],
+    [/^相手のクリーチャーが攻撃する(時|とき)/, 'oppAttack'],
+    [/^自分が呪文を唱えた(時|とき)/, 'allyCast'],
+    [/^相手が呪文を唱えた(時|とき)/, 'oppCast'],
+    [/^自分のクリーチャーがバトルに勝った(時|とき)/, 'allyBattleWin'],
+    [/^相手のクリーチャーが破壊された(時|とき)/, 'oppDestroyed'],
+    [/^カードが自分のシールドゾーン(から|を)離れた(時|とき)/, 'ownShieldLeft'],
+    [/^カードが自分のシールドゾーンから墓地に置かれた(時|とき)/, 'ownShieldLeft'],
+    [/^カードが自分のシールドゾーンに置かれた(時|とき)/, 'shieldAdded'],
+  ];
+  // 行頭の発動タイミングを読む。読めたら {whens, rest, cond}
+  function parseTriggerHead(line) {
+    let rest = line;
+    const cond = {};
+    // 「相手のターン中に、」「相手のターンに」は条件
+    let mm;
+    if ((mm = rest.match(/^相手のターン(中)?に、?/))) {
+      cond.oppTurn = true;
+      rest = rest.slice(mm[0].length);
+    }
+    if ((mm = rest.match(/^各ターン、(このクリーチャーが)?はじめて/))) {
+      cond.firstPerTurn = true;
+      rest = rest.slice(mm[0].length);
+    }
+    if ((mm = rest.match(/^(各ターンに(1|一)度、)/))) {
+      cond.oncePerTurn = true;
+      rest = rest.slice(mm[0].length);
+    }
+    if ((mm = rest.match(/^このクリーチャーが出たターンに/))) {
+      cond.enteredThisTurn = true;
+      rest = rest.slice(mm[0].length);
+    }
+    if ((mm = rest.match(/^バラバラエティ\d+[：:]/))) rest = rest.slice(mm[0].length);
+    const whens = [];
+    for (let guard = 0; guard < 4; guard++) {
+      const atom = TRIGGER_ATOMS.find(([re]) => re.test(rest));
+      if (!atom) break;
+      const m0 = rest.match(atom[0]);
+      whens.push(atom[1]);
+      rest = rest.slice(m0[0].length);
+      const sep = rest.match(/^(、)?(または|か)(、)?/);
+      if (sep) {
+        rest = rest.slice(sep[0].length);
+        // 主語を省いた2つ目（「このクリーチャーが出た時または離れた時」）
+        continue;
+      }
+      break;
+    }
+    if (!whens.length || !/^、/.test(rest)) return null;
+    return { whens: [...new Set(whens)], rest: rest.slice(1), cond };
+  }
 
   // 対象の側：相手 / 自分 / 指定なし(どちらでも)
   function sideOf(s) {
@@ -237,6 +307,7 @@
       return { act: 'tapOrUntap', n: +m[1] };
     }
     if (/^このクリーチャーをアンタップしてもよい$/.test(s)) return { act: 'untapSelf', optional: true };
+    if ((m = s.match(/^バトルの後、このクリーチャーをアンタップ(する|してもよい)$/))) return { act: 'untapSelf', optional: m[1] !== 'する' };
     if (/^(この|その)ターン、この(進化した)?クリーチャーはすべてのバトルに勝つ$/.test(s)) return { act: 'tempWinAll', until: 'turn' };
     if (/^次の自分のターンのはじめまで、この(進化した)?クリーチャーはすべてのバトルに勝つ$/.test(s)) return { act: 'tempWinAll', until: 'next' };
     if ((m = s.match(/^次の自分のターンのはじめまで、この(進化した)?クリーチャーは「(.+?)」(と「(.+?)」)?を得(る)?$/))) return { act: 'selfTempGrant', names: [m[2], m[4]].filter(Boolean) };
@@ -456,7 +527,8 @@
         const head = rawObj.opts ? line : inline[1] + '選ぶ';
         const optTexts = rawObj.opts || inline[6].split(/[／/]/);
         let whens = [];
-        for (const t of TRIGGERS) if (t.re.test(head)) whens = [t.when];
+        if (/^このクリーチャーが(バトルゾーンに)?出た時(、)?(または|か|、)攻撃する時、/.test(head)) whens = ['summon', 'attack'];
+        else for (const t of TRIGGERS) if (t.re.test(head)) whens = [t.when];
         if (!whens.length && def.type === 'spell') whens = ['cast'];
         if (!whens.length) {
           // いつ使うか分からない選択肢は手動扱い
@@ -534,6 +606,25 @@
         K.manaArmedCost = { ...cond, n2: +mcost[1] };
         continue;
       }
+      // 条件つきで「このクリーチャーは（パワー+Nし、）「○○」を得る」
+      const cg = line.match(/^(.+?)(あれば|なければ|なら|もなければ)、このクリーチャー(は|に)(、)?(パワーを\+(\d+)し、|パワーは\+(\d+)され、)?「(.+?)」(と「(.+?)」)?を(得る|与える)。?$/);
+      if (cg) {
+        const ct = cg[1] + cg[2];
+        const c2 = {};
+        let mm;
+        if ((mm = ct.match(/マナ武装\s*(\d+)[：:]\s*自分のマナゾーンに(光|水|闇|火|自然)のカードが(\d+)枚以上あれば/))) Object.assign(c2, { manaCiv: CIVJ[mm[2]], n: +mm[3] });
+        else if ((mm = ct.match(/自分のシールドが(\d+)(つ|枚)以上あれば/))) c2.shieldsGE = +mm[1];
+        else if ((mm = ct.match(/自分のシールドが(\d+)(つ|枚)もなければ/))) c2.shieldsLE = +mm[1] - 1;
+        else if ((mm = ct.match(/(バトルゾーンに)?自分のクリーチャーが(\d+)体以上あれば/))) c2.count = { what: 'クリーチャー', n: +mm[2] };
+        else if ((mm = ct.match(/自分のシールドゾーンに表向きのカードが(\d+)枚以上あれば/))) c2.faceUpShieldsGE = +mm[1];
+        else if (/自分のシールドの数が相手より多ければ/.test(ct)) c2.shieldsMore = true;
+        else if (/バトルゾーンにある自分のクリーチャーの数が相手より多ければ/.test(ct)) c2.creaturesMore = true;
+        else c2.unknown = true;
+        if (!c2.unknown) {
+          (K.condGrants = K.condGrants || []).push({ cond: c2, power: +(cg[6] || cg[7] || 0), names: [cg[8], cg[10]].filter(Boolean) });
+          continue;
+        }
+      }
       // 単独の「メクレイドN」は、出た時に行う
       const mk = line.match(/^(([^、。]*?)・)?(超)?メクレイド\s*(\d+)$/);
       if (mk) {
@@ -545,12 +636,12 @@
       let whens = [];
       let body = line;
       // 「出た時または攻撃する時」
-      const allyEv = line.match(/^自分の(他の)?([^、]{1,24}?)が(攻撃する|離れた|破壊された)(時|とき)、/);
+      const allyEv = line.match(/^(各ターン、はじめて)?自分の(他の)?([^、]{1,24}?)が(攻撃する|離れた|破壊された)(時|とき)、/);
       if (allyEv && !/^このクリーチャー/.test(line)) {
-        const what = allyEv[2].replace(/(・)?クリーチャー$/, '').replace(/^クリーチャー$/, '');
+        const what = allyEv[3].replace(/(・)?クリーチャー$/, '').replace(/^クリーチャー$/, '');
         const actsE = parseEffects(line.replace(allyEv[0], ''));
         if (actsE) {
-          A.push({ when: allyEv[3] === '攻撃する' ? 'allyAttack' : 'allyLeft', acts: actsE, ally: { race: what || null, others: !!allyEv[1] }, text: raw });
+          A.push({ when: allyEv[4] === '攻撃する' ? 'allyAttack' : 'allyLeft', acts: actsE, ally: { race: what || null, others: !!allyEv[2], perTurn: allyEv[1] ? 1 : 0 }, text: raw });
           continue;
         }
       }
@@ -586,6 +677,14 @@
             body = line.replace(t.re, '');
             break;
           }
+        }
+      }
+      if (!whens.length) {
+        const th = parseTriggerHead(line);
+        if (th) {
+          whens = th.whens;
+          body = th.rest;
+          if (Object.keys(th.cond).length) cond = { ...(cond || {}), ...th.cond };
         }
       }
       if (seal && !whens.length) whens = ['summon'];
@@ -674,7 +773,7 @@
   function filt(a) {
     return (a.tappedOnly ? 'タップ中の' : '') + (a.untappedOnly ? 'アンタップ中の' : '') + (a.maxPower ? `パワー${a.maxPower}以下` : '') + (a.maxCost ? `コスト${a.maxCost}以下` : '');
   }
-  const WHEN_LABEL = { attackEnd: '攻撃の終わり', beforeBreak: 'ブレイクの前', unblocked: 'ブロックされなかった時', allyAttack: '味方が攻撃する時', allyLeft: '味方が離れた時', tapped: 'タップした時', untapped: 'アンタップした時', evolveSource: '進化元になる時', tapAbility: 'タップ能力', battleLose: 'バトルに負けた時', allyEnter: '味方が出た時', left: '離れた時', attacked: '攻撃された時', summonOnly: '召喚で出た時', summon: '出た時', attack: '攻撃時', destroyed: '破壊時', turnStart: 'ターン開始時', turnEnd: 'ターン終了時', shieldAdded: 'シールド追加時', cast: '呪文', block: 'ブロック時', battleWin: 'バトルに勝った時', oppTurnStart: '相手のターン開始時', broke: 'ブレイクした時' };
+  const WHEN_LABEL = { targeted: '選ばれた時', oppAttack: '相手の攻撃時', allyCast: '自分が呪文を唱えた時', oppCast: '相手が呪文を唱えた時', allyBattleWin: '味方がバトルに勝った時', oppDestroyed: '相手のクリーチャーが破壊された時', ownShieldLeft: 'シールドが離れた時', attackEnd: '攻撃の終わり', beforeBreak: 'ブレイクの前', unblocked: 'ブロックされなかった時', allyAttack: '味方が攻撃する時', allyLeft: '味方が離れた時', tapped: 'タップした時', untapped: 'アンタップした時', evolveSource: '進化元になる時', tapAbility: 'タップ能力', battleLose: 'バトルに負けた時', allyEnter: '味方が出た時', left: '離れた時', attacked: '攻撃された時', summonOnly: '召喚で出た時', summon: '出た時', attack: '攻撃時', destroyed: '破壊時', turnStart: 'ターン開始時', turnEnd: 'ターン終了時', shieldAdded: 'シールド追加時', cast: '呪文', block: 'ブロック時', battleWin: 'バトルに勝った時', oppTurnStart: '相手のターン開始時', broke: 'ブレイクした時' };
 
   function civJ(c) {
     return { light: '光', water: '水', darkness: '闇', fire: '火', nature: '自然' }[c] || '';
