@@ -33,7 +33,7 @@
     return t;
   }
 
-  const WHEN_J = { targeted: '選ばれた時の能力', oppAttack: '相手の攻撃時の能力', allyCast: '呪文を唱えた時の能力', oppCast: '相手が呪文を唱えた時の能力', allyBattleWin: '味方がバトルに勝った時の能力', oppDestroyed: '相手のクリーチャーが破壊された時の能力', ownShieldLeft: 'シールドが離れた時の能力', attackEnd: '攻撃の終わりの能力', beforeBreak: 'ブレイクの前の能力', unblocked: 'ブロックされなかった時の能力', allyAttack: '味方の攻撃時の能力', allyLeft: '味方が離れた時の能力', tapped: 'タップした時の能力', untapped: 'アンタップした時の能力', evolveSource: 'シンカパワー', tapAbility: 'タップ能力', battleLose: 'バトルに負けた時の能力', left: '離れた時の能力', attacked: '攻撃された時の能力', summonOnly: '召喚で出た時の能力', battleWin: 'バトルに勝った時の能力', oppTurnStart: '相手のターンのはじめの能力', broke: 'ブレイクした時の能力', summon: '出た時の能力', attack: '攻撃する時の能力', destroyed: '破壊された時の能力', turnStart: 'ターンのはじめの能力', turnEnd: 'ターンの終わりの能力', shieldAdded: 'シールドが置かれた時の能力', exLifeLost: 'EXライフが離れた時の能力', block: 'ブロックした時の能力', sealsGone: '封印が外れた時の能力' };
+  const WHEN_J = { eachTurnEnd: 'ターンの終わりの能力', oppTurnEnd: '相手のターンの終わりの能力', oppEnter: '相手のクリーチャーが出た時の能力', anyEnter: 'クリーチャーが出た時の能力', anyDestroyed: 'クリーチャーが破壊された時の能力', selfOrAllyDestroyed: '破壊された時の能力', blocked: 'ブロックされた時の能力', oppUnblocked: '相手の攻撃が通った時の能力', battled: 'バトルした時の能力', targeted: '選ばれた時の能力', oppAttack: '相手の攻撃時の能力', allyCast: '呪文を唱えた時の能力', oppCast: '相手が呪文を唱えた時の能力', allyBattleWin: '味方がバトルに勝った時の能力', oppDestroyed: '相手のクリーチャーが破壊された時の能力', ownShieldLeft: 'シールドが離れた時の能力', attackEnd: '攻撃の終わりの能力', beforeBreak: 'ブレイクの前の能力', unblocked: 'ブロックされなかった時の能力', allyAttack: '味方の攻撃時の能力', allyLeft: '味方が離れた時の能力', tapped: 'タップした時の能力', untapped: 'アンタップした時の能力', evolveSource: 'シンカパワー', tapAbility: 'タップ能力', battleLose: 'バトルに負けた時の能力', left: '離れた時の能力', attacked: '攻撃された時の能力', summonOnly: '召喚で出た時の能力', battleWin: 'バトルに勝った時の能力', oppTurnStart: '相手のターンのはじめの能力', broke: 'ブレイクした時の能力', summon: '出た時の能力', attack: '攻撃する時の能力', destroyed: '破壊された時の能力', turnStart: 'ターンのはじめの能力', turnEnd: 'ターンの終わりの能力', shieldAdded: 'シールドが置かれた時の能力', exLifeLost: 'EXライフが離れた時の能力', block: 'ブロックした時の能力', sealsGone: '封印が外れた時の能力' };
 
   class GameOver extends Error {
     constructor(winner, reason) {
@@ -687,6 +687,10 @@
           if (this.winner != null || this.aborted) break;
           if (!me.isAI) for (const c of me.battle) if (this.isCreature(c) && this.mustAttack(c) && this.attackTargets(c).length) this.log(`【注意】「${c.def.name}」は可能なら攻撃しなければならない（まだ攻撃できる）`);
           for (const c of this.permanents(this.active)) if (this.isOnField(c)) await this.trigger(c, 'turnEnd', c.owner, c.def, null, { defer: true });
+          for (const q of [this.active, 1 - this.active]) for (const c of this.permanents(q)) if (this.isOnField(c)) {
+            if (this.hasAbility(c, 'eachTurnEnd')) await this.trigger(c, 'eachTurnEnd', c.owner, c.def, null, { defer: true });
+            if (q !== this.active && this.hasAbility(c, 'oppTurnEnd')) await this.trigger(c, 'oppTurnEnd', c.owner, c.def, null, { defer: true });
+          }
           await this.resolvePending();
           await this.endTurnEffects();
           this.endTurnCleanup();
@@ -1393,6 +1397,14 @@
       if (how === 'summon' && this.zoneOf(card) === 'battle') await this.trigger(card, 'summonOnly', pi);
       if (how === 'summon' && this.zoneOf(card) === 'battle' && this.kw(card).yobinion) await this.queueFn(card, pi, `「${card.def.name}」のヨビニオン`, () => this.yobinion(card, pi));
       if (this.zoneOf(card) === 'battle') await this.notifyAll('onAnyEnter', card);
+      if (this.zoneOf(card) === 'battle' && this.isCreature(card)) {
+        for (const q of [0, 1]) for (const src of this.permanents(q)) {
+          if (src === card || !this.isOnField(src)) continue;
+          if (q !== pi && this.hasAbility(src, 'oppEnter')) await this.trigger(src, 'oppEnter', q, src.def, null, { defer: true });
+          if (this.hasAbility(src, 'anyEnter')) await this.trigger(src, 'anyEnter', q, src.def, null, { defer: true });
+        }
+        await this.resolvePending();
+      }
       if (this.zoneOf(card) === 'battle' && this.isCreature(card)) {
         for (const src of this.permanents(pi)) {
           if (src === card || !this.isOnField(src)) continue;
@@ -2278,6 +2290,10 @@
           this.log(`${me.name}は山札の上から${look.length}枚を見た`);
           let bottom = [];
           if (a.where === 'bottom') bottom = look.slice();
+          else if (a.where === 'pickBottom') {
+            if (me.isAI) bottom = look.slice().sort((x, y) => (+y.def.cost || 0) - (+x.def.cost || 0)).slice(0, a.k);
+            else bottom = await this.pickCards(pi, look, a.k, false, `${nm}: 山札の下に置くカード（${a.k}枚）`, 'discard');
+          }
           else if (a.where === 'both') {
             if (me.isAI) bottom = look.filter((c) => (+c.def.cost || 0) > me.mana.length + 2);
             else bottom = await this.pickCards(pi, look, look.length, true, `${nm}: 山札の下に置くカード（選ばなかったカードは上に戻す）`, 'discard');
@@ -2644,6 +2660,14 @@
       }
       this.changed();
       for (const c of gone) await this.trigger(c, 'destroyed', c.owner, c.def, null, { defer: true });
+      for (const c of gone) if (this.isCreature(c) || c.def.type === 'creature') {
+        if (this.hasAbility(c, 'selfOrAllyDestroyed')) await this.trigger(c, 'selfOrAllyDestroyed', c.owner, c.def, null, { defer: true });
+        for (const q of [0, 1]) for (const src of this.permanents(q)) {
+          if (gone.includes(src) || !this.isOnField(src)) continue;
+          if (this.hasAbility(src, 'anyDestroyed')) await this.trigger(src, 'anyDestroyed', q, src.def, null, { defer: true });
+          if (q === c.owner && this.hasAbility(src, 'selfOrAllyDestroyed')) await this.trigger(src, 'selfOrAllyDestroyed', q, src.def, null, { defer: true });
+        }
+      }
       for (const c of gone) if (this.isCreature(c)) for (const src of this.permanents(1 - c.owner)) if (this.isOnField(src) && this.hasAbility(src, 'oppDestroyed')) await this.trigger(src, 'oppDestroyed', src.owner, src.def, null, { defer: true });
       await this.resolvePending();
     }
@@ -2823,6 +2847,7 @@
               this.log(`${op.name}の「${bl.def.name}」がブロック！`);
               await this.pause();
               await this.trigger(bl, 'block', op.idx);
+              if (this.hasAbility(card, 'blocked')) await this.trigger(card, 'blocked', pi);
               bl.blocking = true;
               try {
                 await this.battle(card, bl);
@@ -2839,6 +2864,7 @@
         }
         if (tgtCard === 'player') {
           if (this.hasAbility(card, 'unblocked')) await this.trigger(card, 'unblocked', pi);
+          await this.fireAll(op.idx, 'oppUnblocked');
           if (this.zoneOf(card) !== 'battle') return true;
           if (op.shields.length === 0) {
             this.log(`「${card.def.name}」のダイレクトアタック！`);
@@ -2908,6 +2934,7 @@
       const pa = this.power(a);
       const pd = this.power(d);
       a.inBattle = d.inBattle = null;
+      for (const x of [a, d]) if (this.hasAbility(x, 'battled')) await this.trigger(x, 'battled', x.owner, x.def, null, { defer: true });
       this.log(`バトル: 「${a.def.name}」${pa} vs 「${d.def.name}」${pd}`);
       const lose = [];
       const teamWin = (c) => this.permanents(c.owner).some((s) => this.kw(s).teamWinAll) || (this.p[c.owner].teamWinTurn || 0) === this.turn;
