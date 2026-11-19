@@ -36,6 +36,10 @@
     { re: /^このクリーチャーは相手プレイヤーを攻撃できない。?$/, set: (k) => (k.cantAttackPlayer = true) },
     { re: /^このクリーチャーは攻撃できない。?$/, set: (k) => (k.cantAttack = true) },
     { re: /^このクリーチャーはブロックされない。?$/, set: (k) => (k.unblockable = true) },
+    { re: /^このクリーチャーはタップして(バトルゾーンに)?出る。?$/, set: (k) => (k.enterTapped = true) },
+    { re: /^このクリーチャーは自分のターンのはじめにアンタップしない。?$/, set: (k) => (k.noUntap = true) },
+    { re: /^(水晶)?チャージャー$/, set: (k) => (k.charger = true) },
+    { re: /^ブレイク身代わり$/, set: (k) => (k.breakSubstitute = true) },
   ];
 
   const TRIGGERS = [
@@ -43,6 +47,8 @@
     { re: /^このクリーチャーが攻撃する時、/, when: 'attack' },
     { re: /^このクリーチャーが破壊された時、/, when: 'destroyed' },
     { re: /^自分のターンのはじめに、/, when: 'turnStart' },
+    { re: /^自分のターンの(終わり|おわり)に、/, when: 'turnEnd' },
+    { re: /^自分のシールドゾーンにカードが置かれた時、/, when: 'shieldAdded' },
   ];
 
   // 対象の側：相手 / 自分 / 指定なし(どちらでも)
@@ -104,6 +110,15 @@
     }
     if (/^自分のマナゾーンから/.test(s) && /手札に(戻す|加える)/.test(s)) {
       return { act: 'manaToHand', n: countOf(s), optional };
+    }
+    if ((m = s.match(/^(自分の)?手札を(\d+)枚(選び、)?捨てる$/))) {
+      return { act: 'selfDiscard', n: +m[2] };
+    }
+    if ((m = s.match(/^自分の山札の上から(\d+)枚を(自分の)?墓地に置く$/))) {
+      return { act: 'mill', n: +m[1] };
+    }
+    if (/^このクリーチャーをアンタップする$/.test(s)) {
+      return { act: 'untapSelf' };
     }
     if ((m = s.match(/^相手のシールドを(\d+)つ(選び、)?ブレイクする$/))) {
       return { act: 'breakShield', n: +m[1] };
@@ -182,6 +197,9 @@
     manaToHand: (a) => `マナから${a.n}枚回収`,
     breakShield: (a) => `シールド${a.n}つブレイク`,
     powerUp: (a) => `パワー+${a.n}`,
+    selfDiscard: (a) => `自分の手札${a.n}枚捨て`,
+    mill: (a) => `山札から${a.n}枚墓地へ`,
+    untapSelf: () => `自身をアンタップ`,
   };
   function sideJ(s) {
     return s === 'opp' ? '相手の' : s === 'self' ? '自分の' : '';
@@ -189,7 +207,7 @@
   function filt(a) {
     return (a.maxPower ? `パワー${a.maxPower}以下` : '') + (a.maxCost ? `コスト${a.maxCost}以下` : '');
   }
-  const WHEN_LABEL = { summon: '出た時', attack: '攻撃時', destroyed: '破壊時', turnStart: 'ターン開始時', cast: '呪文' };
+  const WHEN_LABEL = { summon: '出た時', attack: '攻撃時', destroyed: '破壊時', turnStart: 'ターン開始時', turnEnd: 'ターン終了時', shieldAdded: 'シールド追加時', cast: '呪文' };
 
   function describe(parsed) {
     const out = [];
@@ -204,6 +222,10 @@
     if (k.cantAttackPlayer) out.push('プレイヤー攻撃不可');
     if (k.cantAttack) out.push('攻撃不可');
     if (k.unblockable) out.push('ブロックされない');
+    if (k.enterTapped) out.push('タップして出る');
+    if (k.noUntap) out.push('ターン開始時にアンタップしない');
+    if (k.charger) out.push('チャージャー');
+    if (k.breakSubstitute) out.push('ブレイク身代わり');
     for (const ab of parsed.abilities) {
       out.push(`${WHEN_LABEL[ab.when]}: ` + ab.acts.map((a) => ACT_LABEL[a.act](a) + (a.optional ? '(任意)' : '')).join(' → '));
     }

@@ -1000,6 +1000,7 @@
     if (/呪文|spell/i.test(type)) type = 'spell';
     else if (/タマシード|tamaseed/i.test(type)) type = 'tamaseed';
     else if (/城|castle/i.test(type)) type = 'castle';
+    else if (/フィールド|field/i.test(type)) type = 'field';
     else type = 'creature';
     let races = r.races || [];
     if (typeof races === 'string') races = races.split(/[\s/／,、]+/).filter(Boolean);

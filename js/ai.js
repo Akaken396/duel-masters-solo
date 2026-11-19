@@ -183,6 +183,7 @@
         return ids;
       }
       case 'discard': {
+        if (req.max > 1) return opts.slice().sort((a, b) => value(g, a.card) - value(g, b.card)).slice(0, req.max).map((o) => o.id);
         const sorted = opts.slice().sort((a, b) => value(g, a.card) - value(g, b.card));
         return [sorted[0].id];
       }

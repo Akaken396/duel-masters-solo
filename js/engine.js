@@ -8,8 +8,8 @@
   const ZONE_LABEL = { deck: '山札', hand: '手札', mana: 'マナ', shields: 'シールド', battle: 'バトルゾーン', grave: '墓地' };
 
   // 種類: creature / spell / tamaseed（タマシード） / castle（城）
-  const NON_CREATURE = ['spell', 'tamaseed', 'castle'];
-  const TYPE_LABEL = { creature: 'クリーチャー', spell: '呪文', tamaseed: 'タマシード', castle: '城' };
+  const NON_CREATURE = ['spell', 'tamaseed', 'castle', 'field'];
+  const TYPE_LABEL = { creature: 'クリーチャー', spell: '呪文', tamaseed: 'タマシード', castle: '城', field: 'フィールド' };
 
   // ツインパクトの呪文側を、ひとつのカード定義として扱う
   const twinCache = new WeakMap();
@@ -174,6 +174,7 @@
       if (zone === 'battle' && from !== 'battle') {
         card.sick = !this.kw(card).speedAttacker;
         card.enteredTurn = this.turn;
+        if (this.kw(card).enterTapped) card.tapped = true;
       }
       return from;
     }
@@ -247,6 +248,8 @@
           if (me.isAI) await this.AI.takeTurn(this, this.active);
           else await new Promise((res) => (this._endTurnResolve = res));
           if (this.winner != null || this.aborted) break;
+          const me2 = this.p[this.active];
+          for (const c of [...me2.battle]) if (me2.battle.includes(c)) await this.trigger(c, 'turnEnd');
           this.endTurnCleanup();
           this.active = 1 - this.active;
           if (this.turn > 400) this.win(this.first, '規定ターン超過');
@@ -269,7 +272,7 @@
       this.log(`―― ターン${this.turn}: ${me.name} ――`);
       for (const c of me.mana) c.tapped = false;
       for (const c of me.battle) {
-        c.tapped = false;
+        if (!this.kw(c).noUntap) c.tapped = false;
         c.sick = false;
       }
       const skipDraw = this.turn === 1;
@@ -411,6 +414,10 @@
         this.moveTo(card, 'grave');
         this.noteManual(card, def);
         await this.trigger(card, 'cast', pi, def);
+        if (parsed(def).kw.charger && this.zoneOf(card) === 'grave') {
+          this.moveTo(card, 'mana', { tapped: true });
+          this.log(`「${def.name}」はチャージャーでマナに置かれた`);
+        }
       } else if (def.type === 'castle') {
         // 城：自分のシールド1つに付ける扱い。表向きのシールドとして置く
         this.moveTo(card, 'shields');
@@ -418,10 +425,11 @@
         this.log(`${name}は城「${def.name}」を${fr}シールドに要塞化した`);
         this.noteManual(card);
         await this.trigger(card, 'summon', pi);
-      } else if (def.type === 'tamaseed') {
+        await this.shieldAdded(pi);
+      } else if (def.type === 'tamaseed' || def.type === 'field') {
         this.moveTo(card, 'battle');
         card.sick = false;
-        this.log(`${name}はタマシード「${def.name}」を${fr}出した`);
+        this.log(`${name}は${TYPE_LABEL[def.type]}「${def.name}」を${fr}出した`);
         this.noteManual(card);
         await this.pause();
         await this.trigger(card, 'summon', pi);
@@ -439,6 +447,12 @@
       const m = this.manual(card, def);
       if (m.length) this.log(`【手動】「${def.name}」: ${m.join(' / ')}`);
       else if (!def.text) this.log(`【手動】「${def.name}」: 効果テキスト未登録（必要なら手動で処理）`);
+    }
+
+    // 自分のシールドゾーンにカードが置かれた時の誘発
+    async shieldAdded(pi) {
+      const me = this.p[pi];
+      for (const c of [...me.battle]) if (me.battle.includes(c)) await this.trigger(c, 'shieldAdded', pi);
     }
 
     async trigger(card, when, controller = card.owner, def = card.def) {
@@ -509,6 +523,7 @@
           if (a.optional && !(await this.yesNo(pi, `${nm}: 山札の上から${a.n}枚をシールド化しますか？`, src))) return;
           for (let i = 0; i < a.n && me.deck.length; i++) this.moveTo(me.deck[0], 'shields');
           this.log(`${me.name}はシールドを${a.n}つ追加した`);
+          await this.shieldAdded(pi);
           break;
         }
         case 'destroy':
@@ -562,6 +577,27 @@
           }
           break;
         }
+        case 'selfDiscard': {
+          const picked = await this.pickCards(pi, me.hand.slice(), a.n, false, `${nm}: 捨てる手札を${a.n}枚選んでください`, 'discard');
+          for (const c of picked) {
+            this.moveTo(c, 'grave');
+            this.log(`${me.name}は手札の「${c.def.name}」を捨てた`);
+          }
+          break;
+        }
+        case 'mill':
+          for (let i = 0; i < a.n && me.deck.length; i++) {
+            const c = me.deck[0];
+            this.moveTo(c, 'grave');
+            this.log(`${me.name}は山札の上の「${c.def.name}」を墓地に置いた`);
+          }
+          break;
+        case 'untapSelf':
+          if (this.zoneOf(src) === 'battle' && src.tapped) {
+            src.tapped = false;
+            this.log(`「${src.def.name}」はアンタップした`);
+          }
+          break;
         case 'breakShield':
           await this.breakShields(pi, a.n, src);
           break;
@@ -679,6 +715,15 @@
       const op = this.opp(pi);
       n = Math.min(n, op.shields.length);
       if (!n) return;
+      // ブレイク身代わり（セイント・キャッスルなど）
+      const sub = op.shields.find((s) => s.faceUp && this.kw(s).breakSubstitute);
+      if (sub && src && this.isCreature(src)) {
+        if (await this.yesNo(op.idx, `「${sub.def.name}」でブレイクを身代わりしますか？（${n}枚分）`, sub)) {
+          this.log(`${op.name}の「${sub.def.name}」がブレイクを身代わりした`);
+          await this.pause();
+          return;
+        }
+      }
       // ブレイクするシールドは攻撃側が選ぶ
       let picked;
       if (n >= op.shields.length) picked = op.shields.slice();
