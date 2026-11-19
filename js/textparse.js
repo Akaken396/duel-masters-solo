@@ -25,6 +25,7 @@
       .replace(/(。|、)\s*ただし(、)?その「S・トリガー」は使えない(。)?/g, '。')
       .replace(/(。|、)\s*その「S・トリガー」は使えない(。)?/g, '。')
       .replace(/。。/g, '。')
+      .replace(/代わりに/g, 'かわりに')
       .replace(/唱えること(が|は)できない/g, '唱えられない')
       .replace(/(攻撃|ブロック)すること(が|は)できない/g, '$1できない')
       .replace(/^\s*▼\s*/gm, '▶')
@@ -195,6 +196,14 @@
     if ((m = s.match(/^自分の山札の上から(\d+)枚(目)?を(、)?シールド化(する|してもよい)$/))) return { act: 'shieldAdd', n: +m[1], optional: m[4] !== 'する' };
     if ((m = s.match(/^自分と相手のクリーチャーを1体ずつ選(ぶ|んでもよい)。その2体をバトルさせる$/))) return { act: 'pairFight', optional: m[1] !== 'ぶ' };
     if ((m = s.match(/^(バトルゾーンにある)?相手の(タップされている|タップしている)?クリーチャーはすべて、次の相手のターンのはじめにアンタップ(されない|しない)$/))) return { act: 'freezeAll', tappedOnly: !!m[2] };
+    // 直前に出した・選んだカード（そのクリーチャー）への効果
+    if ((m = s.match(/^((次の自分のターンのはじめまで|このターン|そのターン)、)?(そのクリーチャー|それ|そのドラゴン|それら)(は|に)(、)?「(.+?)」(と「(.+?)」)?を(得る|与える)$/)))
+      return { act: 'grantLast', names: [m[6], m[8]].filter(Boolean), until: !m[2] ? 'perm' : /次の自分/.test(m[2]) ? 'next' : 'turn' };
+    if ((m = s.match(/^(次の自分のターンのはじめまで|このターン)、(そのクリーチャー|それ|それら)は(バトルゾーンを)?(離れない|破壊されない)$/)))
+      return { act: 'guardLast', kind: m[4] === '離れない' ? 'noLeave' : 'noDestroy', until: /次の自分/.test(m[1]) ? 'next' : 'turn' };
+    if (/^(そのクリーチャー|それ)をアンタップする$/.test(s)) return { act: 'untapLast' };
+    if ((m = s.match(/^(この|その)ターンの終わりに、(そのクリーチャー|そのドラゴン|それ)を(破壊する|手札に戻す|山札の下に置く|マナゾーンに置く)$/)))
+      return { act: 'endTurnLast', to: { 破壊する: 'destroy', 手札に戻す: 'hand', 山札の下に置く: 'deckBottom', マナゾーンに置く: 'mana' }[m[3]] };
     if (/^この(クリーチャー|タマシード|カード|フィールド|クロスギア)を破壊(する|してもよい)$/.test(s)) return { act: 'selfDestroy', optional: /もよい/.test(s) };
     // すべてアンタップ
     if ((m = s.match(/^(バトルゾーンにある)?自分の(他の)?(、)?(名前に《(.+?)》とある)?(進化)?((.+?)・)?クリーチャー(をすべて|すべてを)アンタップする$/)))
@@ -488,13 +497,22 @@
   function afterActs(remain) {
     remain = remain.replace(/^その後、/, '').trim();
     if (!remain) return [];
-    return parseEffects(remain) || [{ act: 'manualNote', text: remain }];
+    const whole = parseEffects(remain);
+    if (whole) return whole;
+    // 文ごとに読み、読めない文だけ手動にする
+    const out = [];
+    for (const sen of remain.split(/。/).map((x) => x.trim()).filter(Boolean)) {
+      const r = parseEffects(sen);
+      if (r) out.push(...r);
+      else out.push({ act: 'manualNote', text: sen });
+    }
+    return out;
   }
   // 「〜なら」「〜あれば」「〜場合」の条件文を読む。読めなければ null
   function parseCondText(ct) {
     const c = {};
     let mm;
-    ct = ct.replace(/(であれば|ならば|なら|あれば|場合|の場合)$/, '');
+    ct = ct.replace(/(であれば|ならば|なら|あれば|場合|の場合)$/, '').replace(/ければ$/, 'い');
     if ((mm = ct.match(/^自分のシールドが(\d+)(つ|枚)以下(で)?$/))) c.shieldsLE = +mm[1];
     else if ((mm = ct.match(/^自分のシールドが(\d+)(つ|枚)以上$/))) c.shieldsGE = +mm[1];
     else if (/^自分のシールドが1(つ|枚)もない$|^自分のシールドがない$/.test(ct)) c.shieldsLE = 0;
@@ -562,7 +580,7 @@
     const pf = body.match(/^自分と相手のクリーチャーを1体ずつ選(ぶ|んでもよい)。その2体をバトルさせる。?/);
     if (pf) return [{ act: 'pairFight', optional: pf[1] !== 'ぶ' }, ...afterActs(body.slice(pf[0].length))];
     // 「条件なら、効果」
-    const cdm = body.match(/^([^、。]+?(であれば|ならば|なら|あれば|場合))、(.+)$/);
+    const cdm = body.match(/^([^、。]+?(であれば|ならば|なら|あれば|ければ|場合))、(.+)$/);
     if (cdm) {
       const cond = parseCondText(cdm[1]);
       if (cond) {
@@ -664,7 +682,11 @@
     const A_PUSH = (w, ab) => (inHyper ? hyper.abilities : abilities).push(ab);
     const rawLines = normalize(def.text)
       .split('\n')
-      .flatMap((l) => (/^[^、。]{2,24}(\s{2,}|　)[^、。]{2,24}$/.test(l.trim()) ? l.trim().split(/\s{2,}|　/) : [l]))
+      .flatMap((l) => {
+        const t = stripReminder(l).trim();
+        if (/^[^、。]{2,24}((\s{2,}|　)[^、。]{2,24})+$/.test(t)) return t.split(/\s{2,}|　/);
+        return [l];
+      })
       .map((l) => l.trim())
       .filter(Boolean);
     // 「▶」「►」で始まる行は、直前の「選ぶ」行の選択肢としてまとめる
@@ -941,6 +963,10 @@
     topCheck: (a) => `山札の上を${a.reveal ? '表向き' : '見る'}→${a.text}なら${{ hand: '手札へ', battle: '出す', mana: 'マナへ', grave: '墓地へ', cast: '唱える' }[a.then]}${a.else && a.else !== 'deckTop' ? '、違えば' + { deckBottom: '山札の下', grave: '墓地', mana: 'マナ', hand: '手札' }[a.else] : ''}`,
     selfDestroy: () => 'このカードを破壊',
     freezeAll: (a) => `相手の${a.tappedOnly ? 'タップしている' : ''}クリーチャーは次のターンのはじめにアンタップしない`,
+    grantLast: (a) => `そのクリーチャーに${a.names.map((x) => '「' + x + '」').join('と')}（${a.until === 'next' ? '次のターンまで' : 'このターン'}）`,
+    guardLast: (a) => `そのクリーチャーは${a.kind === 'noLeave' ? '離れない' : '破壊されない'}（${a.until === 'next' ? '次のターンまで' : 'このターン'}）`,
+    untapLast: () => 'そのクリーチャーをアンタップ',
+    endTurnLast: (a) => `ターンの終わりにそのクリーチャーを${{ destroy: '破壊', hand: '手札へ', deckBottom: '山札の下へ', mana: 'マナへ' }[a.to]}`,
     pairFight: () => '自分と相手のクリーチャーを1体ずつバトル',
     ifCond: (a) => `${a.text}、${a.acts.map((x) => (ACT_LABEL[x.act] ? ACT_LABEL[x.act](x) : x.act)).join('、')}`,
     lastIf: (a) => `それが${a.cond.text}なら${a.acts.map((x) => (ACT_LABEL[x.act] ? ACT_LABEL[x.act](x) : x.act)).join('、')}`,

@@ -746,6 +746,15 @@
         if (r.length) this.log(`${me.name}はクリーチャーを${r.length}体アンタップした`);
       }
       me.endUntaps = (me.endUntaps || []).filter((x) => x.turn !== this.turn);
+      for (const ea of (me.endTurnActs || []).filter((x) => x.turn === this.turn)) {
+        const f = this.find(ea.uid);
+        if (!f || this.zoneOf(f.card) !== 'battle') continue;
+        if (ea.to === 'destroy') await this.destroyMany([f.card], { byOpp: false });
+        else if (ea.to === 'deckBottom') await this.leave(f.card, 'deck', { moveOpt: { top: false } });
+        else await this.leave(f.card, ea.to);
+        this.log(`ターンの終わり：「${f.card.def.name}」を${{ destroy: '破壊した', hand: '手札に戻した', deckBottom: '山札の下に置いた', mana: 'マナゾーンに置いた' }[ea.to]}`);
+      }
+      me.endTurnActs = (me.endTurnActs || []).filter((x) => x.turn !== this.turn);
       for (const pl of this.p) {
         for (const c of [...pl.battle]) {
           if (c.returnAtEnd) {
@@ -1309,6 +1318,8 @@
       }
       if (!this.isCreature(card)) card.sick = false;
       if (o.flipped) card.flipped = true;
+      this.lastEntered = card;
+      this.lastEnteredSeq = (this._seq = (this._seq || 0) + 1);
       if (this.isCreature(card)) this.creaturesThisTurn[pi]++;
       if (how !== 'summon' && !base) this.log(`「${card.def.name}」がバトルゾーンに出た`);
       if (this.kw(card).justDiver) card.jdUntil = this.nextTurnOf(pi) - 1;
@@ -1760,6 +1771,10 @@
         max,
       });
       const chosen = ids.map((id) => pool.find((c) => c.uid === id)).filter(Boolean);
+      if (chosen.length) {
+        this.lastChosen = chosen;
+        this.lastChosenSeq = (this._seq = (this._seq || 0) + 1);
+      }
       for (const c of chosen) if (c.owner !== pi && this.zoneOf(c) === 'battle' && this.hasAbility(c, 'targeted')) await this.trigger(c, 'targeted', c.owner, c.def, null, { defer: true });
       return chosen;
     }
@@ -2002,6 +2017,36 @@
           }
           this.log(`${op.name}の${a.tappedOnly ? 'タップしている' : ''}クリーチャーは次のターンのはじめにアンタップしない`);
           break;
+        case 'grantLast':
+        case 'guardLast':
+        case 'untapLast':
+        case 'endTurnLast': {
+          // 直前に出したカード、なければ直前に選んだカード
+          const useEntered = this.lastEntered && this.lastEntered !== src && (this.lastEnteredSeq || 0) > (this.lastChosenSeq || 0);
+          const tg = (useEntered ? [this.lastEntered] : this.lastChosen || []).filter((c) => this.zoneOf(c) === 'battle');
+          if (!tg.length) break;
+          const until = a.until === 'perm' ? 1e9 : a.until === 'next' ? this.nextTurnOf(pi) - 1 : this.turn;
+          for (const c of tg) {
+            if (a.act === 'grantLast') {
+              const pl = this.p[c.owner];
+              pl.tempGrants = pl.tempGrants || [];
+              pl.tempGrants.push({ names: a.names, until, uids: [c.uid], power: 0 });
+              this.log(`「${c.def.name}」に${a.names.map((x) => '「' + x + '」').join('と')}を与えた`);
+            } else if (a.act === 'guardLast') {
+              if (a.kind === 'noLeave') c.noLeaveUntil = until;
+              else c.noDestroyUntil = until;
+              this.log(`「${c.def.name}」は${a.until === 'next' ? '次のターンのはじめまで' : 'このターン'}${a.kind === 'noLeave' ? '離れない' : '破壊されない'}`);
+            } else if (a.act === 'untapLast') {
+              c.tapped = false;
+              this.log(`「${c.def.name}」をアンタップした`);
+            } else {
+              this.p[pi].endTurnActs = this.p[pi].endTurnActs || [];
+              this.p[pi].endTurnActs.push({ uid: c.uid, to: a.to, turn: this.turn });
+              this.log(`ターンの終わりに「${c.def.name}」を${{ destroy: '破壊する', hand: '手札に戻す', deckBottom: '山札の下に置く', mana: 'マナゾーンに置く' }[a.to]}`);
+            }
+          }
+          break;
+        }
         case 'pairFight': {
           const mine = await this.pickCards(pi, me.battle.filter((c) => this.isCreature(c)), 1, a.optional, `${nm}: バトルさせる自分のクリーチャー`, 'recover');
           if (!mine.length) break;
