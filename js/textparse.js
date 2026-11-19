@@ -5,7 +5,10 @@
 
   function normalize(s) {
     return String(s || '')
-      .replace(/[０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0))
+      .replace(/[０-９Ａ-Ｚａ-ｚ]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0))
+      .replace(/ひとつ/g, '1つ')
+      .replace(/ふたつ/g, '2つ')
+      .replace(/みっつ/g, '3つ')
       .replace(/[＋]/g, '+')
       .replace(/[−－]/g, '-')
       .replace(/[，]/g, '、')
@@ -51,7 +54,10 @@
   ];
 
   const TRIGGERS = [
-    { re: /^この(クリーチャー|タマシード|カード|城|G城)(が|を)(バトルゾーンに出た|出た|召喚した|使った)時、/, when: 'summon' },
+    { re: /^この(クリーチャー|タマシード|カード|城|G城)(が|を)(、)?(バトルゾーンに出た|バトルゾーンに出した|出た|召喚した|使った|進化して出た)(時|とき)、/, when: 'summon' },
+    { re: /^このクリーチャーまたは自分の[^、]{1,20}が(バトルゾーンに)?出た(時|とき)、/, when: 'summon' },
+    { re: /^このカードが表向きで自分のシールドゾーンに置かれた時(またはこのクリーチャーが出た時)?、/, when: 'summon' },
+    { re: /^カードが表向きで自分のシールドゾーンに置かれた時、/, when: 'shieldAdded' },
     { re: /^このクリーチャーが攻撃する時、/, when: 'attack' },
     { re: /^このクリーチャーが召喚によって出た時、/, when: 'summonOnly' },
     { re: /^このクリーチャーが破壊された時、/, when: 'destroyed' },
@@ -126,6 +132,18 @@
     if (/クリーチャー/.test(s) && /(持ち主の)?マナゾーンに置く$|マナゾーンに置いてもよい$/.test(s) && !/山札の上|墓地から|手札から/.test(s)) {
       const all = /すべて/.test(s);
       return { act: 'toMana', side: sideOf(s), all, n: all ? 0 : countOf(s), optional, ...targetFilter(s) };
+    }
+    if ((m = s.match(/^自分の山札の上から(\d+)枚(目)?を裏向きのまま、新しいシールドとして(自分の)?シールドゾーンに(加え|置)(る|く|てもよい)$/))) {
+      return { act: 'shieldAdd', n: +m[1], optional: /てもよい/.test(s) };
+    }
+    if ((m = s.match(/^自分の手札を(\d+)枚(、)?裏向きのまま(、)?新しいシールドとして(自分の)?シールドゾーンに(加え|置)(る|く|てもよい)$/))) {
+      return { act: 'handToShield', n: +m[1], optional: /てもよい/.test(s) };
+    }
+    if ((m = s.match(/^次の自分のターンのはじめまで、このクリーチャーは(相手に選ばれない|離れない)$/))) {
+      return { act: 'selfGuard', kind: m[1] === '離れない' ? 'noLeave' : 'untargetable' };
+    }
+    if ((m = s.match(/^(バトルゾーンにある)?相手の(クリーチャー|エレメント)を(\d+)(体|つ)選び、(持ち主の)?シールド化(する|してもよい)$/))) {
+      return { act: 'toShield', side: 'opp', n: +m[3], optional: /てもよい/.test(s), any: m[2] === 'エレメント' };
     }
     if ((m = s.match(/^自分のシールドを(\d+)つ(まで)?、?(選び、)?手札に加え(る|てもよい)(。ただし、その「S・トリガー」は使えない)?$/))) {
       return { act: 'shieldToHand', n: +m[1], optional: !!m[2] || /てもよい/.test(s), noTrigger: true };
@@ -410,6 +428,9 @@
     manualNote: (a) => `［手動: ${String(a.text).slice(0, 16)}…］`,
     seal: (a) => `封印を${a.n}つ付ける`,
     freezeLast: () => 'それはアンタップしない',
+    handToShield: (a) => `手札${a.n}枚をシールドに`,
+    selfGuard: (a) => (a.kind === 'noLeave' ? '次のターンまで離れない' : '次のターンまで相手に選ばれない'),
+    toShield: (a) => `相手の${a.n}${a.any ? 'つ' : '体'}をシールド化`,
     shieldToHand: (a) => `自分のシールド${a.n}つを手札へ`,
     loseGame: () => '自分は負ける',
     winGame: () => '自分の勝ち',

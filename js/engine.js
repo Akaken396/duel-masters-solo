@@ -121,6 +121,18 @@
       } finally {
         this._granting = false;
       }
+      // パワーが一定以上なら能力を得る
+      const pg = base.powerGrant;
+      if (pg) {
+        const raw = (card.hyper && parsed(card.def).kw.hyperPower) || (+card.def.power || 0) + (card.tempPower || 0) + this.powerExtra(card);
+        if (raw >= pg.min) {
+          const hit = G.Keywords && G.Keywords.match(pg.name.normalize('NFKC'), pg.name);
+          if (hit && hit.e.set) {
+            if (out === base) out = { ...base };
+            hit.e.set(out, hit.m, pg.name);
+          }
+        }
+      }
       return out;
     }
     kwBase(card) {
@@ -223,16 +235,20 @@
     power(card) {
       if (card.def.power == null || !this.isCreature(card)) return 0;
       const hp = card.hyper && parsed(card.def).kw.hyperPower;
-      let extra = 0;
-      const pp = parsed(card.def).kw.powerPer;
-      if (pp) {
-        const me = this.p[card.owner];
-        const zone = pp.zone === 'マナゾーン' ? me.mana : pp.zone === '墓地' ? me.grave : me.battle;
-        const w = (pp.what || '').replace(/^の/, '');
-        const cnt = zone.filter((c) => !w || w === 'カード' || ((c.def.races || []).join('/') + c.def.name + (c.def.type === 'spell' ? '呪文' : 'クリーチャー')).includes(w.replace(/カード$/, ''))).length;
-        extra += Math.floor(cnt / pp.per) * pp.n;
-      }
+      let extra = this.powerExtra(card);
+      if (card.blocking) extra += parsed(card.def).kw.blockPower || 0;
       return (hp || +card.def.power || 0) + extra + card.tempPower + (card.attacking ? this.kw(card).powerAttacker : 0);
+    }
+
+    // マナ・墓地・場の数に応じたパワー
+    powerExtra(card) {
+      const pp = parsed(card.def).kw.powerPer;
+      if (!pp) return 0;
+      const me = this.p[pp.side === 'opp' ? 1 - card.owner : card.owner];
+      const zone = pp.zone === 'マナゾーン' ? me.mana : pp.zone === '墓地' ? me.grave : me.battle;
+      const w = (pp.what || '').replace(/^の/, '').replace(/(クリーチャー|カード)$/, '');
+      const cnt = zone.filter((c) => (!pp.others || c !== card) && (pp.zone !== 'バトルゾーン' || this.isCreature(c)) && (!w || ((c.def.races || []).join('/') + c.def.name + (c.def.type === 'spell' ? '呪文' : '')).includes(w))).length;
+      return Math.floor(cnt / pp.per) * pp.n;
     }
 
     log(msg) {
@@ -309,7 +325,7 @@
         }
         delete card.sealCards;
         // 場を離れたら、場にいた間の状態を消す
-        for (const k of ['seals', 'exLife', 'forceShield', 'noLeaveUntil', 'frozenUntil', 'noAttackTurn', 'modesUsed', 'flipped', 'usedTurn', 'ignoreName', 'hyper', 'hyperUntil', 'jdUntil', 'returnAtEnd', 'badEnd', 'spellShieldUntil']) delete card[k];
+        for (const k of ['seals', 'exLife', 'forceShield', 'noLeaveUntil', 'frozenUntil', 'noAttackTurn', 'modesUsed', 'flipped', 'usedTurn', 'ignoreName', 'hyper', 'hyperUntil', 'jdUntil', 'returnAtEnd', 'badEnd', 'spellShieldUntil', 'blocking']) delete card[k];
       }
       if (zone === 'grave') this.graveThisTurn = true;
       if (zone === 'deck' && top) owner.deck.unshift(card);
@@ -621,6 +637,7 @@
         const n = me.battle.filter((c) => this.isCreature(c) && (w === 'クリーチャー' || ((c.def.races || []).join('/') + c.def.name).includes(w))).length;
         cost -= n;
       }
+      if (def.type === 'spell') for (const src of this.permanents(1 - pi)) cost += this.kw(src).spellTax || 0;
       if (k.costPer) {
         const pl = k.costPer.side === 'opp' ? this.p[1 - pi] : me;
         const w = k.costPer.what.replace(/^(自分の|相手の)/, '');
@@ -1422,6 +1439,33 @@
           for (const c of r) await this.enterBattle(c, pi, 'other');
           break;
         }
+        case 'handToShield': {
+          const r = await this.pickCards(pi, me.hand.slice(), a.n, a.optional, `${nm}: シールドにする手札`, 'recover');
+          for (const c of r) this.moveTo(c, 'shields');
+          if (r.length) {
+            this.log(`${me.name}は手札を${r.length}枚シールドにした`);
+            await this.shieldAdded(pi);
+          }
+          break;
+        }
+        case 'selfGuard':
+          if (this.zoneOf(src) === 'battle') {
+            if (a.kind === 'noLeave') src.noLeaveUntil = this.nextTurnOf(pi) - 1;
+            else src.jdUntil = this.nextTurnOf(pi) - 1;
+            this.log(`「${src.def.name}」は次の自分のターンのはじめまで${a.kind === 'noLeave' ? '離れない' : '相手に選ばれない'}`);
+          }
+          break;
+        case 'toShield': {
+          const pool = op.battle.filter((c) => a.any || this.isCreature(c));
+          const r = await this.pickCards(pi, pool, a.n, a.optional, `${nm}: シールド化する相手の${a.any ? 'エレメント' : 'クリーチャー'}`, 'target', 'bounce');
+          for (const c of r) {
+            if (await this.leave(c, 'shields', { byOpp: true })) {
+              this.log(`「${c.def.name}」は持ち主のシールドになった`);
+              await this.shieldAdded(c.owner);
+            }
+          }
+          break;
+        }
         case 'freezeLast':
           for (const c of this.lastPicked || []) {
             if (this.zoneOf(c) !== 'battle') continue;
@@ -1580,11 +1624,11 @@
         }
         // ガードマン：自分の他のクリーチャーへの攻撃を引き受ける
         if (tgtCard !== 'player') {
-          const guards = op.battle.filter((c) => c !== tgtCard && !c.tapped && this.isCreature(c) && this.kw(c).guardman);
+          const guards = op.battle.filter((c) => c !== tgtCard && (!c.tapped || this.kw(c).guardTapped) && this.isCreature(c) && this.kw(c).guardman);
           if (guards.length) {
             const r = await this.pickCards(op.idx, guards, 1, true, `ガードマン：「${tgtCard.def.name}」への攻撃を引き受けるクリーチャー（任意）`, 'recover');
             if (r[0]) {
-              r[0].tapped = true;
+              r[0].tapped = !this.kw(r[0]).guardTapped;
               tgtCard = r[0];
               this.log(`ガードマン：攻撃先が「${tgtCard.def.name}」に変わった`);
             }
@@ -1609,7 +1653,12 @@
               this.log(`${op.name}の「${bl.def.name}」がブロック！`);
               await this.pause();
               await this.trigger(bl, 'block', op.idx);
-              await this.battle(card, bl);
+              bl.blocking = true;
+              try {
+                await this.battle(card, bl);
+              } finally {
+                bl.blocking = false;
+              }
               return true;
             }
           }
