@@ -65,7 +65,11 @@
     { name: 'シンパシー', re: /^シンパシー[：:]\s*(.+)$/, auto: true, set: (k, m) => (k.sympathy = m[1].replace(/。$/, '')), desc: '自分の場の指定のカード1枚につき、コストが1下がる（1未満にはならない）' },
     { name: '革命チェンジ', re: /^革命チェンジ[：:－-]\s*(.+)$/, auto: true, set: (k, m) => (k.revChange = condOf(m[1])), desc: '条件に合う自分のクリーチャーが攻撃する時、手札のこれと入れ替えられる' },
     { name: '侵略', re: /^(S級)?侵略(ZERO)?[：:－-]\s*(.+)$/, auto: true, set: (k, m) => (k.invasion = condOf(m[3])), desc: '条件に合う自分のクリーチャーが攻撃する時、手札のこれをその上に重ねて進化できる' },
-    { name: '進化', re: /^(NEO)?進化(クリーチャー)?[：:－-]?\s*(.*)$/, auto: true, set: (k, m) => (k.evolution = m[1] ? 'neo' : 'evo'), desc: '自分のクリーチャー1体の上に重ねて出す（NEOは重ねずにも出せる）' },
+    { name: '進化', re: /^(NEO)?進化(クリーチャー)?[：:－-]?\s*(.*)$/, auto: true, set: (k, m) => {
+        k.evolution = m[1] ? 'neo' : 'evo';
+        const cs = civsIn(String(m[3] || '').split('クリーチャー')[0]);
+        if (cs.length) k.evoCivs = cs;
+      }, desc: '自分のクリーチャー1体の上に重ねて出す（NEOは重ねずにも出せる）' },
     { name: 'G・ゼロ', re: /^G・ゼロ[：:]\s*(.+)$/, auto: true, set: (k, m) => (k.gZero = m[1]), desc: '条件を満たしていれば、コストを払わずに使える' },
     { name: 'Zラッシュ', re: /^Zラッシュ.*$/, auto: true, set: (k) => (k.zRush = true), desc: '自分のシールドが離れた時、ハイパー化する' },
     { name: 'マナ武装', re: /^マナ武装\s*(\d+)$/, auto: true, set: () => {}, desc: 'マナに指定の文明がN枚以上あれば効果が働く' },

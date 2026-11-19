@@ -220,8 +220,13 @@
       }
       g.log(`${me.name}は山札の上から4枚見て1枚を手札に加えた`);
     },
-    destroyed(g, card) {
-      g.log(`【手動】${name(card)}: 次の自分のターンのはじめまで、自分のクリーチャー1体は相手の呪文で選ばれない`);
+    async destroyed(g, card, pi) {
+      const pool = g.p[pi].battle.filter((c) => isCreature(g, c));
+      const r = await pick(g, pi, pool, 1, false, `${name(card)}: 相手の呪文で選ばれなくする自分のクリーチャー`, 'recover', (p) => p.slice().sort(byVal(g)).slice(0, 1));
+      if (r[0]) {
+        r[0].spellShieldUntil = g.nextTurnOf(pi) - 1;
+        g.log(`${name(r[0])}は次の自分のターンのはじめまで、相手の呪文で選ばれない`);
+      }
     },
   };
 
@@ -230,6 +235,15 @@
       const pool = g.opp(pi).battle.slice();
       const r = await pick(g, pi, pool, 5, true, `${name(card)}: 手札に戻す相手のエレメント（5つまで）`, 'bounce', (p, m) => p.slice().sort(byVal(g)).slice(0, m));
       for (const c of r) if (await g.leave(c, 'hand', { byOpp: true })) g.log(`${name(c)}は手札に戻った`);
+      // 進化して出ていれば、相手の手札を見ないで5枚選んで捨てさせる
+      if (card.under && card.under.length) {
+        const op = g.opp(pi);
+        for (let i = 0; i < 5 && op.hand.length; i++) {
+          const c = op.hand[Math.floor(g.rng() * op.hand.length)];
+          g.moveTo(c, 'grave');
+          g.log(`${op.name}は手札の「${c.def.name}」を捨てた（ランダム）`);
+        }
+      }
     },
   };
 
@@ -360,6 +374,34 @@
   };
 
   S['欲望の邪道 ニガ=アブシューム'] = {
+    // 裏面：自分のターンのはじめにシールドを1つ墓地へ→1枚引き、次に召喚するクリーチャーのコスト-2
+    async turnStart(g, card, pi) {
+      if (!card.flipped) return;
+      const me = g.p[pi];
+      if (!me.shields.length) return;
+      const [m] = await g.chooseModes(pi, `《支配の邪道 獄鬼夜城》: シールドを1つ墓地に置きますか？`, [
+        { id: 'yes', label: 'シールド1つを墓地へ（1枚引き、次の召喚コスト-2）' },
+        { id: 'no', label: 'しない' },
+      ], { aiPick: [me.shields.length >= 3 ? 'yes' : 'no'] });
+      if (m !== 'yes') return;
+      const sh = me.shields.find((x) => !x.faceUp) || me.shields[0];
+      g.moveTo(sh, 'grave');
+      g.log(`${me.name}はシールドを1つ墓地に置いた`);
+      draw(g, pi, 1);
+      me.nextSummonDiscount = { turn: g.turn, n: 2 };
+      await g.shieldsLeft(pi);
+    },
+    async onShieldsLeft(g, card) {
+      if (!card.flipped) return;
+      const [m] = await g.chooseModes(card.owner, `《支配の邪道 獄鬼夜城》: 《欲望の邪道 ニガ=アブシューム》側に戻しますか？`, [
+        { id: 'yes', label: '表（ニガ=アブシューム）に戻す' },
+        { id: 'no', label: '戻さない' },
+      ], { aiPick: ['no'] });
+      if (m === 'yes') {
+        card.flipped = false;
+        g.log(`${name(card)}を表に戻した`);
+      }
+    },
     async onBreak(g, src, breaker) {
       if (src.flipped || !isCreature(g, breaker)) return;
       g.log(`${name(src)}: シールドをブレイクした${name(breaker)}を破壊`);
@@ -369,7 +411,7 @@
       if (src.flipped || card === src || !isCreature(g, card)) return false;
       if (!(await g.yesNo(src.owner, `${name(src)}を裏返して${name(card)}の破壊を防ぎますか？`, src))) return false;
       src.flipped = true;
-      g.log(`${name(src)}を《支配の邪道 獄鬼夜城》側にして、${name(card)}の破壊を防いだ（裏面の効果は手動）`);
+      g.log(`${name(src)}を《支配の邪道 獄鬼夜城》側にして、${name(card)}の破壊を防いだ`);
       return true;
     },
   };
@@ -385,13 +427,10 @@
       if (src.usedTurn === g.turn || def.type === 'spell' || !isCreature(g, { def })) return null;
       return { n: 1, use: () => (src.usedTurn = g.turn) };
     },
-    turnEnd(g, card, pi) {
+    async turnEnd(g, card, pi) {
       const mine = g.p[pi].battle.filter((c) => isCreature(g, c)).length;
       const theirs = g.opp(pi).battle.filter((c) => isCreature(g, c)).length;
-      if (mine > theirs) {
-        g.log(`${name(card)}: クリーチャーが相手より多い`);
-        draw(g, pi, 1);
-      }
+      if (mine > theirs && (await g.yesNo(pi, `${name(card)}: クリーチャーが相手より多いので1枚引きますか？`, card))) draw(g, pi, 1);
     },
   };
 
@@ -426,6 +465,13 @@
   };
 
   S['我竜塔第七層 ハッスル・キャッスル'] = {
+    summon(g, card, pi) {
+      const me = g.p[pi];
+      if (!me.deck.length) return;
+      const c = me.deck[0];
+      g.moveTo(c, 'mana', { tapped: true });
+      g.log(`${name(card)}: 山札の上の「${c.def.name}」をタップしてマナに置いた`);
+    },
     replaceEnter: (g, src, card, how) => how !== 'summon',
   };
 
@@ -505,8 +551,44 @@
     },
   };
 
+  async function everShield(g, card, pi) {
+    const pool = [...g.p[0].battle, ...g.p[1].battle].filter((c) => g.selectable(c, pi));
+    const opts = [{ id: 'elem', label: '場のエレメントを1つ選んでシールド化' }, { id: 'top', label: '山札の上から1枚をシールド化' }, { id: 'none', label: '何もしない' }];
+    const theirs = pool.filter((c) => c.owner !== pi && !c.seals);
+    const [m] = await g.chooseModes(pi, `${name(card)}: シールド化しますか？`, opts.filter((o) => o.id !== 'elem' || pool.length), { aiPick: [theirs.length ? 'elem' : 'top'] });
+    if (m === 'elem') {
+      const r = await pick(g, pi, pool, 1, false, 'シールド化するエレメント', 'bounce', (p) => (theirs.length ? theirs.sort(byVal(g)) : p).slice(0, 1));
+      if (r[0] && (await g.leave(r[0], 'shields', { byOpp: r[0].owner !== pi }))) {
+        g.log(`${name(r[0])}は持ち主のシールドになった`);
+        await g.shieldAdded(r[0].owner);
+      }
+    } else if (m === 'top' && g.p[pi].deck.length) {
+      g.moveTo(g.p[pi].deck[0], 'shields');
+      g.log(`${g.p[pi].name}は山札の上から1枚をシールド化した`);
+      await g.shieldAdded(pi);
+    }
+  }
   S['天V王 エバーラスト'] = {
-    selfCost: (g, card, pi, def) => (g.p[pi].mana.filter((m) => hasCiv(m, 'light')).length >= 3 ? (+def.cost || 0) - 2 : null),
+    // マナ武装3のコスト軽減はテキスト解析で処理
+    summon: everShield,
+    attack: everShield,
+    // マナ武装5：自分のクリーチャーが離れる時、かわりにシールド2つを手札へ
+    async replaceLeave(g, src, card) {
+      const pi = src.owner;
+      const me = g.p[pi];
+      if (g.zoneOf(src) !== 'battle' || me.shields.length < 2) return false;
+      if (me.mana.filter((m) => hasCiv(m, 'light')).length < 5) return false;
+      const [m] = await g.chooseModes(pi, `${name(src)}のマナ武装5: ${name(card)}が離れるかわりに、シールド2つを手札に加えますか？`, [
+        { id: 'yes', label: 'シールド2つを手札へ（S・トリガーは使えない）' },
+        { id: 'no', label: 'しない' },
+      ], { aiPick: [me.shields.length >= 4 && val(g, card) >= 10 ? 'yes' : 'no'] });
+      if (m !== 'yes') return false;
+      const r = await pick(g, pi, me.shields.slice(), 2, false, '手札に加えるシールド', 'recover', (p, n) => p.slice(0, n));
+      for (const c of r) g.moveTo(c, 'hand');
+      g.log(`${name(card)}は離れず、かわりにシールドを${r.length}つ手札に加えた`);
+      await g.shieldsLeft(pi);
+      return true;
+    },
   };
 
   async function viride(g, src, card, def) {
@@ -527,7 +609,9 @@
   };
 
   S['一音の妖精'] = {
-    lock: (g, src, pi, def) => def.type === 'spell' && (g.spellsThisTurn?.[pi] || 0) >= 1,
+    lock: (g, src, pi, def) =>
+      (def.type === 'spell' && (g.spellsThisTurn?.[pi] || 0) >= 1) ||
+      (def.type !== 'spell' && !!(src.under && src.under.length) && (g.creaturesThisTurn?.[pi] || 0) >= 1),
   };
 
   async function invincible(g, card, pi) {
@@ -568,6 +652,7 @@
   };
 
   S['神聖龍 エモーショナル・ハードコア'] = {
+    untargetable: (g, card) => g.p[card.owner].battle.some((c) => c !== card && hasRace(c, 'オラクル')),
     async summon(g, card, pi) {
       const pool = [...g.opp(pi).battle, ...g.p[pi].battle].filter((c) => c !== card && isCreature(g, c));
       const r = await pick(g, pi, pool, 1, true, `${name(card)}: 能力を無視させるクリーチャー（その名前すべて）`, 'target', (p) => {

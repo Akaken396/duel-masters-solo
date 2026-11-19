@@ -193,7 +193,12 @@
         const optTexts = rawObj.opts || inline[6].split(/[／/]/);
         let whens = [];
         for (const t of TRIGGERS) if (t.re.test(head)) whens = [t.when];
-        if (!whens.length) whens = [def.type === 'spell' ? 'cast' : 'summon'];
+        if (!whens.length && def.type === 'spell') whens = ['cast'];
+        if (!whens.length) {
+          // いつ使うか分からない選択肢は手動扱い
+          manual.push(raw);
+          continue;
+        }
         const cm = (rawObj.opts ? head : line).match(/(\d+)(回|つ)選ぶ/);
         const count = /好きな数|いくつでも/.test(line) ? 'any' : cm ? +cm[1] : 1;
         const repeat = /同じものを(選んでも|何度)|同じ(もの|選択肢)を2回/.test(raw + (rawObj.opts || []).join(''));

@@ -72,8 +72,15 @@
 
   // 取り込みデータ → このツールのカード
   function toCard(data) {
-    const sides = (data.sides || []).filter((s) => s.name || s.text);
+    let sides = (data.sides || []).filter((s) => s.name || s.text);
     if (!sides.length) throw new Error('カードの情報が見つかりませんでした');
+    // ハイパーモードを持つカードは、同じ名前・同じコストの2面として載っている → 1枚にまとめる
+    if (sides.length === 2 && (sides[0].name === sides[1].name || !sides[1].name) && sides[0].cost === sides[1].cost && mapType(sides[1].type) !== 'spell') {
+      const base = sides[0].text.split('\n').map((x) => x.trim());
+      const extra = sides[1].text.split('\n').map((x) => x.trim()).filter((x) => x && !base.includes(x));
+      const hp = num(sides[1].power);
+      sides = [{ ...sides[0], text: sides[0].text + (extra.length ? `\nハイパーモード${hp ? ' ' + hp : ''}\n` + extra.join('\n') : '') }];
+    }
     const main = sides.find((s) => mapType(s.type) !== 'spell') || sides[0];
     const other = sides.find((s) => s !== main);
     const type = mapType(main.type);

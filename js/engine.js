@@ -124,6 +124,10 @@
       const k = this.kw(card);
       if (k.untargetable) return false;
       if ((card.jdUntil || 0) >= this.turn) return false;
+      const sc = this.sc(card);
+      if (sc && sc.untargetable && sc.untargetable(this, card)) return false;
+      // アアルカイトの電影：呪文で選ばれない
+      if ((card.spellShieldUntil || 0) >= this.turn && this.currentSource && this.currentSource.type === 'spell') return false;
       return true;
     }
     // 「火または自然のコスト5以上のドラゴン」などの条件に合うか
@@ -255,9 +259,10 @@
       if (from === 'shields' && zone !== 'shields') {
         card.faceUp = false;
         for (const c of this.p[card.owner].battle) {
-          if (!c.hyper && parsed(c.def).kw.zRush) {
+          if (parsed(c.def).kw.zRush) {
+            if (!c.hyper) this.log(`「${c.def.name}」のZラッシュ：次の自分のターンのはじめまでハイパーモード`);
             c.hyper = true;
-            this.log(`「${c.def.name}」のZラッシュ：ハイパー化した`);
+            c.hyperUntil = this.nextTurnOf(c.owner);
           }
         }
       }
@@ -269,7 +274,7 @@
         }
         delete card.sealCards;
         // 場を離れたら、場にいた間の状態を消す
-        for (const k of ['seals', 'exLife', 'forceShield', 'noLeaveUntil', 'frozenUntil', 'noAttackTurn', 'modesUsed', 'flipped', 'usedTurn', 'ignoreName', 'hyper', 'jdUntil', 'returnAtEnd', 'badEnd']) delete card[k];
+        for (const k of ['seals', 'exLife', 'forceShield', 'noLeaveUntil', 'frozenUntil', 'noAttackTurn', 'modesUsed', 'flipped', 'usedTurn', 'ignoreName', 'hyper', 'hyperUntil', 'jdUntil', 'returnAtEnd', 'badEnd', 'spellShieldUntil']) delete card[k];
       }
       if (zone === 'grave') this.graveThisTurn = true;
       if (zone === 'deck' && top) owner.deck.unshift(card);
@@ -403,6 +408,10 @@
       this.spellsThisTurn = [0, 0];
       this.creaturesThisTurn = [0, 0];
       for (const c of me.mana) if (!((c.frozenUntil || 0) >= this.turn)) c.tapped = false;
+      for (const c of me.battle) if (c.hyper && c.hyperUntil && c.hyperUntil <= this.turn) {
+        c.hyper = false;
+        this.log(`「${c.def.name}」のハイパーモードが終わった`);
+      }
       for (const c of me.battle) {
         if (!this.kw(c).noUntap && !((c.frozenUntil || 0) >= this.turn)) c.tapped = false;
         c.sick = false;
@@ -587,13 +596,17 @@
           });
         }
       }
+      if (me.nextSummonDiscount && me.nextSummonDiscount.turn === this.turn && !NON_CREATURE.includes(def.type)) {
+        cost -= me.nextSummonDiscount.n;
+        uses.push(() => (me.nextSummonDiscount = null));
+      }
       if (bad && k.bad) {
         cost -= k.bad;
         uses.push(() => (card.badEnd = this.turn));
       }
       const base = +def.cost || 0;
       cost = Math.max(base > 0 ? 1 : 0, cost);
-      if (sasSrc) cost = Math.max(0, cost);
+      if (sasSrc) cost = Math.max(base > 0 ? 1 : 0, cost); // ササゲールでも0以下にはならない
       // G・ゼロ：条件を満たせばコスト0
       if (k.gZero && this.gZeroOk(pi, k.gZero)) cost = 0;
       return { cost, uses };
@@ -686,11 +699,12 @@
     evoKind(def) {
       return parsed(def).kw.evolution || def.evolution || '';
     }
-    evoBases(pi) {
-      return this.p[pi].battle.filter((c) => this.isCreature(c) || this.kw(c).sinkarize);
+    evoBases(pi, def) {
+      const civs = def ? parsed(def).kw.evoCivs || [] : [];
+      return this.p[pi].battle.filter((c) => (this.isCreature(c) || this.kw(c).sinkarize) && (!civs.length || (c.def.civs || []).some((x) => civs.includes(x))));
     }
     canPlay(pi, card) {
-      if (this.evoKind(card.def) === 'evo' && !this.evoBases(pi).length) return false;
+      if (this.evoKind(card.def) === 'evo' && !this.evoBases(pi, card.def).length) return false;
       return this.active === pi && card.owner === pi && this.zoneOf(card) === 'hand' && !this.locked(pi, card.def) && !!this.payment(pi, card);
     }
 
@@ -722,7 +736,7 @@
       let evolveFrom = null;
       const ek = this.evoKind(card.def);
       if (ek) {
-        const bases = this.evoBases(pi);
+        const bases = this.evoBases(pi, card.def);
         const r = await this.pickCards(pi, bases, 1, ek === 'neo', `「${card.def.name}」の進化元を選んでください${ek === 'neo' ? '（選ばなければ普通に出す）' : ''}`, 'recover');
         evolveFrom = r[0] || null;
         if (ek === 'evo' && !evolveFrom) return false;
@@ -916,6 +930,10 @@
           return false;
         }
       }
+      for (const src of this.permanents(card.owner)) {
+        const sc = this.sc(src);
+        if (sc && sc.replaceLeave && this.isCreature(card) && (await sc.replaceLeave(this, src, card))) return false;
+      }
       let faceUp = false;
       if (o.destroy) {
         const own = this.sc(card);
@@ -955,6 +973,13 @@
     // 自分のシールドゾーンにカードが置かれた時の誘発
     async shieldAdded(pi) {
       for (const c of this.permanents(pi)) if (this.isOnField(c)) await this.trigger(c, 'shieldAdded', pi);
+    }
+    // 自分のシールドが離れた時（獄鬼夜城など）
+    async shieldsLeft(pi) {
+      for (const c of this.permanents(pi)) {
+        const sc = this.sc(c);
+        if (sc && sc.onShieldsLeft && this.isOnField(c)) await sc.onShieldsLeft(this, c);
+      }
     }
     isOnField(c) {
       const z = this.zoneOf(c);
@@ -1046,6 +1071,7 @@
     }
 
     async doAction(a, src, pi) {
+      this.currentSource = src && src.def;
       const me = this.p[pi];
       const op = this.opp(pi);
       const nm = `「${src.def.name}」`;
@@ -1349,8 +1375,11 @@
       const sub = op.shields.find((s) => s.faceUp && this.kw(s).breakSubstitute);
       if (sub && src && this.isCreature(src)) {
         if (await this.yesNo(op.idx, `「${sub.def.name}」でブレイクを身代わりしますか？（${n}枚分）`, sub)) {
-          this.log(`${op.name}の「${sub.def.name}」がブレイクを身代わりした`);
+          this.moveTo(sub, 'grave');
+          this.log(`${op.name}の「${sub.def.name}」がかわりにブレイクされ、墓地に置かれた`);
           await this.pause();
+          if (src && this.zoneOf(src) === 'battle') await this.notifyAll('onBreak', src);
+          await this.shieldsLeft(op.idx);
           return;
         }
       }
@@ -1371,6 +1400,7 @@
       await this.pause();
       // ブレイクした時の効果（ニガ=アブシュームなど）
       if (src && this.zoneOf(src) === 'battle') await this.notifyAll('onBreak', src);
+      await this.shieldsLeft(op.idx);
       for (const s of picked) {
         if (this.zoneOf(s) !== 'hand') continue;
         // G・ストライク：相手クリーチャー1体はこのターン攻撃できない
