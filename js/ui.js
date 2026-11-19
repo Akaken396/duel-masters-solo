@@ -823,7 +823,9 @@
       .filter((c) => !cost || (cost === '7' ? (c.cost ?? 0) >= 7 : (c.cost ?? 0) === +cost))
       .sort((a, b) => (a.cost ?? 0) - (b.cost ?? 0) || a.name.localeCompare(b.name, 'ja'));
     grid.innerHTML = '';
-    for (const def of list) {
+    const LIMIT = 150;
+    if (list.length > LIMIT) grid.append(el('div', { class: 'muted', style: { width: '100%' }, text: `${list.length}枚中 ${LIMIT}枚を表示中。検索や文明・コストで絞り込んでください` }));
+    for (const def of list.slice(0, LIMIT)) {
       const e = cardFace(def, { nameBadge: true, click: true });
       e.style.setProperty('--cw', '78px');
       e.addEventListener('click', () => deckAdd(def, +1));
@@ -897,7 +899,9 @@
       .filter((c) => !q || (c.name + ' ' + (c.text || '') + ' ' + (c.races || []).join(' ')).normalize('NFKC').toLowerCase().includes(q))
       .slice()
       .sort((a, b) => (a.cost ?? 0) - (b.cost ?? 0) || a.name.localeCompare(b.name, 'ja'));
-    for (const c of list) {
+    const LIMIT = 400;
+    if (list.length > LIMIT) ul.append(el('li', { class: 'muted', text: `${list.length}枚中 ${LIMIT}枚を表示中。上の検索で絞り込んでください` }));
+    for (const c of list.slice(0, LIMIT)) {
       ul.append(
         el(
           'li',
@@ -1300,6 +1304,7 @@
     if (old) {
       c.id = old.id;
       Object.assign(old, c);
+      Store._nameIdx = null;
     } else {
       c.id = Store.newId();
       Store.cards.push(c);

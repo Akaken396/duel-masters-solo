@@ -1,4 +1,4 @@
-// カード・デッキはブラウザの localStorage、画像は IndexedDB に保存（このPCの中だけ）
+// カードと画像は IndexedDB（容量が大きい）、デッキと設定は localStorage に保存（このPCの中だけ）
 (function (G) {
   'use strict';
   const KEY_CARDS = 'dmsolo.cards.v1';
@@ -29,16 +29,59 @@
     prefs: {},
     imageUrls: {}, // cardId -> objectURL
 
-    init() {
-      this.cards = load(KEY_CARDS, null);
+    async init() {
+      // カードは IndexedDB から。前の版で localStorage に入っていれば移す
+      let cards = null;
+      try {
+        cards = await this.dataGet('cards');
+      } catch (e) {
+        cards = null;
+      }
+      if (!cards) {
+        cards = load(KEY_CARDS, null);
+        if (cards) {
+          try {
+            await this.dataSet('cards', cards);
+            localStorage.removeItem(KEY_CARDS);
+          } catch (e) {
+            /* IndexedDBが使えなければ localStorage のまま */
+          }
+        }
+      }
+      this.cards = cards || G.Samples.cards.map((c) => ({ ...c }));
       this.decks = load(KEY_DECKS, null);
-      if (!this.cards) this.cards = G.Samples.cards.map((c) => ({ ...c }));
       if (!this.decks) this.decks = G.Samples.decks.map((d) => ({ ...d }));
       this.prefs = load(KEY_PREFS, {});
       return this.loadImages();
     },
     saveCards() {
-      return save(KEY_CARDS, this.cards);
+      this._nameIdx = null;
+      this.dataSet('cards', this.cards).catch(() => {
+        // IndexedDBに書けない時だけ localStorage を試す
+        save(KEY_CARDS, this.cards);
+      });
+      return true;
+    },
+    dataGet(key) {
+      return this.db().then(
+        (db) =>
+          new Promise((res, rej) => {
+            const r = db.transaction('data', 'readonly').objectStore('data').get(key);
+            r.onsuccess = () => res(r.result || null);
+            r.onerror = () => rej(r.error);
+          })
+      );
+    },
+    dataSet(key, v) {
+      return this.db().then(
+        (db) =>
+          new Promise((res, rej) => {
+            const tx = db.transaction('data', 'readwrite');
+            tx.objectStore('data').put(v, key);
+            tx.oncomplete = () => res();
+            tx.onerror = () => rej(tx.error);
+          })
+      );
     },
     saveDecks() {
       return save(KEY_DECKS, this.decks);
@@ -50,8 +93,16 @@
       return this.cards.find((c) => c.id === id);
     },
     byName(name) {
-      const n = normName(name);
-      return this.cards.find((c) => normName(c.name) === n);
+      // 名前の索引（カードが多い時の高速化）
+      if (!this._nameIdx || this._nameIdxLen !== this.cards.length) {
+        this._nameIdx = new Map();
+        for (const c of this.cards) {
+          const k = normName(c.name);
+          if (!this._nameIdx.has(k)) this._nameIdx.set(k, c);
+        }
+        this._nameIdxLen = this.cards.length;
+      }
+      return this._nameIdx.get(normName(name)) || null;
     },
     newId() {
       return 'c-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 7);
@@ -65,8 +116,12 @@
     db() {
       if (this._db) return this._db;
       this._db = new Promise((res, rej) => {
-        const r = indexedDB.open('dmsolo-images', 1);
-        r.onupgradeneeded = () => r.result.createObjectStore('img');
+        const r = indexedDB.open('dmsolo-images', 2);
+        r.onupgradeneeded = () => {
+          const db = r.result;
+          if (!db.objectStoreNames.contains('img')) db.createObjectStore('img');
+          if (!db.objectStoreNames.contains('data')) db.createObjectStore('data');
+        };
         r.onsuccess = () => res(r.result);
         r.onerror = () => rej(r.error);
       });

@@ -180,9 +180,31 @@
     collect(function () {
       askKnown(function () {
         var already = links.filter(function (u) { return known[idOf(u)]; });
-        if (!confirm((allPages ? '全' + lastPage + 'ページで' : 'このページに表示されている') + links.length + '枚のカードを取り込みますか？（1枚ずつ読むので時間がかかります）')) return;
-        var skip = already.length ? confirm('このうち' + already.length + '枚は取り込み済みです。飛ばしますか？\n（キャンセルを押すと、全部取り込み直します）') : false;
-        var todo = skip ? links.filter(function (u) { return !known[idOf(u)]; }) : links;
+        if (stopped && !links.length) return;
+        // ブラウザの確認ダイアログは出ないことがあるので、画面のボタンで選んでもらう
+        stopped = false;
+        stopBtn.disabled = false;
+        stopBtn.textContent = '中止して、ここまでを取り込む';
+        if (stopBtn.parentNode) stopBtn.remove();
+        var bar = document.createElement('div');
+        bar.style.cssText = 'margin-top:8px;display:flex;gap:6px;flex-wrap:wrap';
+        var mkBtn = function (label, fn) { var b = document.createElement('button'); b.textContent = label; b.style.cssText = 'padding:4px 10px;cursor:pointer'; b.onclick = function () { bar.remove(); fn(); }; bar.appendChild(b); };
+        show((allPages ? '全' + lastPage + 'ページで' : 'このページに') + links.length + '枚見つかりました' + (already.length ? '（うち取り込み済み ' + already.length + '枚）' : '') + '。どうしますか？');
+        var start = function (skip) {
+          box.appendChild(stopBtn);
+          run(skip ? links.filter(function (u) { return !known[idOf(u)]; }) : links, skip);
+        };
+        if (already.length) {
+          mkBtn('未取り込みの' + (links.length - already.length) + '枚を取り込む', function () { start(true); });
+          mkBtn('全部取り込み直す（' + links.length + '枚）', function () { start(false); });
+        } else mkBtn(links.length + '枚を取り込む', function () { start(false); });
+        mkBtn('やめる', function () { show('取り込みをやめました'); });
+        box.appendChild(bar);
+      });
+    });
+    var run = function (todo, skip) {
+      var already = { length: links.length - todo.length };
+      (function () {
         var out = [], k = 0;
         var next = function () {
           if (k >= todo.length || stopped) {
@@ -196,8 +218,8 @@
           readCard(u).then(function (c) { if (c) out.push(c); setTimeout(next, 200); });
         };
         next();
-      });
-    });
+      })();
+    };
     /* eslint-enable */
   }
 
