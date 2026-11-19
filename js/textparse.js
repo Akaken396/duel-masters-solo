@@ -26,6 +26,7 @@
       .replace(/(。|、)\s*その「S・トリガー」は使えない(。)?/g, '。')
       .replace(/。。/g, '。')
       .replace(/代わりに/g, 'かわりに')
+      .replace(/^自分の(他の)?([^、。]{1,24}?)をバトルゾーンに出した(時|とき)、/gm, '自分の$1$2が出た時、')
       .replace(/^(覚醒|龍解|ループ覚醒|覚醒リンク|龍解リンク|超覚醒)\s*[-－：:―—‐]\s*/gm, '')
       .replace(/唱えること(が|は)できない/g, '唱えられない')
       .replace(/パワー(を|は)\s*[_?−‐]\s*(\d)/g, 'パワー$1-$2')
@@ -105,7 +106,15 @@
 
   // 発動タイミングの部品。「AまたはB、」のような組み合わせも読む
   const TRIGGER_ATOMS = [
-    [/^(このクリーチャー|このカード|このタマシード|このフィールド|このDGフィールド|このDNフィールド|このクロスギア|このオーラ)(が|を)?(、)?(バトルゾーンに)?(出た|出した)(時|とき)/, 'summon'],
+    [/^(このクリーチャー|このカード|このタマシード|このフィールド|このDGフィールド|このDNフィールド|このD2フィールド|このクロスギア|このオーラ|このドラグハート|このG城)(が|を)?(、)?(バトルゾーンに)?(出た|出した)(時|とき)/, 'summon'],
+    [/^(このクリーチャーの)?(最初の)?攻撃の終わりに/, 'attackEnd'],
+    [/^(このクリーチャーが)?(はじめて)?バトルに勝った(時|とき)/, 'battleWin'],
+    [/^このクリーチャーが(、)?[^、。]*?バトルに負けた(時|とき)/, 'battleLose'],
+    [/^(このクリーチャーが)?バトルする(時|とき)/, 'battled'],
+    [/^(このクリーチャー|このカード)が(どこからでも|バトルゾーンから)?(自分の)?墓地に置かれた(時|とき)/, 'toGrave'],
+    [/^このクリーチャーがタップされた(時|とき)/, 'tapped'],
+    [/^自分の(他の)?(光|水|闇|火|自然)?(の)?クリーチャーがバトルに勝った(時|とき)/, 'allyBattleWin'],
+    [/^これを(付けた|装備した|クロスした)クリーチャーが破壊された(時|とき)/, 'hostDestroyed'],
     [/^(このクリーチャーが)?召喚によって出た(時|とき)/, 'summonOnly'],
     [/^(このクリーチャーが)?(、)?進化して出た(時|とき)/, 'summon'],
     [/^(このクリーチャーが)?攻撃する(時|とき)/, 'attack'],
@@ -152,6 +161,10 @@
     let mm;
     if ((mm = rest.match(/^相手のターン(中)?に、?/))) {
       cond.oppTurn = true;
+      rest = rest.slice(mm[0].length);
+    }
+    if ((mm = rest.match(/^各ターン、(このクリーチャーの)?(?=最初の攻撃の終わりに)/))) {
+      cond.firstPerTurn = true;
       rest = rest.slice(mm[0].length);
     }
     if ((mm = rest.match(/^各ターン、(このクリーチャーが|自分が)?はじめて/))) {
@@ -833,6 +846,8 @@
     const rawLines = normalize(def.text)
       .split('\n')
       .flatMap((l) => {
+        const both = l.match(/^このクリーチャー(、)?(または|か)(、)?自分の他の(.+?)を(バトルゾーンに)?出した(時|とき)、(.+)$/);
+        if (both) return ['このクリーチャーが出た時、' + both[7], '自分の他の' + both[4] + 'が出た時、' + both[7]];
         const t = stripReminder(l).trim();
         if (/^[^、。]{2,24}((\s{2,}|　)[^、。]{2,24})+$/.test(t)) return t.split(/\s{2,}|　/);
         return [l];
@@ -1227,7 +1242,7 @@
   function filt(a) {
     return (a.tappedOnly ? 'タップ中の' : '') + (a.untappedOnly ? 'アンタップ中の' : '') + (a.maxPower ? `パワー${a.maxPower}以下` : '') + (a.maxCost ? `コスト${a.maxCost}以下` : '');
   }
-  const WHEN_LABEL = { charged: 'マナに置いた時', hostAttack: '付けたクリーチャーの攻撃時', hostAttackEnd: '付けたクリーチャーの攻撃の終わり', eachTurnEnd: '各ターンの終わり', oppTurnEnd: '相手のターンの終わり', oppEnter: '相手のクリーチャーが出た時', anyEnter: '他のクリーチャーが出た時', anyDestroyed: 'クリーチャーが破壊された時', selfOrAllyDestroyed: '自分のクリーチャーが破壊された時', blocked: 'ブロックされた時', oppUnblocked: '相手の攻撃が通った時', battled: 'バトルした時', targeted: '選ばれた時', oppAttack: '相手の攻撃時', allyCast: '自分が呪文を唱えた時', oppCast: '相手が呪文を唱えた時', allyBattleWin: '味方がバトルに勝った時', oppDestroyed: '相手のクリーチャーが破壊された時', ownShieldLeft: 'シールドが離れた時', attackEnd: '攻撃の終わり', beforeBreak: 'ブレイクの前', unblocked: 'ブロックされなかった時', allyAttack: '味方が攻撃する時', allyLeft: '味方が離れた時', tapped: 'タップした時', untapped: 'アンタップした時', evolveSource: '進化元になる時', tapAbility: 'タップ能力', battleLose: 'バトルに負けた時', allyEnter: '味方が出た時', left: '離れた時', attacked: '攻撃された時', summonOnly: '召喚で出た時', summon: '出た時', attack: '攻撃時', destroyed: '破壊時', turnStart: 'ターン開始時', turnEnd: 'ターン終了時', shieldAdded: 'シールド追加時', cast: '呪文', block: 'ブロック時', battleWin: 'バトルに勝った時', oppTurnStart: '相手のターン開始時', broke: 'ブレイクした時' };
+  const WHEN_LABEL = { toGrave: '墓地に置かれた時', hostDestroyed: '付けたクリーチャーが破壊された時', charged: 'マナに置いた時', hostAttack: '付けたクリーチャーの攻撃時', hostAttackEnd: '付けたクリーチャーの攻撃の終わり', eachTurnEnd: '各ターンの終わり', oppTurnEnd: '相手のターンの終わり', oppEnter: '相手のクリーチャーが出た時', anyEnter: '他のクリーチャーが出た時', anyDestroyed: 'クリーチャーが破壊された時', selfOrAllyDestroyed: '自分のクリーチャーが破壊された時', blocked: 'ブロックされた時', oppUnblocked: '相手の攻撃が通った時', battled: 'バトルした時', targeted: '選ばれた時', oppAttack: '相手の攻撃時', allyCast: '自分が呪文を唱えた時', oppCast: '相手が呪文を唱えた時', allyBattleWin: '味方がバトルに勝った時', oppDestroyed: '相手のクリーチャーが破壊された時', ownShieldLeft: 'シールドが離れた時', attackEnd: '攻撃の終わり', beforeBreak: 'ブレイクの前', unblocked: 'ブロックされなかった時', allyAttack: '味方が攻撃する時', allyLeft: '味方が離れた時', tapped: 'タップした時', untapped: 'アンタップした時', evolveSource: '進化元になる時', tapAbility: 'タップ能力', battleLose: 'バトルに負けた時', allyEnter: '味方が出た時', left: '離れた時', attacked: '攻撃された時', summonOnly: '召喚で出た時', summon: '出た時', attack: '攻撃時', destroyed: '破壊時', turnStart: 'ターン開始時', turnEnd: 'ターン終了時', shieldAdded: 'シールド追加時', cast: '呪文', block: 'ブロック時', battleWin: 'バトルに勝った時', oppTurnStart: '相手のターン開始時', broke: 'ブレイクした時' };
 
   function civJ(c) {
     return { light: '光', water: '水', darkness: '闇', fire: '火', nature: '自然' }[c] || '';

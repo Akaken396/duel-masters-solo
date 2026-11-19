@@ -69,7 +69,7 @@
     return t;
   }
 
-  const WHEN_J = { charged: 'マナに置いた時の能力', hostAttack: '付いているクリーチャーの攻撃時の能力', hostAttackEnd: '付いているクリーチャーの攻撃の終わりの能力', eachTurnEnd: 'ターンの終わりの能力', oppTurnEnd: '相手のターンの終わりの能力', oppEnter: '相手のクリーチャーが出た時の能力', anyEnter: 'クリーチャーが出た時の能力', anyDestroyed: 'クリーチャーが破壊された時の能力', selfOrAllyDestroyed: '破壊された時の能力', blocked: 'ブロックされた時の能力', oppUnblocked: '相手の攻撃が通った時の能力', battled: 'バトルした時の能力', targeted: '選ばれた時の能力', oppAttack: '相手の攻撃時の能力', allyCast: '呪文を唱えた時の能力', oppCast: '相手が呪文を唱えた時の能力', allyBattleWin: '味方がバトルに勝った時の能力', oppDestroyed: '相手のクリーチャーが破壊された時の能力', ownShieldLeft: 'シールドが離れた時の能力', attackEnd: '攻撃の終わりの能力', beforeBreak: 'ブレイクの前の能力', unblocked: 'ブロックされなかった時の能力', allyAttack: '味方の攻撃時の能力', allyLeft: '味方が離れた時の能力', tapped: 'タップした時の能力', untapped: 'アンタップした時の能力', evolveSource: 'シンカパワー', tapAbility: 'タップ能力', battleLose: 'バトルに負けた時の能力', left: '離れた時の能力', attacked: '攻撃された時の能力', summonOnly: '召喚で出た時の能力', battleWin: 'バトルに勝った時の能力', oppTurnStart: '相手のターンのはじめの能力', broke: 'ブレイクした時の能力', summon: '出た時の能力', attack: '攻撃する時の能力', destroyed: '破壊された時の能力', turnStart: 'ターンのはじめの能力', turnEnd: 'ターンの終わりの能力', shieldAdded: 'シールドが置かれた時の能力', exLifeLost: 'EXライフが離れた時の能力', block: 'ブロックした時の能力', sealsGone: '封印が外れた時の能力' };
+  const WHEN_J = { toGrave: '墓地に置かれた時の能力', hostDestroyed: '付けたクリーチャーが破壊された時の能力', charged: 'マナに置いた時の能力', hostAttack: '付いているクリーチャーの攻撃時の能力', hostAttackEnd: '付いているクリーチャーの攻撃の終わりの能力', eachTurnEnd: 'ターンの終わりの能力', oppTurnEnd: '相手のターンの終わりの能力', oppEnter: '相手のクリーチャーが出た時の能力', anyEnter: 'クリーチャーが出た時の能力', anyDestroyed: 'クリーチャーが破壊された時の能力', selfOrAllyDestroyed: '破壊された時の能力', blocked: 'ブロックされた時の能力', oppUnblocked: '相手の攻撃が通った時の能力', battled: 'バトルした時の能力', targeted: '選ばれた時の能力', oppAttack: '相手の攻撃時の能力', allyCast: '呪文を唱えた時の能力', oppCast: '相手が呪文を唱えた時の能力', allyBattleWin: '味方がバトルに勝った時の能力', oppDestroyed: '相手のクリーチャーが破壊された時の能力', ownShieldLeft: 'シールドが離れた時の能力', attackEnd: '攻撃の終わりの能力', beforeBreak: 'ブレイクの前の能力', unblocked: 'ブロックされなかった時の能力', allyAttack: '味方の攻撃時の能力', allyLeft: '味方が離れた時の能力', tapped: 'タップした時の能力', untapped: 'アンタップした時の能力', evolveSource: 'シンカパワー', tapAbility: 'タップ能力', battleLose: 'バトルに負けた時の能力', left: '離れた時の能力', attacked: '攻撃された時の能力', summonOnly: '召喚で出た時の能力', battleWin: 'バトルに勝った時の能力', oppTurnStart: '相手のターンのはじめの能力', broke: 'ブレイクした時の能力', summon: '出た時の能力', attack: '攻撃する時の能力', destroyed: '破壊された時の能力', turnStart: 'ターンのはじめの能力', turnEnd: 'ターンの終わりの能力', shieldAdded: 'シールドが置かれた時の能力', exLifeLost: 'EXライフが離れた時の能力', block: 'ブロックした時の能力', sealsGone: '封印が外れた時の能力' };
 
   class GameOver extends Error {
     constructor(winner, reason) {
@@ -720,7 +720,14 @@
         // 場を離れたら、場にいた間の状態を消す
         for (const k of ['seals', 'exLife', 'forceShield', 'noLeaveUntil', 'frozenUntil', 'noAttackTurn', 'modesUsed', 'flipped', 'usedTurn', 'ignoreName', 'hyper', 'hyperUntil', 'jdUntil', 'returnAtEnd', 'badEnd', 'spellShieldUntil', 'blocking', 'protectUntil', 'allyUsed', 'winAllUntil', 'firstAttackDone', 'lockedUntil', 'unblockableTurn', 'noDestroyUntil', 'abUsed']) delete card[k];
       }
-      if (zone === 'grave') this.graveThisTurn = true;
+      if (zone === 'grave') {
+        this.graveThisTurn = true;
+        // 「墓地に置かれた時」の能力
+        if (from && from !== 'grave' && this.started && this.hasAbility(card, 'toGrave')) {
+          this.pending = this.pending || [];
+          this.pending.push({ card, when: 'toGrave', controller: card.owner, def: card.def, label: `「${card.def.name}」の墓地に置かれた時の能力` });
+        }
+      }
       if (zone === 'deck' && top) owner.deck.unshift(card);
       else owner[zone].push(card);
       if (zone === 'battle' && from !== 'battle') {
@@ -1622,14 +1629,14 @@
         await this.resolvePending();
       }
       if (this.zoneOf(card) === 'battle' && this.isCreature(card)) {
-        await this.fireHand(pi, 'allyEnter', (ab) => ab.ally && (!ab.ally.race || ((card.def.races || []).join('/') + card.def.name).includes(ab.ally.race)));
+        await this.fireHand(pi, 'allyEnter', (ab) => ab.ally && this.allyMatch(card, ab.ally.race));
         await this.resolvePending();
         for (const src of this.permanents(pi)) {
           if (src === card || !this.isOnField(src)) continue;
           for (const ab of this.abilities(src)) {
             if (ab.when !== 'allyEnter' || !ab.ally) continue;
             const al = ab.ally;
-            if (al.race && !((card.def.races || []).join('/') + card.def.name).includes(al.race)) continue;
+            if (!this.allyMatch(card, al.race)) continue;
             if (al.perTurn) {
               src.allyUsed = src.allyUsed || {};
               const key = ab.text;
@@ -1680,6 +1687,13 @@
     }
 
     // 「自分の○○が攻撃する時／離れた時」
+    // 「自分の○○が出た時」の○○に合うか（種族名のほか、コスト・文明などの条件も読む）
+    allyMatch(card, race) {
+      if (!race) return true;
+      if (((card.def.races || []).join('/') + card.def.name).includes(race)) return true;
+      const cd = G.TextParse.lookCond(race.replace(/の$/, 'の') + (/(クリーチャー|カード|エレメント)$/.test(race) ? '' : 'クリーチャー'));
+      return !cd.unknown && this.fitLook(card, cd);
+    }
     // 手札にある時に働く能力（「〜した時、このクリーチャーを手札から出してもよい」など）
     async fireHand(pi, when, filterAb) {
       for (const c of this.p[pi].hand.slice()) {
@@ -1696,13 +1710,13 @@
       }
     }
     async allyEvent(card, pi, when) {
-      await this.fireHand(pi, when, (ab, c) => ab.ally && (!ab.ally.race || ((card.def.races || []).join('/') + card.def.name).includes(ab.ally.race)));
+      await this.fireHand(pi, when, (ab, c) => ab.ally && this.allyMatch(card, ab.ally.race));
       for (const src of this.permanents(pi)) {
         if (!this.isOnField(src)) continue;
         for (const ab of this.abilities(src)) {
           if (ab.when !== when || !ab.ally) continue;
           if (ab.ally.others && src === card) continue;
-          if (ab.ally.race && !((card.def.races || []).join('/') + card.def.name).includes(ab.ally.race)) continue;
+          if (!this.allyMatch(card, ab.ally.race)) continue;
           if (ab.ally.perTurn) {
             src.allyUsed = src.allyUsed || {};
             if (src.allyUsed[ab.text + when] === this.turn) continue;
@@ -1881,6 +1895,7 @@
       for (const u of under) this.moveTo(u, toZone === 'shields' ? 'grave' : toZone, o.moveOpt);
       for (const pl of this.p) for (const w of pl.battle.filter((x) => x.attachedTo === card.uid)) {
         w.attachedTo = null;
+        if (o.destroy && this.hasAbility(w, 'hostDestroyed')) await this.trigger(w, 'hostDestroyed', w.owner, w.def, null, { defer: true });
         const k = attachKind(w.def);
         if (k === 'weapon') this.moveTo(w, 'hyper');
         else if (k === 'aura') {
