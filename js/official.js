@@ -119,7 +119,7 @@
           show('パック「' + pack + '」を取り込み中… ' + id + '（' + outP.length + '枚' + (skipped ? '・スキップ' + skipped : '') + '）');
           readCard('https://dm.takaratomy.co.jp/card/detail/?id=' + id).then(function (c) {
             if (c) { outP.push(c); miss = 0; } else miss++;
-            setTimeout(stepP, 400);
+            setTimeout(stepP, 200);
           });
         };
         stepP();
@@ -169,11 +169,11 @@
         if (page === curPage) { page++; return stepPage(); }
         var pg = page++;
         var body;
-        try { body = buildBody(pg); } catch (e) { failed++; return setTimeout(stepPage, 400); }
+        try { body = buildBody(pg); } catch (e) { failed++; return setTimeout(stepPage, 200); }
         fetchT(action, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8', 'X-Requested-With': 'XMLHttpRequest' }, body: body })
           .then(function (html) { if (html) addLinks(new DOMParser().parseFromString(html, 'text/html'), action); })
           .catch(function () {})
-          .then(function () { setTimeout(stepPage, 400); });
+          .then(function () { setTimeout(stepPage, 200); });
       };
       stepPage();
     };
@@ -193,7 +193,7 @@
           }
           var u = todo[k++];
           show('取り込み中 ' + k + '/' + todo.length + (failed ? '（読めなかった' + failed + '）' : ''));
-          readCard(u).then(function (c) { if (c) out.push(c); setTimeout(next, 400); });
+          readCard(u).then(function (c) { if (c) out.push(c); setTimeout(next, 200); });
         };
         next();
       });
