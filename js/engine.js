@@ -33,7 +33,7 @@
     return t;
   }
 
-  const WHEN_J = { battleWin: 'バトルに勝った時の能力', oppTurnStart: '相手のターンのはじめの能力', broke: 'ブレイクした時の能力', summon: '出た時の能力', attack: '攻撃する時の能力', destroyed: '破壊された時の能力', turnStart: 'ターンのはじめの能力', turnEnd: 'ターンの終わりの能力', shieldAdded: 'シールドが置かれた時の能力', exLifeLost: 'EXライフが離れた時の能力', block: 'ブロックした時の能力', sealsGone: '封印が外れた時の能力' };
+  const WHEN_J = { summonOnly: '召喚で出た時の能力', battleWin: 'バトルに勝った時の能力', oppTurnStart: '相手のターンのはじめの能力', broke: 'ブレイクした時の能力', summon: '出た時の能力', attack: '攻撃する時の能力', destroyed: '破壊された時の能力', turnStart: 'ターンのはじめの能力', turnEnd: 'ターンの終わりの能力', shieldAdded: 'シールドが置かれた時の能力', exLifeLost: 'EXライフが離れた時の能力', block: 'ブロックした時の能力', sealsGone: '封印が外れた時の能力' };
 
   class GameOver extends Error {
     constructor(winner, reason) {
@@ -100,6 +100,30 @@
     }
 
     kw(card) {
+      const base = this.kwBase(card);
+      if (!this.isCreature(card) || this._granting) return base;
+      // 自分の場のカードが与える能力
+      let out = base;
+      this._granting = true;
+      try {
+        for (const src of this.p[card.owner].battle) {
+          const g = this.kwBase(src).grant;
+          if (!g || (g.others && src === card)) continue;
+          if (g.who && !((card.def.races || []).join('/') + card.def.name).includes(g.who.replace(/(クリーチャー|カード)$/, ''))) continue;
+          for (const nm of g.names) {
+            const hit = G.Keywords && G.Keywords.match(nm, nm);
+            if (hit && hit.e.set) {
+              if (out === base) out = { ...base };
+              hit.e.set(out, hit.m, nm);
+            }
+          }
+        }
+      } finally {
+        this._granting = false;
+      }
+      return out;
+    }
+    kwBase(card) {
       if (this.isIgnored(card.def.name)) return { breaker: 1, powerAttacker: 0 };
       const p = parsed(card.def);
       if (card.hyper && p.hyper) {
@@ -199,7 +223,16 @@
     power(card) {
       if (card.def.power == null || !this.isCreature(card)) return 0;
       const hp = card.hyper && parsed(card.def).kw.hyperPower;
-      return (hp || +card.def.power || 0) + card.tempPower + (card.attacking ? this.kw(card).powerAttacker : 0);
+      let extra = 0;
+      const pp = parsed(card.def).kw.powerPer;
+      if (pp) {
+        const me = this.p[card.owner];
+        const zone = pp.zone === 'マナゾーン' ? me.mana : pp.zone === '墓地' ? me.grave : me.battle;
+        const w = (pp.what || '').replace(/^の/, '');
+        const cnt = zone.filter((c) => !w || w === 'カード' || ((c.def.races || []).join('/') + c.def.name + (c.def.type === 'spell' ? '呪文' : 'クリーチャー')).includes(w.replace(/カード$/, ''))).length;
+        extra += Math.floor(cnt / pp.per) * pp.n;
+      }
+      return (hp || +card.def.power || 0) + extra + card.tempPower + (card.attacking ? this.kw(card).powerAttacker : 0);
     }
 
     log(msg) {
@@ -588,6 +621,12 @@
         const n = me.battle.filter((c) => this.isCreature(c) && (w === 'クリーチャー' || ((c.def.races || []).join('/') + c.def.name).includes(w))).length;
         cost -= n;
       }
+      if (k.costPer) {
+        const pl = k.costPer.side === 'opp' ? this.p[1 - pi] : me;
+        const w = k.costPer.what.replace(/^(自分の|相手の)/, '');
+        const cnt = pl.battle.filter((c) => this.isCreature(c) && (!w || w === 'クリーチャー' || ((c.def.races || []).join('/') + c.def.name).includes(w.replace(/クリーチャー$/, '')))).length;
+        cost -= Math.floor(cnt / k.costPer.per) * k.costPer.n;
+      }
       if (k.manaArmedCost) {
         const mc = k.manaArmedCost;
         const have = me.mana.filter((m) => !mc.manaCiv || (m.def.civs || []).includes(mc.manaCiv)).length;
@@ -757,6 +796,7 @@
     // 墓地から使えるか（ア・ストラ・ゼーレ、アビス記号など）
     graveUse(pi, card) {
       if (this.active !== pi || card.owner !== pi || this.zoneOf(card) !== 'grave') return null;
+      if (parsed(card.def).kw.graveSummon) return card;
       for (const src of this.permanents(pi)) {
         const sc = this.sc(src);
         if (sc && sc.graveUse && sc.graveUse(this, src, pi, card)) return src;
@@ -771,8 +811,8 @@
       if (!f || !this.canPlayFromGrave(pi, f.card)) return false;
       const src = this.graveUse(pi, f.card);
       await this.pay(pi, f.card, f.card.def);
-      src.usedTurn = this.turn;
-      this.log(`${this.p[pi].name}は「${src.def.name}」の効果で墓地から使う`);
+      if (src !== f.card) src.usedTurn = this.turn;
+      this.log(src === f.card ? `${this.p[pi].name}は「${src.def.name}」を墓地から召喚する` : `${this.p[pi].name}は「${src.def.name}」の効果で墓地から使う`);
       await this.putIntoPlay(pi, f.card, false);
       if (this.sc(src)?.graveCastTo === 'deckBottom' && this.zoneOf(f.card) === 'grave') {
         this.moveTo(f.card, 'deck', { top: false });
@@ -889,6 +929,7 @@
       this.noteManual(card);
       await this.pause();
       await this.trigger(card, 'summon', pi);
+      if (how === 'summon' && this.zoneOf(card) === 'battle') await this.trigger(card, 'summonOnly', pi);
       if (this.zoneOf(card) === 'battle') await this.notifyAll('onAnyEnter', card);
       if (this.kw(card).exLife && card.exLife) await this.shieldAdded(pi);
       return true;
@@ -1275,7 +1316,11 @@
           }
           break;
         }
+        case 'manualNote':
+          this.log(`【手動】${nm}: ${a.text}`);
+          break;
         case 'mill':
+          if (a.optional && !(await this.yesNo(pi, `${nm}: 山札の上から${a.n}枚を墓地に置きますか？`, src))) return;
           for (let i = 0; i < a.n && me.deck.length; i++) {
             const c = me.deck[0];
             this.moveTo(c, 'grave');
@@ -1388,6 +1433,21 @@
       try {
         await this.trigger(card, 'attack', pi);
         if (this.zoneOf(card) !== 'battle') return true;
+        // スマッシュ・バースト
+        if (this.kw(card).smashBurst && this.twin(card) && this.zoneOf(card) === 'battle') {
+          const t = this.twin(card);
+          if (await this.yesNo(pi, `スマッシュ・バースト：「${t.name}」をコストを払わずに唱えますか？`, card)) {
+            this.log(`スマッシュ・バースト！「${t.name}」を唱えた`);
+            this.resolving = (this.resolving || 0) + 1;
+            try {
+              await this.runAbility(card, 'cast', pi, t);
+            } finally {
+              this.resolving--;
+            }
+            await this.resolvePending();
+            if (this.zoneOf(card) !== 'battle') return true;
+          }
+        }
         // 攻撃時に手札から使えるもの：侵略・革命チェンジ
         const swaps = [];
         for (const h of me.hand) {
