@@ -1219,12 +1219,43 @@
         const tappers = this.p[pi].battle.filter((c) => this.isCreature(c) && !c.tapped && (!atc.civ || (c.def.civs || []).includes(atc.civ)));
         if (tappers.length >= atc.n) out.push({ mana: [], uses: [() => { for (const c of tappers.slice(0, atc.n)) c.tapped = true; this.log(`クリーチャー${atc.n}体をタップして唱える`); }], cost: 0, tapAlt: atc.n });
       }
+      // 召喚する時に○○すればコストが下がる
+      const sco = parsed(def).kw.summonCostOpt;
+      if (sco && def === card.def && this.canDoCost(pi, card, sco.act)) {
+        const plan = this.costPlan(pi, card, def, null);
+        const cost = Math.max(1, plan.cost - sco.n);
+        const mana = this.payWith(pi, def, cost);
+        if (mana) out.push({ mana, uses: [...plan.uses, async () => { this.log(`「${def.name}」: ${sco.text}してコストを${sco.n}下げた`); await this.doAction(sco.act, card, pi); }], cost, opt: sco });
+      }
       if (parsed(def).kw.bad) {
         const plan = this.costPlan(pi, card, def, null, true);
         const mana = this.payWith(pi, def, plan.cost);
         if (mana) out.push({ mana, uses: plan.uses, cost: plan.cost, bad: true });
       }
       return out;
+    }
+    // コストとして行う処理ができるか
+    canDoCost(pi, card, a) {
+      const me = this.p[pi];
+      const n = a.n || 1;
+      switch (a.act) {
+        case 'selfDiscard':
+          return me.hand.filter((c) => c !== card && (!a.cond || this.fitLook(c, a.cond))).length >= n;
+        case 'showOwn':
+          return me.hand.filter((c) => c !== card && this.fitLook(c, a.cond)).length >= n;
+        case 'tapOwnCost':
+        case 'tap':
+          return me.battle.filter((c) => this.isCreature(c) && !c.tapped).length >= n;
+        case 'destroyOwn':
+        case 'destroy':
+        case 'bounce':
+          return me.battle.filter((c) => this.isCreature(c)).length >= n;
+        case 'ownShieldToGrave':
+        case 'shieldToHand':
+          return me.shields.length >= n;
+        default:
+          return false;
+      }
     }
     paymentPlan(pi, card, def = card.def) {
       return this.paymentPlans(pi, card, def)[0] || null;
@@ -1323,7 +1354,7 @@
     async pay(pi, card, def) {
       const plans = this.paymentPlans(pi, card, def);
       let plan = plans[0];
-      const withSas = plans.filter((x) => x.sas || x.bad || x.tapAlt);
+      const withSas = plans.filter((x) => x.sas || x.bad || x.tapAlt || x.opt);
       if (withSas.length && !this.p[pi].isAI) {
         const opts = plans.map((x, i) => ({
           id: String(i),
@@ -1333,7 +1364,9 @@
               ? `B・A・D：コスト${x.cost}で出す（ターンの終わりに破壊）`
               : x.tapAlt
                 ? `自分のクリーチャーを${x.tapAlt}体タップして唱える`
-              : `通常どおり（コスト${x.cost}）`,
+                : x.opt
+                  ? `${x.opt.text}して、コスト${x.cost}で出す`
+                  : `通常どおり（コスト${x.cost}）`,
         }));
         const r = await this.choose(pi, { kind: 'mode', prompt: `「${def.name}」: どう払いますか？`, options: opts, min: 1, max: 1 });
         plan = plans[+r[0]] || plans[0];
@@ -2282,7 +2315,7 @@
           break;
         }
         case 'selfDiscard': {
-          const dpool = me.hand.filter((c) => !a.cond || this.fitLook(c, a.cond));
+          const dpool = me.hand.filter((c) => c !== src && (!a.cond || this.fitLook(c, a.cond)));
           if (a.cond && dpool.length < a.n) break;
           const picked = await this.pickCards(pi, dpool, a.n, !!a.optional, `${nm}: 捨てる手札を${a.n}枚選んでください`, 'discard');
           for (const c of picked) {
@@ -2597,7 +2630,7 @@
           this.log(`${me.name}は手札の${nm}を捨てた`);
           break;
         case 'showOwn': {
-          const pool = me.hand.filter((c) => this.fitLook(c, a.cond));
+          const pool = me.hand.filter((c) => c !== src && this.fitLook(c, a.cond));
           if (pool.length < a.n) break;
           const r = await this.pickCards(pi, pool, a.n, a.optional, `${nm}: 相手に見せる手札（${a.cond.text}）`, 'recover');
           if (r.length < a.n) break;

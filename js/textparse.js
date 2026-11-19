@@ -416,6 +416,7 @@
     if ((m = s.match(/^自分の山札の上から(\d+)枚(目)?を表向きにして、?自分のシールド(\d+)つの上に置く$/))) return { act: 'shieldAdd', n: +m[1] };
     if (/^自分のシールドをすべて手札に加える(。ただし、その「S・トリガー」は使えない)?$/.test(s)) return { act: 'shieldToHand', n: 99, noTrigger: true };
     if ((m = s.match(/^自分のシールドを(\d+)(つ|枚)(選び)?、?(自分の)?墓地に置(く|いてもよい)$/))) return { act: 'ownShieldToGrave', n: +m[1], optional: m[5] !== 'く' };
+    if ((m = s.match(/^自分のクリーチャーを(\d+)体(、)?(持ち主の)?手札に戻(す|してもよい)$/))) return { act: 'bounce', side: 'self', n: +m[1], optional: m[4] !== 'す', all: false };
     if ((m = s.match(/^([^、。]*?)を(\d+)(体|枚)、自分の手札から捨て(る|てもよい)$/))) return { act: 'selfDiscard', n: +m[2], optional: m[4] !== 'る', cond: lookCond(m[1]) };
     if ((m = s.match(/^自分の手札(にある|から)([^、。]*?)を(\d+)(体|枚)(、)?相手に見せ(る|てもよい)$/))) return { act: 'showOwn', n: +m[3], cond: lookCond(m[2]), optional: m[6] !== 'る' };
     if ((m = s.match(/^自分のマナゾーンの(カード|[^、。]*?カード)を(\d+)枚タップ(する|してもよい)$/))) return { act: 'tapManaCost', n: +m[2], optional: m[3] !== 'する' };
@@ -897,6 +898,15 @@
       const raw = String(rawObj);
       let line = stripReminder(raw);
       if (!line) continue;
+      // 「このクリーチャーを召喚する時、○○してもよい。そうしたら、このクリーチャーの召喚コストをN少なくする」
+      const sco = line.match(/^このクリーチャーを召喚する(時|とき)、(.+?)てもよい。(そうしたら|そうした場合)、このクリーチャーの召喚コストを(\d+)少なくする。?$/);
+      if (sco) {
+        const first = parseEffect(sco[2] + 'てもよい');
+        if (first && first.act !== 'manualNote') {
+          (inHyper ? hyper.kw : kw).summonCostOpt = { act: { ...first, optional: false }, n: +sco[4], text: sco[2] };
+          continue;
+        }
+      }
       // タップ能力：「このクリーチャーで攻撃するかわりに、タップして（次の）能力を使ってもよい」
       const tapAb = line.match(/^このクリーチャーで攻撃するかわりに、(このクリーチャーと自分のマナゾーンのタップされていないカードを(\d+)枚)?タップして(、)?(次の|その)?\s*([a-z]\s*)?能力を使ってもよい。?\s*(.*)$/);
       if (tapAb) {
