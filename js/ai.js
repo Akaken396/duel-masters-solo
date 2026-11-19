@@ -164,7 +164,8 @@
       case 'yesno':
         return ['yes'];
       case 'mode':
-        return [opts[0].id];
+      case 'modes':
+        return opts.slice(0, Math.max(1, req.min)).map((o) => o.id);
       case 'number':
         return [opts[opts.length - 1].id];
       case 'block': {

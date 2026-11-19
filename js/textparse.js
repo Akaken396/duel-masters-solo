@@ -81,6 +81,16 @@
     const optional = /てもよい|まで/.test(s);
     let m;
 
+    if ((m = s.match(/墓地から(.*?)(コスト(\d+)以下の)?(光|水|闇|火|自然)?の?(コスト(\d+)以下の)?(クリーチャー|タマシード)(または|か)?(クリーチャー|タマシード)?を?(\d+)(体|つ)?(まで)?(選び、)?(バトルゾーンに)?出/))) {
+      const kinds = [m[7], m[9]].filter(Boolean).map((k) => (k === 'クリーチャー' ? 'creature' : 'tamaseed'));
+      const civ = m[4] ? { 光: 'light', 水: 'water', 闇: 'darkness', 火: 'fire', 自然: 'nature' }[m[4]] : null;
+      return { act: 'reanimate', kinds, civ, maxCost: m[3] ? +m[3] : m[6] ? +m[6] : null, n: +(m[10] || 1), optional };
+    }
+    if ((m = s.match(/^(コスト(\d+)以下の)?(光|水|闇|火|自然)?の?(コスト(\d+)以下の)?(クリーチャー|タマシード)(または|か)?(クリーチャー|タマシード)?を(\d+)(体|つ)(まで)?、?(自分の)?墓地から(バトルゾーンに)?出/))) {
+      const kinds = [m[6], m[8]].filter(Boolean).map((k) => (k === 'クリーチャー' ? 'creature' : 'tamaseed'));
+      const civ = m[3] ? { 光: 'light', 水: 'water', 闇: 'darkness', 火: 'fire', 自然: 'nature' }[m[3]] : null;
+      return { act: 'reanimate', kinds, civ, maxCost: m[2] ? +m[2] : m[5] ? +m[5] : null, n: +m[9], optional };
+    }
     if ((m = s.match(/^カードを(最大)?(\d+)枚(まで)?引/))) {
       return { act: 'draw', n: +m[2], optional };
     }
@@ -135,7 +145,8 @@
   // 「その後、」や「。」で区切った複数効果を読む。全部読めた時だけ配列を返す
   function parseEffects(body) {
     const parts = body
-      .split(/。その後、|。/)
+      .replace(/(引き|引いて)、(その後、)?(自分の)?手札を/g, '引く。自分の手札を')
+      .split(/。その後、|、その後、|。/)
       .map((x) => x.trim())
       .filter(Boolean);
     const acts = [];
@@ -159,15 +170,40 @@
     const hyper = { kw: { breaker: 1, powerAttacker: 0 }, abilities: [] }; // ハイパーモード中だけ有効
     let hyperUsed = false;
     let inHyper = false;
-    const lines = normalize(def.text)
-      .split('\n')
-      .map((l) => l.replace(/^[■▪・●◆▶►]\s*/, '').trim())
-      .filter(Boolean);
+    const A_PUSH = (w, ab) => (inHyper ? hyper.abilities : abilities).push(ab);
+    const rawLines = normalize(def.text).split('\n').map((l) => l.trim()).filter(Boolean);
+    // 「▶」「►」で始まる行は、直前の「選ぶ」行の選択肢としてまとめる
+    const lines = [];
+    for (const l of rawLines) {
+      if (/^[▶►]/.test(l) && lines.length) {
+        const prev = lines[lines.length - 1];
+        (prev.opts = prev.opts || []).push(l.replace(/^[▶►]\s*/, ''));
+      } else lines.push(Object.assign(new String(l.replace(/^[■▪・●◆]\s*/, '')), {}));
+    }
     const Kd = KWD();
 
-    for (const raw of lines) {
+    for (const rawObj of lines) {
+      const raw = String(rawObj);
       let line = stripReminder(raw);
       if (!line) continue;
+      // 選択肢つきの能力（「次の中から1つ選ぶ」＋ ▶ の行）
+      const inline = !rawObj.opts && line.match(/^(.*?)(次の(中|うち)から|以下から)?(\d+|いずれか1|好きな数|いくつでも)(回|つ)?選ぶ[。：:]\s*(.+)$/);
+      if (rawObj.opts || (inline && /[／/]/.test(inline[6]))) {
+        const head = rawObj.opts ? line : inline[1] + '選ぶ';
+        const optTexts = rawObj.opts || inline[6].split(/[／/]/);
+        let whens = [];
+        for (const t of TRIGGERS) if (t.re.test(head)) whens = [t.when];
+        if (!whens.length) whens = [def.type === 'spell' ? 'cast' : 'summon'];
+        const cm = (rawObj.opts ? head : line).match(/(\d+)(回|つ)選ぶ/);
+        const count = /好きな数|いくつでも/.test(line) ? 'any' : cm ? +cm[1] : 1;
+        const repeat = /同じものを(選んでも|何度)|同じ(もの|選択肢)を2回/.test(raw + (rawObj.opts || []).join(''));
+        const bothLine = [raw, ...(rawObj.opts || [])].find((x) => /両方|すべて選んでもよい|全部選/.test(x)) || '';
+        const bc = bothLine.match(/(光|水|闇|火|自然)(と|、)(光|水|闇|火|自然)/);
+        const bothCond = bothLine ? { civs: bc ? [CIVJ[bc[1]], CIVJ[bc[3]]] : [], text: bothLine } : null;
+        const options = optTexts.map((t) => ({ text: t.trim(), acts: parseEffects(stripReminder(t.trim()).replace(/。$/, '')) }));
+        for (const w of whens) A_PUSH(w, { when: w, acts: [], modal: { count, repeat, bothCond, options }, text: raw });
+        continue;
+      }
       // ハイパーモードの区切り
       const hm = line.match(/^ハイパーモード\s*(\d+)?/);
       if (hm) {
@@ -263,6 +299,7 @@
     mill: (a) => `山札から${a.n}枚墓地へ`,
     untapSelf: () => `自身をアンタップ`,
     seal: (a) => `封印を${a.n}つ付ける`,
+    reanimate: (a) => `墓地から${a.maxCost ? 'コスト' + a.maxCost + '以下の' : ''}${a.kinds.map((k) => (k === 'creature' ? 'クリーチャー' : 'タマシード')).join('か')}を${a.n}つ出す`,
   };
   function sideJ(s) {
     return s === 'opp' ? '相手の' : s === 'self' ? '自分の' : '';
@@ -309,7 +346,11 @@
     if (k.gZero) out.push(`G・ゼロ（${k.gZero}）`);
     if (k.spellLockMax != null) out.push(`相手のコスト${k.spellLockMax}以下の呪文を封じる`);
     if (k.manaArmedCost) out.push(`マナ武装${k.manaArmedCost.n}: コスト-${k.manaArmedCost.n2}`);
-    const ab = (x) => `${WHEN_LABEL[x.when]}: ` + (x.cond ? `[マナに${x.cond.manaCiv ? civJ(x.cond.manaCiv) : ''}${x.cond.n}枚以上なら] ` : '') + x.acts.map((a) => ACT_LABEL[a.act](a) + (a.optional ? '(任意)' : '')).join(' → ');
+    const ab = (x) =>
+      x.modal
+        ? `${WHEN_LABEL[x.when]}: 選択（${x.modal.count === 'any' ? '好きな数' : x.modal.count + (x.modal.repeat ? '回・重複可' : 'つ')}${x.modal.bothCond ? '・条件で全部' : ''}）` +
+          x.modal.options.map((o) => '［' + (o.acts ? o.acts.map((a) => ACT_LABEL[a.act](a)).join('→') : '手動') + '］').join('')
+        : `${WHEN_LABEL[x.when]}: ` + (x.cond ? `[マナに${x.cond.manaCiv ? civJ(x.cond.manaCiv) : ''}${x.cond.n}枚以上なら] ` : '') + x.acts.map((a) => ACT_LABEL[a.act](a) + (a.optional ? '(任意)' : '')).join(' → ');
     for (const x of parsed.abilities) out.push(ab(x));
     if (parsed.hyper) {
       const hk = describe({ kw: parsed.hyper.kw, abilities: parsed.hyper.abilities });

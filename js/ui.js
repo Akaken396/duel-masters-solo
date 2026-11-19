@@ -247,6 +247,7 @@
     $('#setup').hidden = true;
     $('#board').hidden = false;
     const g = game;
+    window.__dmGame = g; // 動作確認用
     g.run().then(() => {
       if (game === g) {
         render();
@@ -257,6 +258,13 @@
   }
 
   $('#btn-end').addEventListener('click', () => game && game.endTurn());
+  $('#btn-undo').addEventListener('click', () => {
+    if (!game || !game.undo()) return;
+    // ログを表示し直す
+    $('#log').innerHTML = '';
+    for (const m of game.logs) addLog(m);
+    render();
+  });
   $('#btn-quit').addEventListener('click', () => {
     if (game && game.winner == null && !confirm('対戦をやめますか？')) return;
     quitGame();
@@ -326,6 +334,7 @@
       g.active === g.active && isHuman(g.active) ? `　マナ: ${g.manaCharged ? '置いた' : 'まだ置ける'}` : ''
     );
     $('#btn-end').disabled = !(isHuman(g.active) && g.winner == null);
+    $('#btn-undo').disabled = !g.canUndo() || g.p[g.history[g.history.length - 1].active].isAI;
     for (const pi of [0, 1]) renderSide(pi);
   }
 
@@ -566,6 +575,50 @@
       };
       const head = el('h3', { text: who + req.prompt });
       const kids = [head];
+
+      if (req.kind === 'modes') {
+        // 先に処理内容をすべて選ぶ。選んだ順に処理する
+        const order = [];
+        const list = el('div', { class: 'modelist' });
+        const chosen = el('div', { class: 'chosen' });
+        const ok = el('button', { class: 'primary', text: '決定して処理する' });
+        const redraw = () => {
+          chosen.innerHTML = '';
+          chosen.append(el('span', { class: 'muted', text: `選んだ順（${order.length}/${req.max}）: ` }));
+          order.forEach((id, i) => {
+            const o = req.options.find((x) => x.id === id);
+            chosen.append(
+              el('button', {
+                class: 'chip',
+                text: `${i + 1}. ${o.label} ✕`,
+                onclick: () => {
+                  order.splice(i, 1);
+                  redraw();
+                },
+              })
+            );
+          });
+          list.querySelectorAll('button').forEach((b) => {
+            const id = b.dataset.id;
+            b.disabled = order.length >= req.max || (!req.repeat && order.includes(id));
+          });
+          ok.disabled = order.length < req.min || order.length === 0 && req.min > 0;
+          ok.disabled = order.length < Math.max(req.min, 0) || (req.min > 0 && !order.length);
+        };
+        for (const o of req.options) {
+          list.append(el('button', { 'data-id': o.id, text: o.label, style: { textAlign: 'left' }, onclick: () => (order.push(o.id), redraw()) }));
+        }
+        ok.addEventListener('click', () => done(order.slice()));
+        kids.push(
+          el('div', { class: 'muted', text: req.repeat ? '同じものを何回でも選べます。' : req.max > 1 ? `${req.max}つまで選べます。` : '' }),
+          list,
+          chosen,
+          el('div', { class: 'acts', style: { marginTop: '10px' } }, req.min === 0 ? el('button', { text: '何もしない', onclick: () => done([]) }) : null, ok)
+        );
+        openModal(...kids);
+        redraw();
+        return;
+      }
 
       if (req.kind === 'mode') {
         const sel = new Set();

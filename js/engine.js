@@ -327,6 +327,23 @@
       this.changed();
       return this.opts.chooser(this, pi, req);
     }
+    // 複数の選択肢から、先に処理内容をすべて選ぶ（repeat: 同じものを複数回選べる）
+    async chooseModes(pi, prompt, options, o = {}) {
+      const min = o.min ?? 1;
+      const max = o.max ?? 1;
+      const r = await this.choose(pi, {
+        kind: 'modes',
+        prompt,
+        options,
+        min,
+        max,
+        repeat: !!o.repeat,
+        aiPick: o.aiPick ? [].concat(o.aiPick).slice(0, max) : options.slice(0, Math.max(min, 1)).map((x) => x.id),
+      });
+      if (r.length) this.log(`選んだ処理: ${r.map((id) => options.find((x) => x.id === id)?.label || id).join(' → ')}`);
+      return r;
+    }
+
     async yesNo(pi, prompt, card) {
       const r = await this.choose(pi, {
         kind: 'yesno',
@@ -358,6 +375,7 @@
           const me = this.p[this.active];
           if (me.isAI) await this.AI.takeTurn(this, this.active);
           else await new Promise((res) => (this._endTurnResolve = res));
+          if (this._undoTo) this._undoTo = null;
           if (this.winner != null || this.aborted) break;
           for (const c of this.permanents(this.active)) if (this.isOnField(c)) await this.trigger(c, 'turnEnd');
           await this.endTurnEffects();
@@ -423,9 +441,68 @@
       r();
     }
 
+    // ===== 巻き戻し =====
+    cloneCard(c) {
+      if (!c) return c;
+      return {
+        ...c,
+        sealCards: c.sealCards ? c.sealCards.map((x) => this.cloneCard(x)) : c.sealCards,
+        under: c.under ? c.under.map((x) => this.cloneCard(x)) : c.under,
+        modesUsed: c.modesUsed ? c.modesUsed.slice() : c.modesUsed,
+      };
+    }
+    snapshot(label) {
+      if (this.winner != null) return;
+      this.history = this.history || [];
+      this.history.push({
+        label,
+        turn: this.turn,
+        active: this.active,
+        manaCharged: this.manaCharged,
+        graveThisTurn: this.graveThisTurn,
+        spellsThisTurn: (this.spellsThisTurn || [0, 0]).slice(),
+        creaturesThisTurn: (this.creaturesThisTurn || [0, 0]).slice(),
+        logs: this.logs.length,
+        p: this.p.map((pl) => {
+          const o = { ...pl };
+          for (const z of ZONES) o[z] = pl[z].map((c) => this.cloneCard(c));
+          return o;
+        }),
+      });
+      if (this.history.length > 60) this.history.shift();
+    }
+    // 巻き戻せるか（自分の手番で、何も処理していない時）
+    canUndo() {
+      return !!(this.history && this.history.length) && !this.busy && this.winner == null && !!this._endTurnResolve;
+    }
+    undo() {
+      if (!this.canUndo()) return false;
+      const h = this.history.pop();
+      // 巻き戻し先が別の手番なら、その手番を人間が持っている時だけ
+      if (this.p[h.active].isAI) return false;
+      this.turn = h.turn;
+      this.active = h.active;
+      this.manaCharged = h.manaCharged;
+      this.graveThisTurn = h.graveThisTurn;
+      this.spellsThisTurn = h.spellsThisTurn;
+      this.creaturesThisTurn = h.creaturesThisTurn;
+      this.p.forEach((pl, i) => {
+        const src = h.p[i];
+        for (const k of Object.keys(pl)) if (!(k in src)) delete pl[k];
+        Object.assign(pl, src);
+        for (const z of ZONES) pl[z] = src[z].map((c) => this.cloneCard(c));
+      });
+      this.logs.length = h.logs;
+      this.log(`↶ 巻き戻した（${h.label}の前）`);
+      this.opts.onUndo?.(this);
+      this.changed();
+      return true;
+    }
+
     // 人間の操作をまとめて実行（同時実行を防ぐ）
-    async act(fn) {
+    async act(fn, label = '操作') {
       if (this.busy || this.winner != null) return;
+      this.snapshot(label);
       this.busy = true;
       try {
         await fn();
@@ -896,10 +973,46 @@
             continue;
           }
         }
+        if (ab.modal) {
+          await this.runModal(ab.modal, card, controller, def);
+          continue;
+        }
         for (const a of ab.acts) {
           await this.doAction(a, card, controller);
         }
       }
+    }
+
+    // テキストの「次の中から選ぶ」を処理する。先に全部選んでから順に実行
+    async runModal(m, card, pi, def) {
+      let max = m.count;
+      if (m.bothCond && this.modalCondOk(pi, m.bothCond)) {
+        max = m.options.length;
+        this.log(`「${def.name}」: 条件を満たしているので全部選べる`);
+      }
+      const options = m.options.map((o, i) => ({ id: String(i), label: o.text.replace(/^[▶►]\s*/, '') }));
+      const auto = m.options.map((o, i) => (o.acts ? String(i) : null)).filter((x) => x != null);
+      const aiPick = [];
+      for (let i = 0; aiPick.length < max && i < 10; i++) aiPick.push(auto[m.repeat ? 0 : i] ?? '0');
+      const ids = await this.chooseModes(pi, `「${def.name}」: ${m.repeat ? max + '回' : max > 1 ? max + 'つまで' : '1つ'}選んでください`, options, {
+        min: m.count === 'any' ? 0 : Math.min(1, max),
+        max: m.count === 'any' ? options.length : max,
+        repeat: m.repeat,
+        aiPick: [...new Set(m.repeat ? aiPick : aiPick)].slice(0, max),
+      });
+      for (const id of ids) {
+        const o = m.options[+id];
+        if (!o) continue;
+        if (o.acts) for (const a of o.acts) await this.doAction(a, card, pi);
+        else this.log(`【手動】「${def.name}」: ${o.text}`);
+        await this.pause(0.4);
+      }
+    }
+    // 「自分の…に水と闇の両方があれば」などの条件
+    modalCondOk(pi, cond) {
+      const civs = cond.civs || [];
+      const pool = this.p[pi].battle;
+      return civs.every((c) => pool.some((x) => (x.def.civs || []).includes(c)));
     }
 
     targetsFor(a, pi) {
@@ -1030,6 +1143,15 @@
             this.log(`${me.name}は山札の上の「${c.def.name}」を墓地に置いた`);
           }
           break;
+        case 'reanimate': {
+          let pool = me.grave.filter((c) => (a.kinds.includes('creature') && this.isCreature(c)) || (a.kinds.includes('tamaseed') && c.def.type === 'tamaseed'));
+          if (a.maxCost != null) pool = pool.filter((c) => (+c.def.cost || 0) <= a.maxCost);
+          if (a.civ) pool = pool.filter((c) => (c.def.civs || []).includes(a.civ));
+          const r = await this.pickCards(pi, pool, a.n, a.optional, `${nm}: 墓地から出すカードを選んでください`, 'recover');
+          if (!pool.length) this.log(`${nm}: 墓地に出せるカードがない`);
+          for (const c of r) await this.enterBattle(c, pi, 'other');
+          break;
+        }
         case 'seal':
           if (this.zoneOf(src) === 'battle') this.addSeals(src, a.n);
           break;
@@ -1277,6 +1399,7 @@
 
     // ===== 手動操作（ルールを無視して動かす） =====
     manualMove(uid, zone, opt = {}) {
+      if (!this.busy && this._endTurnResolve) this.snapshot('手動移動');
       const f = this.find(uid);
       if (!f) return;
       const from = this.moveTo(f.card, zone, opt || {});
@@ -1285,17 +1408,20 @@
       this.safeChanged();
     }
     manualTap(uid) {
+      if (!this.busy && this._endTurnResolve) this.snapshot('タップ切替');
       const f = this.find(uid);
       if (!f) return;
       f.card.tapped = !f.card.tapped;
       this.safeChanged();
     }
     manualShuffle(pi) {
+      if (!this.busy && this._endTurnResolve) this.snapshot('シャッフル');
       shuffle(this.p[pi].deck, this.rng);
       this.log(`[手動] ${this.p[pi].name}は山札をシャッフルした`);
       this.safeChanged();
     }
     manualDraw(pi) {
+      if (!this.busy && this._endTurnResolve) this.snapshot('手動ドロー');
       try {
         this.draw(pi, 1);
         this.log(`[手動] ${this.p[pi].name}は1枚引いた`);

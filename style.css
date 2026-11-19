@@ -247,3 +247,6 @@ header nav button.on { background: var(--panel2); border-color: var(--line); }
 .kwlist .tag { display: inline-block; font-size: 10px; padding: 0 5px; border-radius: 4px; margin-right: 6px; }
 .kwlist .auto .tag { background: #1f5c3a; }
 .kwlist .man .tag { background: #6a4a1a; }
+.modelist { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
+.chosen { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; min-height: 30px; }
+.chip { font-size: 12px; padding: 2px 8px; background: #233a63; }

@@ -50,15 +50,11 @@
   // モード選択。modes: [{id, label}]
   async function mode(g, pi, prompt, modes, aiId, n = 1) {
     if (!modes.length) return [];
-    const ids = await g.choose(pi, {
-      kind: 'mode',
-      prompt,
-      options: modes,
+    return g.chooseModes(pi, prompt, modes, {
       min: n === 'any' ? 0 : 1,
       max: n === 'any' ? modes.length : n,
       aiPick: aiId != null ? [].concat(aiId) : [modes[0].id],
     });
-    return ids;
   }
 
   async function discard(g, pi, n, src) {
@@ -164,28 +160,29 @@
     async cast(g, card, pi) {
       const me = g.p[pi];
       const op = g.opp(pi);
-      for (let i = 0; i < 2; i++) {
+      const minus0 = me.grave.length * 1000;
+      const killable = op.battle.filter((c) => isCreature(g, c) && g.power(c) <= minus0);
+      const tama = me.grave.filter((c) => c.def.type === 'tamaseed' && cost(c) <= 4);
+      const ai = [killable.length ? 'minus' : 'draw', tama.length ? 'tama' : 'draw'];
+      // 先に2回分の処理を選び、その順に実行する
+      const picks = await g.chooseModes(
+        pi,
+        `${name(card)}: 2回選んでください（同じものも可）`,
+        [
+          { id: 'draw', label: '2枚引いて手札を1枚捨てる' },
+          { id: 'minus', label: '相手クリーチャー1体のパワーを、自分の墓地の枚数×1000下げる' },
+          { id: 'tama', label: 'コスト4以下のタマシードを自分の墓地から出す' },
+        ],
+        { min: 2, max: 2, repeat: true, aiPick: ai }
+      );
+      for (const m of picks) {
         const minus = me.grave.length * 1000;
-        const killable = op.battle.filter((c) => isCreature(g, c) && g.power(c) <= minus);
-        const tama = me.grave.filter((c) => c.def.type === 'tamaseed' && cost(c) <= 4);
-        const ai = killable.length ? 'minus' : tama.length ? 'tama' : 'draw';
-        const [m] = await mode(
-          g,
-          pi,
-          `${name(card)}: ${i + 1}回目の選択`,
-          [
-            { id: 'draw', label: '2枚引いて手札を1枚捨てる' },
-            { id: 'minus', label: `相手クリーチャー1体のパワー-${minus}` },
-            { id: 'tama', label: 'コスト4以下のタマシードを墓地から出す' },
-          ],
-          ai
-        );
         if (m === 'draw') {
           draw(g, pi, 2);
           await discard(g, pi, 1, card);
         } else if (m === 'minus') {
           const pool = op.battle.filter((c) => isCreature(g, c));
-          const r = await pick(g, pi, pool, 1, false, 'パワーを下げるクリーチャー', 'destroy', (p) => {
+          const r = await pick(g, pi, pool, 1, false, `パワーを${minus}下げるクリーチャー`, 'destroy', (p) => {
             const k = p.filter((c) => g.power(c) <= minus).sort(byVal(g));
             return (k.length ? k : p.slice().sort(byVal(g))).slice(0, 1);
           });
@@ -193,7 +190,7 @@
             r[0].tempPower -= minus;
             g.log(`${name(r[0])}のパワーが-${minus}された`);
             if (g.power(r[0]) <= 0) await g.destroyMany([r[0]]);
-          }
+          } else g.log('対象がいなかった');
         } else if (m === 'tama') {
           await reanimate(g, pi, (c) => c.def.type === 'tamaseed' && cost(c) <= 4, '墓地から出すタマシード', true);
         }
@@ -235,20 +232,25 @@
   S['ブレイン・スラッシュ'] = {
     async cast(g, card, pi) {
       const me = g.p[pi];
-      const field = me.battle;
+      const field = me.battle; // クリーチャーとタマシード
       const both = field.some((c) => hasCiv(c, 'water')) && field.some((c) => hasCiv(c, 'darkness'));
       const reTargets = me.grave.filter((c) => isCreature(g, c) && cost(c) <= 8);
-      const modes = [
-        { id: 'draw', label: '3枚引いて手札を1枚捨てる' },
-        { id: 'rean', label: 'コスト8以下のクリーチャーを墓地から出す' },
-      ];
-      const picked = both ? ['draw', 'rean'] : await mode(g, pi, `${name(card)}: 1つ選ぶ`, modes, reTargets.some((c) => cost(c) >= 5) ? 'rean' : 'draw');
-      if (both) g.log('水と闇がそろっているので両方実行');
-      for (const m of picked) {
+      const ai = both ? ['draw', 'rean'] : [reTargets.some((c) => cost(c) >= 5) ? 'rean' : 'draw'];
+      const picks = await g.chooseModes(
+        pi,
+        `${name(card)}: ${both ? '水と闇がそろっているので両方選べます' : '1つ選んでください'}`,
+        [
+          { id: 'draw', label: '3枚引いて手札を1枚捨てる' },
+          { id: 'rean', label: 'コスト8以下のクリーチャーを自分の墓地から出す' },
+        ],
+        { min: 1, max: both ? 2 : 1, aiPick: ai }
+      );
+      for (const m of picks) {
         if (m === 'draw') {
           draw(g, pi, 3);
           await discard(g, pi, 1, card);
         } else await reanimate(g, pi, (c) => isCreature(g, c) && cost(c) <= 8, '墓地から出すクリーチャー', false);
+        await g.pause(0.4);
       }
     },
   };
