@@ -451,7 +451,7 @@
       can = g.canPlay(pi, c) || g.canPlayTwin(pi, c) || g.canCharge(pi, c);
     } else if (mine && z === 'battle') {
       const t = g.attackTargets(c);
-      clickable = can = t.length > 0 || g.canTapAbility(c) || g.canCross(pi, c);
+      clickable = can = t.length > 0 || g.canTapAbility(c) || g.canCross(pi, c) || g.canHyperize(pi, c);
     }
     const e = cardFace(c.def, { inst: c, click: clickable, nameBadge: z !== 'mana' });
     if (c.tapped) e.classList.add('tapped');
@@ -508,6 +508,7 @@
     const pi = c.owner;
     const ts = g.attackTargets(c);
     const extra = g.canTapAbility(c) ? [{ label: '攻撃するかわりに、タップして能力を使う', run: () => g.act(() => g.useTapAbility(pi, c.uid), 'タップ能力') }] : [];
+    if (g.canHyperize(pi, c)) extra.push({ label: `ハイパー化する（自分の他のクリーチャーを${g.kw(c).hyperize.tapOthers}体タップ）`, run: () => g.act(() => g.hyperize(pi, c.uid)) });
     if (g.canCross(pi, c)) extra.push({ label: `クリーチャーにクロスする（コスト${c.def.cost}）`, run: () => g.act(() => g.crossGear(pi, c.uid)) });
     openMenu(
       ev.clientX,
@@ -563,6 +564,7 @@
       { label: '上の1枚をシールドへ', disabled: !top, run: () => g.manualMove(top.uid, 'shields') },
       { label: '上の1枚を墓地へ', disabled: !top, run: () => g.manualMove(top.uid, 'grave') },
       { label: '山札をすべて見る', run: () => pileModal(pi, 'deck') },
+      ...(top && isHuman(pi) && g.active === pi && g.canPlayFromGrave(pi, top) ? [{ label: `上の1枚「${top.def.name}」を使う（能力）`, run: () => g.act(() => g.playFromGrave(pi, top.uid)) }] : []),
     ]);
   }
 

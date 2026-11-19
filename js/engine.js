@@ -283,6 +283,29 @@
       if ((card.spellShieldUntil || 0) >= this.turn && this.currentSource && this.currentSource.type === 'spell') return false;
       return true;
     }
+    // ハイパー化：自分の他のクリーチャーをN体タップして、次の自分のターンのはじめまでハイパーモード
+    canHyperize(pi, card) {
+      const hz = this.kw(card).hyperize;
+      if (!hz || card.hyper || this.active !== pi || card.owner !== pi || this.zoneOf(card) !== 'battle') return false;
+      return this.p[pi].battle.filter((c) => c !== card && this.isCreature(c) && !c.tapped).length >= hz.tapOthers;
+    }
+    async hyperize(pi, uid, tapUids) {
+      const f = this.find(uid);
+      if (!f || !this.canHyperize(pi, f.card)) return false;
+      const card = f.card;
+      const n = this.kw(card).hyperize.tapOthers;
+      const pool = this.p[pi].battle.filter((c) => c !== card && this.isCreature(c) && !c.tapped);
+      const r = tapUids ? pool.filter((c) => tapUids.includes(c.uid)).slice(0, n) : await this.pickCards(pi, pool, n, false, `「${card.def.name}」のハイパー化：タップする自分の他のクリーチャー（${n}体）`, 'recover');
+      if (r.length < n) return false;
+      for (const c of r) c.tapped = true;
+      card.hyper = true;
+      card.hyperUntil = this.nextTurnOf(pi);
+      this.log(`「${card.def.name}」をハイパー化した（${r.map((c) => '「' + c.def.name + '」').join('')}をタップ）。次の自分のターンのはじめまでハイパーモード`);
+      for (const c of r) if (this.hasAbility(c, 'tapped')) await this.trigger(c, 'tapped', pi, c.def, null, { defer: true });
+      await this.resolvePending();
+      this.changed();
+      return true;
+    }
     // オーラ：自分のクリーチャーに付ける（オレガ・オーラはGRクリーチャー。いなければGR召喚して付ける）
     async playAura(pi, card, fr = '') {
       const me = this.p[pi];
@@ -1077,7 +1100,12 @@
       for (const q of [pi, 1 - pi]) for (const src of this.permanents(q)) {
         for (const au of this.kw(src).costAura || []) {
           if ((au.side === 'self') !== (q === pi)) continue;
-          if (this.costAuraFits(au, def)) cost += au.n;
+          if (au.once && src.discUsed === this.turn) continue;
+          if (this.sc(src) && this.sc(src).costMod) continue; // カード個別の処理を優先
+          if (this.costAuraFits(au, def)) {
+            cost += au.n;
+            if (au.once) uses.push(() => (src.discUsed = this.turn));
+          }
         }
       }
       if (k.costIfCount && this.countOwn(pi, k.costIfCount.what) >= k.costIfCount.n) cost -= k.costIfCount.minus;
@@ -1325,9 +1353,28 @@
     // 墓地から使えるか（ア・ストラ・ゼーレ、アビス記号など）
     graveUse(pi, card) {
       if (this.active !== pi || card.owner !== pi) return null;
-      if (this.zoneOf(card) === 'mana') return parsed(card.def).kw.manaSummon ? card : null;
-      if (this.zoneOf(card) === 'hyper') return parsed(card.def).kw.hyperSummon ? card : null;
-      if (this.zoneOf(card) !== 'grave') return null;
+      const z = this.zoneOf(card);
+      // 場のカードが与える「墓地・マナ・山札の上から使ってもよい」
+      if (z === 'grave' || z === 'mana' || (z === 'deck' && this.p[pi].deck[0] === card)) {
+        for (const src of this.permanents(pi)) {
+          if (this.sc(src) && this.sc(src).graveUse) continue; // カード個別の処理を優先
+          for (const zp of this.kw(src).zonePlay || []) {
+            if (zp.zone !== z || (zp.once && src.zpUsed === this.turn)) continue;
+            if (zp.emptyHand && this.p[pi].hand.length) continue;
+            if (zp.summon && !this.isCreature(card)) continue;
+            if (zp.what && !/^(カード|クリーチャー)$/.test(zp.what)) {
+              if (!zp._cond) zp._cond = G.TextParse.lookCond(zp.what.replace(/・カード$/, ''));
+              if (!this.fitLook(card, zp._cond)) continue;
+            }
+            this._zpHit = { src, zp };
+            return src;
+          }
+        }
+      }
+      this._zpHit = null;
+      if (z === 'mana') return parsed(card.def).kw.manaSummon ? card : null;
+      if (z === 'hyper') return parsed(card.def).kw.hyperSummon ? card : null;
+      if (z !== 'grave') return null;
       if (parsed(card.def).kw.graveSummon) return card;
       for (const src of this.permanents(pi)) {
         const sc = this.sc(src);
@@ -1337,6 +1384,7 @@
     }
     canPlayFromGrave(pi, card) {
       if (!this.graveUse(pi, card) || this.locked(pi, card.def)) return false;
+      if (this._zpHit && this._zpHit.zp.free) return true;
       return this.withoutMana(pi, card, () => !!this.payment(pi, card));
     }
     // マナゾーンから召喚する時、そのカード自身は支払いに使えない
@@ -1355,6 +1403,22 @@
       const f = this.find(uid);
       if (!f || !this.canPlayFromGrave(pi, f.card)) return false;
       const src = this.graveUse(pi, f.card);
+      const zh = this._zpHit;
+      if (zh) {
+        // 場のカードの能力で、墓地・マナ・山札の上から使う
+        if (zh.zp.once) zh.src.zpUsed = this.turn;
+        const fromZ = this.zoneOf(f.card);
+        if (fromZ === 'mana') {
+          const mana = this.p[pi].mana;
+          mana.splice(mana.indexOf(f.card), 1);
+          this.p[pi].hand.push(f.card);
+          f.card.tapped = false;
+        }
+        if (!zh.zp.free) await this.pay(pi, f.card, f.card.def);
+        this.log(`${this.p[pi].name}は「${zh.src.def.name}」の能力で「${f.card.def.name}」を${{ grave: '墓地', mana: 'マナゾーン', deck: '山札の上' }[fromZ] || ''}から${zh.zp.free ? 'コストを払わずに' : ''}使う`);
+        await this.putIntoPlay(pi, f.card, !!zh.zp.free);
+        return true;
+      }
       const fromMana = this.zoneOf(f.card) === 'mana';
       if (fromMana) {
         const mana = this.p[pi].mana;

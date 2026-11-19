@@ -335,7 +335,15 @@
     { name: 'サバイバー', re: /^サバイバー/, desc: '同じサバイバーのクリーチャーが能力を共有する' },
     { name: 'メガ・ラスト・バースト', re: /^メガ・ラスト・バースト/, desc: '手札か墓地に行く時、ツインパクトの呪文側を使える' },
     { name: 'スター進化', re: /^スター進化/, desc: '進化元が離れる時、かわりに上のカードを置いていける進化' },
-    { name: 'ハイパー化', re: /ハイパー化/, desc: 'ハイパーモードの能力が使えるようになる' },
+    { name: 'ハイパー化', re: /^(OVER)?ハイパー化\s*[：:]\s*自分の他のクリーチャーを(\d+)体タップする。?$/, auto: true, set: (k, m) => (k.hyperize = { tapOthers: +m[2], over: !!m[1] }), desc: '自分のターン中、他のクリーチャーをタップしてハイパーモードを解放する（次の自分のターンのはじめまで）' },
+    { name: 'ハイパー化（その他）', re: /ハイパー化/, desc: 'ハイパーモードの能力が使えるようになる' },
+    { name: '別のゾーンから使える', re: /^(?<when>自分のターン中|各ターンに(1|一)度|自分のターンに(1|一)度)(、)?(?<cond>自分の手札が1枚もなければ、)?(?<what>[^、。]*?)を((?<n>\d+)(体|枚|つ)(、)?)?自分の(?<zone>墓地|マナゾーン|山札の上)から(?<free>コストを支払わずに)?(?<verb>召喚|実行|使|唱え)(してもよい|ってもよい|てもよい)。?$/, auto: true,
+      set: (k, m) => (k.zonePlay = (k.zonePlay || []).concat({ zone: { 墓地: 'grave', マナゾーン: 'mana', 山札の上: 'deck' }[m.groups.zone], what: m.groups.what.replace(/^(コスト(\d+)以下の)?/, '$1'), once: !/自分のターン中/.test(m.groups.when), free: !!m.groups.free, summon: m.groups.verb === '召喚', emptyHand: !!m.groups.cond })), desc: '墓地・マナ・山札の上からカードを使える' },
+    { name: '別のゾーンから使える2', re: /^(?<when>各ターンに(1|一)度|自分のターンに(1|一)度|自分のターン中)、自分の(?<zone>墓地|マナゾーン)から(?<what>[^、。]*?)を((\d+)(体|枚))?(?<verb>召喚|実行)してもよい。?$/, auto: true,
+      set: (k, m) => (k.zonePlay = (k.zonePlay || []).concat({ zone: m.groups.zone === '墓地' ? 'grave' : 'mana', what: m.groups.what, once: !/自分のターン中/.test(m.groups.when), free: false, summon: m.groups.verb === '召喚' })), desc: '墓地・マナからカードを使える' },
+    { name: '山札の上をいつでも見る', re: /^自分のターン中、自分の山札の上から1枚(目)?をいつでも見てもよい。?$/, auto: true, set: (k) => (k.peekTop = true), desc: '自分のターン中、山札の上を見てよい（山札のメニュー「上の1枚を見る」）' },
+    { name: '各ターン1度のコスト軽減', re: /^各ターンに(1|一)度、自分の(?<subj>[^。]+?)(を(実行|使う|唱える|召喚)する|を(使う|唱える)|の(召喚|実行))コストを(?<n>\d+)少なくしてもよい。?$/, auto: true,
+      set: (k, m) => (k.costAura = (k.costAura || []).concat({ side: 'self', subj: m.groups.subj, n: -m.groups.n, once: true })), desc: '各ターンに1度、条件に合うカードのコストを下げる' },
     { name: 'シールド・トリガー・プラス', re: /^S・トリガー・プラス/, desc: 'S・トリガーで使った時に追加の効果' },
   ];
 

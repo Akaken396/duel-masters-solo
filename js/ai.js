@@ -71,7 +71,7 @@
           if (worthPlaying(g, pi, { def: t })) cand.push({ c, twin: true, cost: +t.cost || 0, v: 0 });
         }
       }
-      for (const c of [...me.grave, ...me.mana, ...(me.hyper || [])]) {
+      for (const c of [...me.grave, ...me.mana, ...(me.hyper || []), ...(me.deck[0] ? [me.deck[0]] : [])]) {
         if (g.canPlayFromGrave(pi, c) && worthPlaying(g, pi, c)) cand.push({ c, grave: true, cost: +c.def.cost || 0, v: value(g, c) });
       }
       if (!cand.length) return;
@@ -173,6 +173,13 @@
     }
     await playCards(g, pi);
     await crossPhase(g, pi);
+    // ハイパー化：攻撃できない（召喚酔いなど）他のクリーチャーをタップしてハイパーモードにする
+    for (const c of g.p[pi].battle.slice()) {
+      if (!g.canHyperize || !g.canHyperize(pi, c)) continue;
+      const n = g.kw(c).hyperize.tapOthers;
+      const idle = g.p[pi].battle.filter((x) => x !== c && g.isCreature(x) && !x.tapped && !g.attackTargets(x).length);
+      if (idle.length >= n) await g.hyperize(pi, c.uid, idle.slice(0, n).map((x) => x.uid));
+    }
     await attackPhase(g, pi);
     g.log(`${g.p[pi].name}はターンを終了した`);
   }
