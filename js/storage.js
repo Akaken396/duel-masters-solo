@@ -54,13 +54,12 @@
       this.prefs = load(KEY_PREFS, {});
       return this.loadImages();
     },
+    // 保存の完了を待てるよう Promise を返す（多くのカードを読み込んだ直後に閉じても消えないように）
     saveCards() {
       this._nameIdx = null;
-      this.dataSet('cards', this.cards).catch(() => {
-        // IndexedDBに書けない時だけ localStorage を試す
-        save(KEY_CARDS, this.cards);
-      });
-      return true;
+      return this.dataSet('cards', this.cards)
+        .then(() => true)
+        .catch(() => save(KEY_CARDS, this.cards)); // IndexedDBに書けない時だけ localStorage を試す
     },
     dataGet(key) {
       return this.db().then(

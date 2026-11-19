@@ -1175,10 +1175,10 @@
         /* skip */
       }
     }
-    Store.saveCards();
+    await Store.saveCards();
     Store.saveDecks();
     renderCardList();
-    alert(`カード${nc}枚・デッキ${decks.length}個・画像${ni}枚を読み込みました`);
+    alert(`カード${nc}枚・デッキ${decks.length}個・画像${ni}枚を読み込みました（保存済み）`);
   });
 
   const CIV_FROM = { 光: 'light', 水: 'water', 闇: 'darkness', 火: 'fire', 自然: 'nature', ゼロ: 'zero', 無色: 'zero' };
