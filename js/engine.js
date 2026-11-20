@@ -1905,7 +1905,7 @@
       }
       const civs = k.evoCivs || [];
       return this.p[pi].battle.filter((c) => {
-        if (!(this.isCreature(c) || this.kw(c).sinkarize) || (civs.length && !(c.def.civs || []).some((x) => civs.includes(x)))) return false;
+        if (!(this.isCreature(c) || this.kw(c).sinkarize) || (civs.length && !(c.def.civs || []).some((x) => civs.includes(x)) && !(k.evoRaceOr && this.allyMatch(c, k.evoRaceOr)))) return false;
         if (k.evoNeedEvo === 'evo') return !!this.evoKind(c.def) && (c.under || []).length > 0;
         if (k.evoNeedEvo === 'ultimate') return parsed(c.def).kw.evoNeedEvo === 'evo' && (c.under || []).length > 0;
         return true;
@@ -2841,6 +2841,20 @@
           }
           return false;
         }
+      }
+      // スター進化：離れる時、かわりに一番上のカードだけが離れる
+      if (this.kw(card).starEvo && (card.under || []).length && toZone !== 'battle' && this.zoneOf(card) === 'battle') {
+        const stack = card.under;
+        card.under = null;
+        const nb = stack[0];
+        nb.under = stack.slice(1);
+        const arr = this.p[card.owner].battle;
+        arr.splice(arr.indexOf(card) + 1, 0, nb);
+        nb.tapped = card.tapped;
+        nb.sick = card.sick;
+        nb.enteredTurn = card.enteredTurn;
+        nb.faceUp = false;
+        this.log(`スター進化：「${card.def.name}」だけが離れ、下の「${nb.def.name}」はバトルゾーンに残る`);
       }
       // 進化元も一緒に移す（シールドへ行く場合、進化元は墓地へ）
       const under = card.under || [];
@@ -5723,6 +5737,19 @@
         await this.runP(card, pi);
         await this.kizunaUse(card, pi, 'other');
       }, { defer: true });
+      // アタック・チャンス：指定のクリーチャーが攻撃する時、手札の呪文をコストなしで唱える
+      for (const c of me.hand.slice()) {
+        const ac = parsed(c.def).kw.attackChance || (c.def.twin && parsed(c.def.twin).kw.attackChance);
+        if (!ac) continue;
+        const okAtk = /ハイパーモード/.test(ac) ? !!card.hyper : this.allyMatch(card, ac.replace(/(・)?クリーチャー$/, '').replace(/^クリーチャー$/, ''));
+        if (!okAtk) continue;
+        await this.queueFn(c, pi, `手札の「${c.def.name}」のアタック・チャンス`, async () => {
+          if (this.zoneOf(c) !== 'hand' || this.locked(pi, c.def)) return;
+          if (!(await this.yesNo(pi, `アタック・チャンス：「${c.def.name}」をコストを支払わずに唱えますか？`, c))) return;
+          this.log(`${me.name}はアタック・チャンスで「${c.def.name}」を唱えた`);
+          await this.putIntoPlay(pi, c, true);
+        }, { defer: true });
+      }
       // D・D・D：自分のクリーチャーが攻撃する時、手札から指定のコストで使える
       for (const c of me.hand.slice()) {
         const dd = parsed(c.def).kw.ddd || (c.def.twin && parsed(c.def.twin).kw.ddd);
