@@ -428,6 +428,11 @@
     if ((m = s.match(/^(それ|そのクリーチャー|その選んだクリーチャー)の、?(攻撃する|出た)時にトリガーする能力を、?(自分が)?1つ使(う|ってもよい)$/))) return { act: 'useTrigger', from: /選んだ/.test(m[1]) ? 'last' : 'event', when: m[2] === '攻撃する' ? 'attack' : 'summon', optional: /もよい/.test(s) };
     if (/^このクリーチャーをバトルゾーンから(自分の)?超次元ゾーンに置く$/.test(s)) return { act: 'selfToHyperAfterEnter' };
     if ((m = s.match(/^(その|この)ターン、そのクリーチャーのパワーを、自分の(墓地|マナゾーン)にあるカード(\d+)枚につき-(\d+)する$/))) return { act: 'powerLastPerGrave', zone: m[2] === '墓地' ? 'grave' : 'mana', per: +m[3], n: -m[4] };
+    if ((m = s.match(/^カードを(\d+)枚(まで)?、自分の墓地からマナゾーンに(タップして)?置(く|いてもよい)$/))) return { act: 'graveAnyToMana', cond: { civs: [], text: 'カード' }, n: +m[1], optional: !!m[2] || /もよい/.test(s), tapped: !!m[3] };
+    if ((m = s.match(/^自分のシールドを(\d+)つ、(自分の)?マナゾーンに置(く|いてもよい)$/))) return { act: 'shieldToMana', n: +m[1], optional: /もよい/.test(s) };
+    if ((m = s.match(/^(この|その)ターン、このクリーチャーはブロックされない$/))) return { act: 'selfTempGrant', until: 'turn', names: ['このクリーチャーはブロックされない'] };
+    if ((m = s.match(/^各プレイヤーは(、)?カードを(\d+)枚引く$/))) return { act: 'drawBoth', n: +m[2] };
+    if ((m = s.match(/^相手は(、)?バトルゾーンにある自(分自)?身のクリーチャーを(\d+)体選び、(持ち主の)?墓地に置く$/))) return { act: 'oppSacToGrave', n: +m[3] };
     if (/^シールドを1つ選び、ブレイクしてもよい$/.test(s)) return { act: 'breakAnyOne', optional: true };
     if (/^このクリーチャーに含まれるカードと同じ枚数の?カードを引く$/.test(s)) return { act: 'drawSelfCards' };
     if (/^このクリーチャーの「このクリーチャーが出た時」で始まる能力を1つ使(う|ってもよい)$/.test(s)) return { act: 'useTrigger', from: 'self', when: 'summon', optional: /もよい/.test(s) };
@@ -1639,6 +1644,11 @@
         if (both) return ['このクリーチャーが出た時、' + both[7], '自分の他の' + both[4] + 'が出た時、' + both[7]];
         const t = stripReminder(l).trim();
         if (/^[^、。]{2,24}((\s{2,}|　)[^、。]{2,24})+$/.test(t)) return t.split(/\s{2,}|　/);
+        {
+          const ps = l.split(/\s{2,}|　+/).map((x) => x.trim()).filter(Boolean);
+          const K0 = KWD();
+          if (ps.length > 1 && K0 && ps.slice(1).every((x) => K0.match(stripReminder(x).replace(/^\{[A-Za-z]+\}\s*/, '').trim(), x))) return ps;
+        }
         return [l];
       })
       .map((l) => l.trim())
@@ -2122,6 +2132,11 @@
           (K.condGrants = K.condGrants || []).push({ cond: c2, power: +(cg[6] || cg[7] || 0), names: [cg[8], cg[10]].filter(Boolean) });
           continue;
         }
+      }
+      const aur = line.match(/^オーラが(\d+)枚以上付いた自分の(.+?)が攻撃する時、これを自分の手札からそのクリーチャーに付けてもよい。?$/);
+      if (aur) {
+        A.push({ when: 'allyAttack', fromHand: true, ally: { race: aur[2].replace(/(・)?クリーチャー$/, '') }, cond: { evAuraGE: +aur[1] }, acts: [{ act: 'attachSelfFromHand' }], text: raw });
+        continue;
       }
       if (/^ブレイクボーナス〔〕、/.test(line)) {
         const bba = parseEffects(line.replace(/^ブレイクボーナス〔〕、/, '').replace(/。$/, ''));

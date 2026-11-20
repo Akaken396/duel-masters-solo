@@ -493,6 +493,7 @@
       if (c.attackingPlayer && !(card && card._attackingPlayer)) return false;
       if (c.attackingCreature && !(card && card.attacking && !card._attackingPlayer)) return false;
       if (c.evAttackingPlayer && !(this._eventCard && this._eventCard._attackingPlayer)) return false;
+      if (c.evAuraGE != null && !(this._eventCard && this.p[this._eventCard.owner].battle.filter((x) => x.attachedTo === this._eventCard.uid && attachKind(x.def) === 'aura').length >= c.evAuraGE)) return false;
       if (c.evTwin && !(this._eventCard && this._eventCard.def.twin)) return false;
       if (c.evNotFromHand && !(this._eventCard && this._eventCard._enterFrom !== 'hand')) return false;
       if (c.spellsGE != null && (this.spellsThisTurn || [0, 0])[pi] < c.spellsGE) return false;
@@ -1292,7 +1293,7 @@
       const untappedNow = [];
       for (const c of me.battle) {
         if (!this.kw(c).noUntap && !((c.frozenUntil || 0) >= this.turn)) {
-          if (c.tapped) untappedNow.push(c);
+          if (c.tapped) untappedNow.push(c), (c.untappedTurn = this.turn);
           c.tapped = false;
         }
         c.sick = false;
@@ -1587,12 +1588,20 @@
           if (gt && !(def.civs || []).includes(gt.exceptCiv)) cost += gt.n;
         }
       }
+      if (this.pendingEvoBase && this.zoneOf(this.pendingEvoBase) === 'battle') {
+        const ebd = this.kw(this.pendingEvoBase).evoBaseDiscount;
+        if (ebd && (!ebd.cond || this.fitLook({ def }, G.TextParse.lookCond(ebd.cond + 'クリーチャー')))) cost -= ebd.n;
+      }
       if (k.tamaEvoDiscount && this.pendingEvoBase && this.pendingEvoBase.def.type === 'tamaseed') cost -= k.tamaEvoDiscount;
       if (k.costPer) {
         const pl = k.costPer.side === 'opp' ? this.p[1 - pi] : me;
         const w = k.costPer.what.replace(/^(自分の|相手の)/, '');
         const cnt = k.costPer.spellName ? pl.grave.filter((c) => c.def.type === 'spell' && c.def.name.includes(k.costPer.what)).length : pl[k.costPer.zone || 'battle'].filter((c) => (k.costPer.zone === 'mana' || k.costPer.zone === 'grave' ? !NON_CREATURE.includes(c.def.type) : this.isCreature(c)) && (!w || w === 'クリーチャー' || ((c.def.races || []).join('/') + c.def.name).includes(w.replace(/クリーチャー$/, '')))).length;
         cost -= Math.floor(cnt / k.costPer.per) * k.costPer.n;
+      }
+      if (k.costPerUntapped) {
+        const cnt = [...me.battle, ...this.p[1 - pi].battle].filter((x) => this.isCreature(x) && x.untappedTurn === this.turn).length;
+        cost -= cnt * k.costPerUntapped;
       }
       if (k.costPer2) {
         const c2 = k.costPer2;
@@ -1858,6 +1867,7 @@
     }
     canPlay(pi, card) {
       if (parsed(card.def).kw.cannotSummon) return false;
+      if (parsed(card.def).kw.summonNeedHandLE != null && this.zoneOf(card) === 'hand' && this.p[pi].hand.length - 1 > parsed(card.def).kw.summonNeedHandLE) return false;
       const ek0 = this.evoKind(card.def);
       if (ek0 === 'evo' && !this.evoBases(pi, card.def).length) return false;
       if (ek0 === 'grave' && this.evoBases(pi, card.def).length < parsed(card.def).kw.graveEvo.n) return false;
@@ -2446,6 +2456,7 @@
     // 「自分の○○が出た時」の○○に合うか（種族名のほか、コスト・文明などの条件も読む）
     allyMatch(card, race) {
       if (!race) return true;
+      if (race === 'GR') return homeZone(card.frontDef || card.def) === 'gr';
       if (((card.def.races || []).join('/') + card.def.name).includes(race)) return true;
       const cd = G.TextParse.lookCond(race.replace(/の$/, 'の') + (/(クリーチャー|カード|エレメント)$/.test(race) ? '' : 'クリーチャー'));
       return !cd.unknown && this.fitLook(card, cd);
@@ -2465,13 +2476,14 @@
       }
     }
     // 手札にある時に働く能力（「〜した時、このクリーチャーを手札から出してもよい」など）
-    async fireHand(pi, when, filterAb) {
+    async fireHand(pi, when, filterAb, evCard) {
       for (const c of this.p[pi].hand.slice()) {
         for (const ab of this.abilities(c)) {
           if (ab.when !== when || !ab.fromHand) continue;
           if (filterAb && !filterAb(ab, c)) continue;
           await this.queueFn(c, pi, `手札の「${c.def.name}」の能力`, async () => {
             if (this.zoneOf(c) !== 'hand') return;
+            if (evCard) this._eventCard = evCard;
             if (ab.cond && !this.condOk2(pi, ab.cond, c)) return;
             for (const a of ab.acts) await this.doAction(a, c, pi);
           }, { defer: true });
@@ -2480,7 +2492,7 @@
       }
     }
     async allyEvent(card, pi, when) {
-      await this.fireHand(pi, when, (ab, c) => ab.ally && this.allyMatch(card, ab.ally.race));
+      await this.fireHand(pi, when, (ab, c) => ab.ally && this.allyMatch(card, ab.ally.race), card);
       // 離れた・破壊された時は「場を離れる直前」を見る：離れたカード自身や、同時に離れたカードの能力も誘発する
       const lookback = when === 'allyLeft' || when === 'allyDestroyed';
       const srcs = this.permanents(pi).filter((x) => this.isOnField(x));
@@ -2709,9 +2721,9 @@
           for (const ad of this.kw(s).allyDestroyTo || []) {
             if (ad.others && s === card) continue;
             if (!this.allyMatch(card, ad.who.replace(/(・)?クリーチャー$/, ''))) continue;
-            if (ad.optional && !(await this.yesNo(card.owner, `「${card.def.name}」を墓地のかわりに${ad.to === 'hand' ? '手札' : 'マナゾーン'}に置きますか？`, card))) continue;
+            if (ad.optional && !(await this.yesNo(card.owner, `「${card.def.name}」を墓地のかわりに${ad.to === 'hand' ? '手札' : ad.to === 'shields' ? 'シールドゾーン' : 'マナゾーン'}に置きますか？`, card))) continue;
             toZone = ad.to;
-            this.log(`「${s.def.name}」の効果で「${card.def.name}」は${ad.to === 'hand' ? '手札' : 'マナゾーン'}へ`);
+            this.log(`「${s.def.name}」の効果で「${card.def.name}」は${ad.to === 'hand' ? '手札' : ad.to === 'shields' ? 'シールドゾーン' : 'マナゾーン'}へ`);
             done = true;
             break;
           }
@@ -3663,6 +3675,36 @@
           }
           break;
         }
+        case 'attachSelfFromHand': {
+          const host = this._eventCard;
+          if (this.zoneOf(src) !== 'hand' || !host || this.zoneOf(host) !== 'battle') break;
+          if (!(await this.yesNo(pi, `${nm}: 手札から「${host.def.name}」に付けますか？`, src))) break;
+          this.moveTo(src, 'battle');
+          src.sick = false;
+          src.attachedTo = host.uid;
+          src.enteredTurn = this.turn;
+          this.log(`${me.name}は手札の「${src.def.name}」を「${host.def.name}」に付けた`);
+          await this.trigger(src, 'summon', pi);
+          break;
+        }
+        case 'drawBoth':
+          this.draw(pi, a.n);
+          this.draw(1 - pi, a.n);
+          this.log(`各プレイヤーはカードを${a.n}枚引いた`);
+          break;
+        case 'oppSacToGrave': {
+          const pool = op.battle.filter((c) => this.isCreature(c));
+          const r = await this.pickCards(1 - pi, pool, Math.min(a.n, pool.length), false, `${nm}: 墓地に置く自分のクリーチャーを選んでください`, 'discard');
+          for (const c of r) {
+            if (this.cannotLeave(c)) {
+              this.log(`「${c.def.name}」は離れない`);
+              continue;
+            }
+            await this.leave(c, 'grave', { byOpp: true });
+            this.log(`${op.name}は「${c.def.name}」を墓地に置いた`);
+          }
+          break;
+        }
         case 'selfToHyperAfterEnter':
           src._toHyperAfterEnter = true;
           break;
@@ -4498,7 +4540,7 @@
           const pool = me.grave.filter((c) => this.fitLook(c, a.cond));
           const lim = a.n || pool.length;
           const r = me.isAI ? pool.slice(0, lim) : await this.pickCards(pi, pool, Math.min(lim, pool.length), a.n ? a.optional !== false : true, `${nm}: 墓地からマナゾーンに置くカード${a.n ? '（' + a.n + '枚まで）' : '（好きな数）'}`, 'recover');
-          for (const c of r) this.moveTo(c, 'mana');
+          for (const c of r) this.moveTo(c, 'mana', { tapped: !!a.tapped });
           if (r.length) this.log(`${me.name}は墓地から${r.length}枚をマナゾーンに置いた`);
           break;
         }
@@ -5289,6 +5331,8 @@
       }
       if (this.kw(card).attackNeedNonCreature && this.p[pi].nonCreaturePlayed !== this.turn) return [];
       if (this.permanents(1 - pi).some((s2) => this.kw(s2).oppAttackOnce) && this.attackTurnMark === this.turn && (this.attacksThisTurn || [0, 0])[pi] >= 1) return [];
+      if (this.kw(card).attackNeedOppShield && !this.p[1 - pi].shields.length) return [];
+      if (this.kw(card).attackNeedEvo && !(this.evoKind(card.def) && (card.under || []).length)) return [];
       if (this.kw(card).attackNeedDraws && !(this.p[pi].drawTurnMark === this.turn && this.p[pi].drawsThisTurn >= this.kw(card).attackNeedDraws)) return [];
       if (this.kw(card).attackNeedOtherAttack && !(this.attackTurnMark === this.turn && (this.attacksThisTurn || [0, 0])[pi] > 0)) return [];
       const k0 = this.kw(card);
@@ -5490,11 +5534,12 @@
           const tu = this.kw(s).teamUnblock;
           return tu && (!tu.who || ((card.def.races || []).join('/') + card.def.name).includes(tu.who));
         });
-        if (!teamUnb && !this.kw(card).unblockable && !((card.unblockableTurn || 0) === this.turn)) {
+        const teamSmall = this.permanents(pi).some((s) => this.kw(s).teamUnblockSmaller);
+        if (!teamUnb && !this.kw(card).unblockable && !((card.unblockableTurn || 0) === this.turn) && !(this.kw(card).unblockVsCreature && tgtCard !== 'player')) {
           const ub = this.kw(card).unblockableBy;
           const ak = this.kw(card);
           const stealthOn = ak.stealth && op.mana.some((m) => (m.def.civs || []).includes(ak.stealth));
-          const blockers = stealthOn ? [] : op.battle.filter((c) => !c.tapped && this.isCreature(c) && this.kw(c).blocker && c !== tgtCard && !(ak.flying && !this.kw(c).flying) && !(ak.unblockableSmaller && this.power(c) < this.power(card)) && !((c.lockedUntil || 0) >= this.turn) && !(ub && ((ub.maxPower != null && this.power(c) <= ub.maxPower) || (ub.lessThanSelf && this.power(c) < this.power(card)))));
+          const blockers = stealthOn ? [] : op.battle.filter((c) => !c.tapped && this.isCreature(c) && this.kw(c).blocker && c !== tgtCard && !(ak.flying && !this.kw(c).flying) && !((ak.unblockableSmaller || teamSmall) && this.power(c) < this.power(card)) && !(ak.unblockCivs && (c.def.civs || []).some((x) => ak.unblockCivs.includes(x))) && !((c.lockedUntil || 0) >= this.turn) && !(ub && ((ub.maxPower != null && this.power(c) <= ub.maxPower) || (ub.lessThanSelf && this.power(c) < this.power(card)))));
           const must = blockers.find((c) => this.kw(c).mustBlock);
           if (blockers.length) {
             const r = must ? [must.uid] : await this.choose(op.idx, {
