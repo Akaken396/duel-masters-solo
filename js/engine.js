@@ -2013,7 +2013,18 @@
         this.log(`「${card.def.name}」は手札以外から出ようとしたので、かわりに手札に戻った`);
         return false;
       }
-      const base = o.evolveFrom;
+      let base = o.evolveFrom;
+      // 効果で出す時（墓地・山札・マナなどから）も、進化・NEO進化クリーチャーは進化元の上に重ねて出せる
+      if (!base && !(o.underCards && o.underCards.length) && how !== 'summon' && o.via !== 'change' && this.zoneOf(card) !== 'battle') {
+        const ek = this.evoKind(card.def);
+        if (ek === 'neo' || ek === 'evo') {
+          const bases = this.evoBases(pi, card.def).filter((c) => c !== card);
+          if (bases.length) {
+            const r = await this.pickCards(pi, bases, 1, ek === 'neo', `「${card.def.name}」の進化元を選んでください${ek === 'neo' ? '（選ばなければ進化せずに出す）' : ''}`, 'recover');
+            base = r[0] || null;
+          }
+        }
+      }
       if (base && this.zoneOf(base) === 'battle') {
         // 進化：進化元をこのカードの下に重ねる（進化元の状態は引き継ぐ）
         const pl = this.p[base.owner];
