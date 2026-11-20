@@ -175,6 +175,8 @@
     [/^相手のターンの終わりに/, 'oppTurnEnd'],
     [/^相手のクリーチャーが(バトルゾーンに)?出た(時|とき)/, 'oppEnter'],
     [/^他のクリーチャーが(バトルゾーンに)?出た(時|とき)/, 'anyEnter'],
+    [/^クリーチャーが(バトルゾーンに)?出た(時|とき)/, 'anyEnter'],
+    [/^このシールドが表向きで(自分のシールドゾーンを)?離れた(時|とき)/, 'selfShieldLeft'],
     [/^(他の)?クリーチャーが破壊された(時|とき)/, 'anyDestroyed'],
     [/^このクリーチャーまたは自分の他のクリーチャーが破壊された(時|とき)/, 'selfOrAllyDestroyed'],
     [/^このクリーチャーがブロックされた(時|とき)/, 'blocked'],
@@ -225,7 +227,7 @@
     const cond = {};
     // 「相手のターン中に、」「相手のターンに」は条件
     let mm;
-    if ((mm = rest.match(/^相手のターン(中)?に、?/))) {
+    if ((mm = rest.match(/^相手のターン(中)?に(?!(1|一)度)、?/))) {
       cond.oppTurn = true;
       rest = rest.slice(mm[0].length);
     }
@@ -261,6 +263,11 @@
       cond.firstPerTurn = true;
       rest = rest.slice(mm[0].length);
     }
+    if ((mm = rest.match(/^相手のターンに(1|一)度、/))) {
+      cond.oppTurn = true;
+      cond.oncePerTurn = true;
+      rest = rest.slice(mm[0].length);
+    }
     if ((mm = rest.match(/^自分のターン(中)?(に)?、?(?=相手の|自分が|相手が|プレイヤーが)/))) {
       cond.myTurn = true;
       rest = rest.slice(mm[0].length);
@@ -272,6 +279,7 @@
     if ((mm = rest.match(/^このクリーチャーが(、)?各ターン(、)?はじめてタップ(し|され)た(時|とき)、/))) return { whens: ['tapped'], rest: rest.slice(mm[0].length), cond: { ...cond, firstPerTurn: true } };
     if ((mm = rest.match(/^このクリーチャー(は|が)(、)?各ターン(、)?はじめて攻撃する(時|とき)、/))) return { whens: ['attack'], rest: rest.slice(mm[0].length), cond: { ...cond, firstPerTurn: true } };
     if ((mm = rest.match(/^このG城が表向きで(、)?自分のシールドゾーンに置かれた(時|とき)または離れた(時|とき)、/))) return { whens: ['summon', 'selfShieldLeft'], rest: rest.slice(mm[0].length), cond };
+    if ((mm = rest.match(/^(コスト(\d+)以下の)?(クリーチャー|カード)がどこからでも自分の墓地に置かれた(時|とき)、/))) return { whens: ['ownToGrave'], rest: rest.slice(mm[0].length), cond: { ...cond, ...(mm[2] ? { evMaxCost: +mm[2] } : {}), ...(mm[3] === 'クリーチャー' ? { evCreature: true } : {}) } };
     if ((mm = rest.match(/^ツインパクトカードを自分のマナゾーンに置いた(時|とき)、/))) return { whens: ['manaPut'], rest: rest.slice(mm[0].length), cond: { ...cond, evTwin: true } };
     if ((mm = rest.match(/^各ターンのはじめに、/))) return { whens: ['turnStart', 'oppTurnStart'], rest: rest.slice(mm[0].length), cond };
     if ((mm = rest.match(/^スペースチャージ〔([a-z/]+)(\|1)?〕、/))) return { whens: ['manaPut'], rest: rest.slice(mm[0].length), cond: { ...cond, evCivAny: mm[1].split('/'), askUse: true, ...(mm[2] ? { oncePerTurn: true } : {}) } };
@@ -379,6 +387,21 @@
     // 自分のカードを破壊する（コストとして使うことが多い）
     if ((m = s.match(/^(バトルゾーンにある)?自分の(他の)?(、)?([^、。]*?)を(\d+)(つ|体|枚)(まで)?(、)?(選んで|選び、)?破壊(する|してもよい)$/)) && !/相手/.test(s))
       return { act: 'destroyOwn', who: m[4] || null, others: !!m[2], n: +m[5], upTo: !!m[7], optional: m[10] !== 'する' };
+    if ((m = s.match(/^自分の(手札|マナゾーンにあるカード|墓地にあるカード|シールドゾーンにあるカード)の枚数(以下|より小さい|より少ない)のコスト(を持つ|の)(、)?([^、。]+?)を(\d+)(体|枚|つ)、自分の(手札|マナゾーン|墓地)から(バトルゾーンに)?出(す|してもよい)$/))) {
+      const ZN = { 手札: 'hand', マナゾーン: 'mana', 墓地: 'grave' };
+      const lc = lookCond(m[5]);
+      if (!lc.unknown) return { act: 'putDyn', cmp: ZN[m[1].replace(/にあるカード$/, '')] || 'shields', lt: m[2] !== '以下', cond: lc, n: +m[6], from: ZN[m[8]], optional: m[10] !== 'す' };
+    }
+    if ((m = s.match(/^自分の(手札|マナゾーンにあるカード|墓地にあるカード|シールドゾーンにあるカード)の枚数よりコストが(小さい|大きい)(、)?([^、。]+?)を(\d+)(体|枚|つ)、自分の(手札|マナゾーン|墓地)から(バトルゾーンに)?出(す|してもよい)$/)) && m[2] === '小さい') {
+      const ZN = { 手札: 'hand', マナゾーン: 'mana', 墓地: 'grave' };
+      const lc = lookCond(m[4]);
+      if (!lc.unknown) return { act: 'putDyn', cmp: ZN[m[1].replace(/にあるカード$/, '')] || 'shields', lt: true, cond: lc, n: +m[5], from: ZN[m[7]], optional: m[9] !== 'す' };
+    }
+    if ((m = s.match(/^自分の(手札|マナゾーンにあるカード)の枚数以下のコストを持つ(、)?(クリーチャーではないカード|エレメント|カード)を(\d+)(枚|つ)、自分の手札からコストを支払わずに実行してもよい$/))) return { act: 'useDyn', cmp: m[1] === '手札' ? 'hand' : 'mana', nonCreature: /クリーチャーではない/.test(m[3]), n: +m[4] };
+    if ((m = s.match(/^(光|水|闇|火|自然)の、「(.+?)」を持つ(、)?進化ではないクリーチャーを(\d+)体、自分の手札から(バトルゾーンに)?出(す|してもよい)$/))) return { act: 'putFromHand', cond: { civs: [{ 光: 'light', 水: 'water', 闇: 'darkness', 火: 'fire', 自然: 'nature' }[m[1]]], types: ['creature'], notEvo: true, hasText: m[2] }, kinds: ['creature'], n: +m[4], optional: m[6] !== 'す' };
+    if (/^相手は自身のシールドを1つ選ぶ。そのシールドをブレイクする$/.test(s)) return { act: 'breakOppOne' };
+    if ((m = s.match(/^そのクリーチャーのパワーを\+(\d+)し、「(.+?)」(と「(.+?)」)?を与え(る|てもよい)$/))) return { act: 'eventBuff', power: +m[1], names: [m[2], m[4]].filter(Boolean), optional: /もよい/.test(s) };
+    if (/^(それ|そのクリーチャー)を(バトルゾーンに)?出(す|してもよい)$/.test(s)) return { act: 'reviveEvent', optional: /もよい/.test(s) };
     // 種族・名前などを指定して手札から出す
     if ((m = s.match(/^([^、。]+?)を(\d+)(体|枚|つ)(まで)?、?自分の手札(または墓地)?から(バトルゾーンに)?(コストを支払わずに)?出(す|してもよい)$/)) && !/^(コスト|光|水|闇|火|自然)?.*?(呪文)/.test(m[1]))
       if (!lookCond(m[1]).unknown) return { act: 'putFromHand', cond: lookCond(m[1]), kinds: ['creature', 'tamaseed', 'field'], n: +m[2], optional: !!m[4] || m[8] !== 'す', alsoGrave: !!m[5] };
@@ -444,6 +467,7 @@
     if ((m = s.match(/^(相手のクリーチャーを、)?パワーの合計が(このクリーチャーのパワー|(\d+))以下になるように(、)?(相手のクリーチャーを)?好きな数選び、破壊(する|してもよい)$/))) return { act: 'destroyPowerSum', max: m[3] ? +m[3] : 'self' };
     if (/^他のクリーチャーを1体選び、タップまたはアンタップする$/.test(s)) return { act: 'tapOrUntap' };
     if (/^相手の手札を見てクリーチャーを1体選ぶ。相手はそれを出してもよい$/.test(s)) return { act: 'oppHandPickPut' };
+    if (/^相手は自身のシールドを1つ選ぶ。そのシールドをブレイクする$/.test(s)) return { act: 'breakOppOne' };
     if (/^シールドを1つ選び、ブレイクしてもよい$/.test(s)) return { act: 'breakAnyOne', optional: true };
     if (/^このクリーチャーに含まれるカードと同じ枚数の?カードを引く$/.test(s)) return { act: 'drawSelfCards' };
     if (/^このクリーチャーの「このクリーチャーが出た時」で始まる能力を1つ使(う|ってもよい)$/.test(s)) return { act: 'useTrigger', from: 'self', when: 'summon', optional: /もよい/.test(s) };
@@ -1111,6 +1135,7 @@
     if ((mm = ct.match(/^それが(その|この)ターン(はじめて|最初)の攻撃(であれば|なら)$/))) return { firstAttack: true };
     if ((mm = ct.match(/^このクリーチャーが(カード(\d+)枚で)?リンクして(いれば|いる|いる時|い)?$/))) return { linked: mm[2] ? +mm[2] : 2 };
     if (/^自分のシールドの数が相手のより多ければ$/.test(ct)) return { shieldsMore: true };
+    if (/^自分のクリーチャーのパワーが一番大きければ$/.test(ct)) return { myMaxPower: true };
     if (/^このクリーチャーがタップしていたら$/.test(ct)) return { selfTapped: true };
     if (/^自分のシールドが相手(のもの)?よりも?少なければ$/.test(ct)) return { shieldsLess: true };
     if (/^(この|その)ターン、自分のシールドゾーンにカードが置かれていれば$/.test(ct)) return { shieldAddedThisTurn: true };

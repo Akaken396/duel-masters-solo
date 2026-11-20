@@ -69,7 +69,7 @@
     return t;
   }
 
-  const WHEN_J = { selfShieldLeft: '表向きでシールドゾーンを離れた時の能力', oppTapped: '相手のクリーチャーがタップした時の能力', allyBattleWinR: '自分の（指定の）クリーチャーがバトルに勝った時の能力', allyUnblocked: '自分のクリーチャーの攻撃が通った時の能力', oppToGrave: 'カードが相手の墓地に置かれた時の能力', manaPut: 'スペース・チャージ', allyTapped: '自分のクリーチャーがタップした時の能力', linked: 'リンクした時の能力', oppEnterNonSummon: '相手が召喚以外でクリーチャーを出した時の能力', enteredByChange: '革命チェンジ・侵略で出た時の能力', allyEvolved: '進化クリーチャーを置いた時の能力', oppDiscarded: '相手が手札を捨てた時の能力', graveLeft: '墓地からカードが離れた時の能力', allyEnterAny: '自分のクリーチャーが出た時の能力', selfPlay: '重いカードを使った時の能力', selfDiscarded: '手札を捨てた時の能力', selfDraw: 'カードを引いた時の能力', oppPlay: '相手がカードを使った時の能力', oppEnterFree: '相手のクリーチャーがコストなしで出た時の能力', oppEnterBig: '相手のマナより重いクリーチャーが出た時の能力', allyDestroyed: '自分の（指定の）クリーチャーが破壊された時の能力', toGrave: '墓地に置かれた時の能力', hostDestroyed: '付けたクリーチャーが破壊された時の能力', charged: 'マナに置いた時の能力', hostAttack: '付いているクリーチャーの攻撃時の能力', hostAttackEnd: '付いているクリーチャーの攻撃の終わりの能力', eachTurnEnd: 'ターンの終わりの能力', oppTurnEnd: '相手のターンの終わりの能力', oppEnter: '相手のクリーチャーが出た時の能力', anyEnter: 'クリーチャーが出た時の能力', anyDestroyed: 'クリーチャーが破壊された時の能力', selfOrAllyDestroyed: '破壊された時の能力', blocked: 'ブロックされた時の能力', oppUnblocked: '相手の攻撃が通った時の能力', battled: 'バトルした時の能力', targeted: '選ばれた時の能力', oppAttack: '相手の攻撃時の能力', allyCast: '呪文を唱えた時の能力', oppCast: '相手が呪文を唱えた時の能力', allyBattleWin: '自分の（指定の）クリーチャーがバトルに勝った時の能力', oppDestroyed: '相手のクリーチャーが破壊された時の能力', ownShieldLeft: 'シールドが離れた時の能力', attackEnd: '攻撃の終わりの能力', beforeBreak: 'ブレイクの前の能力', unblocked: 'ブロックされなかった時の能力', allyAttack: '自分の（指定の）クリーチャーの攻撃時の能力', allyLeft: '自分の（指定の）クリーチャーが離れた時の能力', tapped: 'タップした時の能力', untapped: 'アンタップした時の能力', evolveSource: 'シンカパワー', tapAbility: 'タップ能力', battleLose: 'バトルに負けた時の能力', left: '離れた時の能力', attacked: '攻撃された時の能力', summonOnly: '召喚で出た時の能力', battleWin: 'バトルに勝った時の能力', oppTurnStart: '相手のターンのはじめの能力', broke: 'ブレイクした時の能力', summon: '出た時の能力', attack: '攻撃する時の能力', destroyed: '破壊された時の能力', turnStart: 'ターンのはじめの能力', turnEnd: 'ターンの終わりの能力', shieldAdded: 'シールドが置かれた時の能力', exLifeLost: 'EXライフが離れた時の能力', block: 'ブロックした時の能力', sealsGone: '封印が外れた時の能力' };
+  const WHEN_J = { ownToGrave: 'カードが自分の墓地に置かれた時の能力', selfShieldLeft: '表向きでシールドゾーンを離れた時の能力', oppTapped: '相手のクリーチャーがタップした時の能力', allyBattleWinR: '自分の（指定の）クリーチャーがバトルに勝った時の能力', allyUnblocked: '自分のクリーチャーの攻撃が通った時の能力', oppToGrave: 'カードが相手の墓地に置かれた時の能力', manaPut: 'スペース・チャージ', allyTapped: '自分のクリーチャーがタップした時の能力', linked: 'リンクした時の能力', oppEnterNonSummon: '相手が召喚以外でクリーチャーを出した時の能力', enteredByChange: '革命チェンジ・侵略で出た時の能力', allyEvolved: '進化クリーチャーを置いた時の能力', oppDiscarded: '相手が手札を捨てた時の能力', graveLeft: '墓地からカードが離れた時の能力', allyEnterAny: '自分のクリーチャーが出た時の能力', selfPlay: '重いカードを使った時の能力', selfDiscarded: '手札を捨てた時の能力', selfDraw: 'カードを引いた時の能力', oppPlay: '相手がカードを使った時の能力', oppEnterFree: '相手のクリーチャーがコストなしで出た時の能力', oppEnterBig: '相手のマナより重いクリーチャーが出た時の能力', allyDestroyed: '自分の（指定の）クリーチャーが破壊された時の能力', toGrave: '墓地に置かれた時の能力', hostDestroyed: '付けたクリーチャーが破壊された時の能力', charged: 'マナに置いた時の能力', hostAttack: '付いているクリーチャーの攻撃時の能力', hostAttackEnd: '付いているクリーチャーの攻撃の終わりの能力', eachTurnEnd: 'ターンの終わりの能力', oppTurnEnd: '相手のターンの終わりの能力', oppEnter: '相手のクリーチャーが出た時の能力', anyEnter: 'クリーチャーが出た時の能力', anyDestroyed: 'クリーチャーが破壊された時の能力', selfOrAllyDestroyed: '破壊された時の能力', blocked: 'ブロックされた時の能力', oppUnblocked: '相手の攻撃が通った時の能力', battled: 'バトルした時の能力', targeted: '選ばれた時の能力', oppAttack: '相手の攻撃時の能力', allyCast: '呪文を唱えた時の能力', oppCast: '相手が呪文を唱えた時の能力', allyBattleWin: '自分の（指定の）クリーチャーがバトルに勝った時の能力', oppDestroyed: '相手のクリーチャーが破壊された時の能力', ownShieldLeft: 'シールドが離れた時の能力', attackEnd: '攻撃の終わりの能力', beforeBreak: 'ブレイクの前の能力', unblocked: 'ブロックされなかった時の能力', allyAttack: '自分の（指定の）クリーチャーの攻撃時の能力', allyLeft: '自分の（指定の）クリーチャーが離れた時の能力', tapped: 'タップした時の能力', untapped: 'アンタップした時の能力', evolveSource: 'シンカパワー', tapAbility: 'タップ能力', battleLose: 'バトルに負けた時の能力', left: '離れた時の能力', attacked: '攻撃された時の能力', summonOnly: '召喚で出た時の能力', battleWin: 'バトルに勝った時の能力', oppTurnStart: '相手のターンのはじめの能力', broke: 'ブレイクした時の能力', summon: '出た時の能力', attack: '攻撃する時の能力', destroyed: '破壊された時の能力', turnStart: 'ターンのはじめの能力', turnEnd: 'ターンの終わりの能力', shieldAdded: 'シールドが置かれた時の能力', exLifeLost: 'EXライフが離れた時の能力', block: 'ブロックした時の能力', sealsGone: '封印が外れた時の能力' };
 
   class GameOver extends Error {
     constructor(winner, reason) {
@@ -495,6 +495,12 @@
       if (c.evAttackingPlayer && !(this._eventCard && this._eventCard._attackingPlayer)) return false;
       if (c.evAuraGE != null && !(this._eventCard && this.p[this._eventCard.owner].battle.filter((x) => x.attachedTo === this._eventCard.uid && attachKind(x.def) === 'aura').length >= c.evAuraGE)) return false;
       if (c.evSummoned && !(this._eventCard && this._eventCard._enterHow === 'summon')) return false;
+      if (c.evMaxCost != null && !(this._eventCard && (+this._eventCard.def.cost || 0) <= c.evMaxCost)) return false;
+      if (c.evCreature && !(this._eventCard && this.isCreatureDef(this._eventCard))) return false;
+      if (c.myMaxPower) {
+        const mx = (arr) => Math.max(0, ...arr.filter((x) => this.isCreature(x)).map((x) => this.power(x)));
+        if (!(mx(me.battle) > mx(op.battle))) return false;
+      }
       if (c.evTwin && !(this._eventCard && this._eventCard.def.twin)) return false;
       if (c.evNotFromHand && !(this._eventCard && this._eventCard._enterFrom !== 'hand')) return false;
       if (c.spellsGE != null && (this.spellsThisTurn || [0, 0])[pi] < c.spellsGE) return false;
@@ -1067,6 +1073,10 @@
       }
       if (zone === 'grave') {
         this.graveThisTurn = true;
+        if (from !== 'grave' && this.started) for (const s of this.permanents(card.owner)) if (s !== card && this.isOnField(s) && this.hasAbility(s, 'ownToGrave')) {
+          this.pending = this.pending || [];
+          this.pending.push({ card: s, when: 'ownToGrave', controller: s.owner, def: s.def, extra: card, label: `【${this.p[s.owner].name}】「${s.def.name}」の、カードが墓地に置かれた時の能力` });
+        }
         if (from !== 'grave' && this.started) for (const s of this.permanents(1 - card.owner)) if (this.isOnField(s) && this.hasAbility(s, 'oppToGrave')) {
           this.pending = this.pending || [];
           this.pending.push({ card: s, when: 'oppToGrave', controller: s.owner, def: s.def, extra: card, label: `【${this.p[s.owner].name}】「${s.def.name}」の、カードが相手の墓地に置かれた時の能力` });
@@ -1192,6 +1202,7 @@
       if (cd.any) return cd.any.some((x) => this.fitLook(c, x));
       if (cd.evoOnly && !this.evoKind(c.def)) return false;
       if (cd.notGR && homeZone(c.frontDef || c.def) === 'gr') return false;
+      if (cd.race === 'サイキック') return homeZone(c.frontDef || c.def) === 'hyper' && (!cd.types || !cd.types.includes('creature') || !NON_CREATURE.includes(c.def.type));
       if (cd.notPsychic && homeZone(c.frontDef || c.def) === 'hyper') return false;
       if (cd.twinpact && !(c.def.twin && c.def.twin.type === 'spell')) return false;
       const hay = (c.def.races || []).join('/') + '/' + c.def.name;
@@ -1604,6 +1615,8 @@
         const cnt = k.costPer.spellName ? pl.grave.filter((c) => c.def.type === 'spell' && c.def.name.includes(k.costPer.what)).length : pl[k.costPer.zone || 'battle'].filter((c) => (k.costPer.zone === 'mana' || k.costPer.zone === 'grave' ? !NON_CREATURE.includes(c.def.type) : this.isCreature(c)) && (!w || w === 'クリーチャー' || ((c.def.races || []).join('/') + c.def.name).includes(w.replace(/クリーチャー$/, '')))).length;
         cost -= Math.floor(cnt / k.costPer.per) * k.costPer.n;
       }
+      if (k.handSummonTax && this.zoneOf(card) === 'hand' && !NON_CREATURE.includes(def.type)) cost += k.handSummonTax;
+      if (k.costPerSmallElem) cost -= me.battle.filter((x) => x !== card && (+x.def.cost || 0) <= k.costPerSmallElem.maxCost && !x.attachedTo).length * k.costPerSmallElem.n;
       if (k.costPerUntapped) {
         const cnt = [...me.battle, ...this.p[1 - pi].battle].filter((x) => this.isCreature(x) && x.untappedTurn === this.turn).length;
         cost -= cnt * k.costPerUntapped;
@@ -3785,6 +3798,41 @@
           if (r[0] && (await this.yesNo(1 - pi, `${nm}: 選ばれた「${r[0].def.name}」を出しますか？`, r[0]))) await this.enterBattle(r[0], 1 - pi, 'other');
           break;
         }
+        case 'useDyn': {
+          const lim = me[a.cmp].filter((c) => c !== src).length;
+          const pool = me.hand.filter((c) => c !== src && (+c.def.cost || 0) <= lim && (!a.nonCreature || NON_CREATURE.includes(c.def.type)) && !this.locked(pi, c.def));
+          const r = await this.pickCards(pi, pool, a.n, true, `${nm}: 手札からコストなしで使うカード（コスト${lim}以下）`, 'recover');
+          for (const c of r) await this.putIntoPlay(pi, c, true);
+          break;
+        }
+        case 'breakOppOne':
+          if (op.shields.length) await this.breakShields(pi, 1, src);
+          break;
+        case 'putDyn': {
+          const lim = (a.cmp === 'shields' ? me.shields : me[a.cmp]).filter((c) => c !== src).length;
+          const pool = me[a.from].filter((c) => c !== src && (this.isCreatureDef(c) || ['tamaseed', 'field'].includes(c.def.type)) && this.fitLook(c, a.cond) && (a.lt ? (+c.def.cost || 0) < lim : (+c.def.cost || 0) <= lim));
+          const r = await this.pickCards(pi, pool, a.n, a.optional, `${nm}: 出すカード（コスト${a.lt ? lim + '未満' : lim + '以下'}）`, 'recover');
+          for (const c of r) await this.enterBattle(c, pi, 'other');
+          this._lastChanged = r.length > 0;
+          break;
+        }
+        case 'eventBuff': {
+          const c = this._eventCard;
+          if (!c || this.zoneOf(c) !== 'battle') break;
+          if (a.optional && !(await this.yesNo(pi, `${nm}: 「${c.def.name}」を強化しますか？`, c))) break;
+          c.tempPower = (c.tempPower || 0) + a.power;
+          const pl = this.p[c.owner];
+          (pl.tempGrants = pl.tempGrants || []).push({ names: a.names, until: this.turn, uids: [c.uid], power: 0 });
+          this.log(`「${c.def.name}」はこのターン、パワー+${a.power}${a.names.map((x) => '・「' + x + '」').join('')}`);
+          break;
+        }
+        case 'reviveEvent': {
+          const c = this._eventCard;
+          if (!c || !['grave', 'hand', 'mana'].includes(this.zoneOf(c)) || !this.isCreatureDef(c)) break;
+          if (a.optional && !(await this.yesNo(pi, `${nm}: 「${c.def.name}」を出しますか？`, c))) break;
+          await this.enterBattle(c, c.owner === pi ? pi : pi, 'other');
+          break;
+        }
         case 'selfToHyperAfterEnter':
           src._toHyperAfterEnter = true;
           break;
@@ -5411,6 +5459,7 @@
       }
       if (this.kw(card).attackNeedNonCreature && this.p[pi].nonCreaturePlayed !== this.turn) return [];
       if (this.permanents(1 - pi).some((s2) => this.kw(s2).oppAttackOnce) && this.attackTurnMark === this.turn && (this.attacksThisTurn || [0, 0])[pi] >= 1) return [];
+      if (this.kw(card).attackNeedAny && !this.p[pi].battle.some((x) => x !== card && this.fitLook(x, G.TextParse.lookCond(this.kw(card).attackNeedAny)))) return [];
       if (this.kw(card).attackNeedOppShield && !this.p[1 - pi].shields.length) return [];
       if (this.kw(card).attackNeedEvo && !(this.evoKind(card.def) && (card.under || []).length)) return [];
       if (this.kw(card).attackNeedDraws && !(this.p[pi].drawTurnMark === this.turn && this.p[pi].drawsThisTurn >= this.kw(card).attackNeedDraws)) return [];
