@@ -174,6 +174,7 @@
           if (!g || (g.others && src === card)) continue;
           if (g.who && !((card.def.races || []).join('/') + card.def.name).includes(g.who.replace(/(クリーチャー|カード)$/, ''))) continue;
           if (g.civ && !(card.def.civs || []).includes(g.civ)) continue;
+          if (g.civs && !(card.def.civs || []).some((x) => g.civs.includes(x))) continue;
           for (const nm of g.names) {
             const hit = G.Keywords && G.Keywords.match(nm, nm);
             if (hit && hit.e.set) {
@@ -297,6 +298,7 @@
       if (card.owner === chooserPi || this.zoneOf(card) !== 'battle') return true;
       const k = this.kw(card);
       if (k.untargetable === true) return false;
+      if (k.untargetableSpell && this.currentSource && this.currentSource.type === 'spell') return false;
       if (k.ignoreMono && this.currentSource && (this.currentSource.civs || []).filter((x) => x !== 'zero').length < 2) return false;
       if (k.untargetable && this.protectOk(k.untargetable, card)) return false;
       for (const src of this.p[card.owner].battle) {
@@ -455,6 +457,16 @@
       if (c.and) return c.and.every((x) => this.condOk2(pi, x, card));
       if (c.wonBattleThisTurn && me.battleWonTurn !== this.turn) return false;
       if (c.linked && this.linkMembers(card).length < c.linked) return false;
+      if (c.selfPowerGE) {
+        if (this._pge) return false;
+        this._pge = true;
+        try {
+          if (this.power(card) < c.selfPowerGE) return false;
+        } finally {
+          this._pge = false;
+        }
+      }
+      if (c.distinctCosts && new Set(me.battle.map((x) => +x.def.cost || 0)).size < c.distinctCosts) return false;
       if (c.nthCreature && (this.creaturesThisTurn || [0, 0])[pi] !== c.nthCreature) return false;
       if (c.evMinCost && (+(this._eventCard?.def.cost) || 0) < c.evMinCost) return false;
       if (c.myTurnOnly && this.active !== pi) return false;
@@ -766,7 +778,9 @@
     powerExtra2(card) {
       const pc = parsed(card.def).kw.powerPerCiv;
       const pcv = pc ? Math.floor([...this.p[0].battle, ...this.p[1].battle].filter((c) => c !== card && this.isCreature(c) && (c.def.civs || []).some((x) => pc.civs.includes(x))).length / pc.per) * pc.n : 0;
-      return pcv + this.powerExtra3(card);
+      const pps = parsed(card.def).kw.powerPerShield;
+      const psv = pps ? Math.floor(this.p[card.owner].shields.length / pps.per) * pps.n : 0;
+      return pcv + psv + this.powerExtra3(card);
     }
     powerExtra3(card) {
       const pp = parsed(card.def).kw.powerPer;
@@ -1420,6 +1434,7 @@
       const c = { def };
       if (au.notCreature && !NON_CREATURE.includes(def.type)) return false;
       if (au.evoOnly && !(parsed(def).kw.evolution || def.evolution)) return false;
+      if (au.nameHas && !String(def.name).includes(au.nameHas)) return false;
       if (au.multi && (def.civs || []).filter((x) => x !== 'zero').length < 2) return false;
       return this.fitLook(c, au.cond);
     }
@@ -1475,7 +1490,7 @@
         if (mana) out.unshift({ mana, uses: [() => { card.usedVivid = this.turn; this.log(`「${def.name}」: ビビッドローのコスト${vv.cost}を支払った`); }], cost: vv.cost, alt: { text: 'ビビッドロー' } });
       }
       const alp = parsed(def).kw.altPay;
-      if (alp && def === card.def) {
+      if (alp && def === card.def && (!alp.manaGE || this.p[pi].mana.length >= alp.manaGE)) {
         const mana = this.payWith(pi, { civs: alp.civs }, alp.cost);
         if (mana) out.push({ mana, uses: [async () => { this.log(`「${def.name}」: 代わりのコスト${alp.cost}を支払った`); for (const x of alp.then) await this.doAction(x, card, pi); }], cost: alp.cost, alt: alp });
       }
@@ -1599,7 +1614,7 @@
       const k = def ? parsed(def).kw : {};
       if (k.evolution === 'grave') {
         const ge = k.graveEvo;
-        return this.p[pi].grave.filter((c) => !NON_CREATURE.includes(c.def.type) && (!ge.civs.length || (c.def.civs || []).some((x) => ge.civs.includes(x))));
+        return this.p[pi][ge.zone || 'grave'].filter((c) => c.def !== def && !NON_CREATURE.includes(c.def.type) && (!ge.civs.length || (c.def.civs || []).some((x) => ge.civs.includes(x))));
       }
       const civs = k.evoCivs || [];
       return this.p[pi].battle.filter((c) => {
@@ -1641,6 +1656,21 @@
       }
       for (const m of plan.mana) m.tapped = true;
       for (const u of plan.uses) await u();
+      const bz = parsed(def).kw.buzz;
+      if (bz && def === card.def && bz.cost > 0) {
+        const free = this.p[pi].mana.filter((m) => !m.tapped);
+        const maxN = Math.floor(free.length / bz.cost);
+        card._buzzN = 0;
+        if (maxN > 0) {
+          const opts = [];
+          for (let i = 0; i <= maxN; i++) opts.push({ id: String(i), label: `${i}回（追加でマナ${i * bz.cost}枚）` });
+          const r = await this.choose(pi, { kind: 'number', prompt: `バズレンダ：「${def.name}」の追加コストを何回支払いますか？`, options: opts, min: 1, max: 1 });
+          const k = +r[0] || 0;
+          for (const m of free.slice(0, k * bz.cost)) m.tapped = true;
+          card._buzzN = k;
+          if (k) this.log(`バズレンダ：追加コストを${k}回支払った`);
+        }
+      }
     }
 
     async play(pi, uid) {
@@ -1656,7 +1686,7 @@
         if (ek === 'grave') {
           const pool = this.evoBases(pi, card.def);
           const n = k.graveEvo.n;
-          under = await this.pickCards(pi, pool, k.graveEvo.any ? pool.length : n, false, `「${card.def.name}」: 下に重ねる墓地のクリーチャー${k.graveEvo.any ? '（1体以上）' : n + '体'}`, 'recover');
+          under = await this.pickCards(pi, pool, k.graveEvo.any ? pool.length : n, false, `「${card.def.name}」: 下に重ねる${k.graveEvo.zone === 'hand' ? '手札' : '墓地'}のクリーチャー${k.graveEvo.any ? '（1体以上）' : n + '体'}`, 'recover');
           if (under.length < (k.graveEvo.any ? 1 : n)) return false;
         }
         if (!this.payment(pi, card)) return false;
@@ -2012,6 +2042,7 @@
       }
       if (!this.isCreature(card)) card.sick = false;
       if (o.flipped) card.flipped = true;
+      if (parsed(card.def).kw.enterTappedOpt && this.zoneOf(card) === 'battle' && !card.tapped && !this.p[pi].isAI && (await this.yesNo(pi, `「${card.def.name}」をタップして出しますか？`, card))) card.tapped = true;
       this.lastEntered = card;
       this.lastEnteredSeq = (this._seq = (this._seq || 0) + 1);
       if (this.isCreature(card)) this.creaturesThisTurn[pi]++;
@@ -2386,6 +2417,7 @@
       if (o.shuffleAfter) shuffle(this.p[card.owner].deck, this.rng);
       if (this.hasAbility(card, 'left')) await this.trigger(card, 'left', card.owner, card.def, null, { defer: !!o.destroy });
       if (this.isCreature(card)) await this.allyEvent(card, card.owner, 'allyLeft');
+      if (this.isCreature(card)) for (const q of [0, 1]) for (const s2 of this.permanents(q)) if (s2 !== card && this.isOnField(s2) && this.hasAbility(s2, 'anyLeft')) await this.trigger(s2, 'anyLeft', q, s2.def, card, { defer: true });
       return true;
     }
 
@@ -3107,6 +3139,15 @@
           break;
         case 'noop':
           break;
+        case 'repeatBuzz': {
+          const times = 1 + (src._buzzN || 0);
+          delete src._buzzN;
+          for (let i = 0; i < times; i++) {
+            if (times > 1) this.log(`${nm}: バズレンダの能力（${i + 1}/${times}回目）`);
+            for (const x of a.acts) await this.doAction(x, src, pi);
+          }
+          break;
+        }
         case 'graveAllToDeck': {
           const n = me.grave.length;
           for (const c of me.grave.slice()) this.moveTo(c, 'deck');
@@ -3551,7 +3592,7 @@
           break;
         }
         case 'tapManaCost': {
-          const pool = me.mana.filter((c) => !c.tapped);
+          const pool = me.mana.filter((c) => !c.tapped && (!a.civ || (c.def.civs || []).includes(a.civ)));
           if (pool.length < a.n) break;
           if (a.optional && !(await this.yesNo(pi, `${nm}: マナを${a.n}枚タップしますか？`, src))) break;
           const r = me.isAI ? pool.slice(0, a.n) : await this.pickCards(pi, pool, a.n, false, `${nm}: タップするマナ`, 'discard');
@@ -3848,7 +3889,7 @@
           }
           break;
         case 'toShield': {
-          const pool = op.battle.filter((c) => (a.any || this.isCreature(c)) && (a.maxCost == null || (+c.def.cost || 0) <= a.maxCost));
+          const pool = op.battle.filter((c) => (a.any || this.isCreature(c)) && (a.maxCost == null || (+c.def.cost || 0) <= a.maxCost) && (!a.notEvo || !(c.under || []).length));
           const r = await this.pickCards(pi, pool, a.n, a.optional, `${nm}: シールド化する相手の${a.any ? 'エレメント' : 'クリーチャー'}`, 'target', 'bounce');
           for (const c of r) {
             if (await this.leave(c, 'shields', { byOpp: true })) {
@@ -4216,8 +4257,8 @@
       }
       const guard = op.battle.some((s) => this.isCreature(s) && this.kw(s).playerGuardPower && this.power(card) < this.power(s)) || this.permanents(1 - pi).some((s) => this.kw(s).noPlayerAttack);
       const noPlayer = guard || needNoPlayer || k.cantAttackPlayer || lackCreatures || (k.playerAttackNeedShieldAdded && this.p[pi].shieldAddedTurn !== this.turn);
-      if (!noPlayer) t.push('player');
-      if (!k.cantAttackCreature && !(card.sick && card.abyssTurn === this.turn) && !sickP) t.push(...op.battle.filter((c) => canHit(c) && (c.tapped || k.attackUntapped)));
+      if (!noPlayer && !(card.enteredTurn === this.turn && this.permanents(1 - pi).some((s) => this.kw(s).oppSickNoPlayer))) t.push('player');
+      if (!k.cantAttackCreature && !(card.sick && card.abyssTurn === this.turn) && !sickP) t.push(...op.battle.filter((c) => canHit(c) && !(this.kw(c).flying && !k.flying) && (c.tapped || k.attackUntapped || (k.attackUntappedCiv && (c.def.civs || []).includes(k.attackUntappedCiv)))));
       if (forced.length) return t.filter((x) => x !== 'player' && forced.includes(x));
       if (t.some((x) => x !== 'player') && this.permanents(1 - pi).some((s) => this.kw(s).oppMustAttackCreature)) return t.filter((x) => x !== 'player');
       return t;
@@ -4356,9 +4397,11 @@
         });
         if (!teamUnb && !this.kw(card).unblockable && !((card.unblockableTurn || 0) === this.turn)) {
           const ub = this.kw(card).unblockableBy;
-          const blockers = op.battle.filter((c) => !c.tapped && this.isCreature(c) && this.kw(c).blocker && c !== tgtCard && !((c.lockedUntil || 0) >= this.turn) && !(ub && ((ub.maxPower != null && this.power(c) <= ub.maxPower) || (ub.lessThanSelf && this.power(c) < this.power(card)))));
+          const ak = this.kw(card);
+          const blockers = op.battle.filter((c) => !c.tapped && this.isCreature(c) && this.kw(c).blocker && c !== tgtCard && !(ak.flying && !this.kw(c).flying) && !(ak.unblockableSmaller && this.power(c) < this.power(card)) && !((c.lockedUntil || 0) >= this.turn) && !(ub && ((ub.maxPower != null && this.power(c) <= ub.maxPower) || (ub.lessThanSelf && this.power(c) < this.power(card)))));
+          const must = blockers.find((c) => this.kw(c).mustBlock);
           if (blockers.length) {
-            const r = await this.choose(op.idx, {
+            const r = must ? [must.uid] : await this.choose(op.idx, {
               kind: 'block',
               prompt: `「${card.def.name}」(パワー${this.power(card)})の攻撃をブロックしますか？`,
               attacker: card,
@@ -4413,6 +4456,10 @@
     async attackEnd(card, pi) {
       if (this.zoneOf(card) !== 'battle') return;
       if (this.hasAbility(card, 'attackEnd')) await this.trigger(card, 'attackEnd', pi);
+      if (this.zoneOf(card) === 'battle' && this.kw(card).gBreaker && this.p[pi].shields.length) {
+        this.log(`G・ブレイカー：「${card.def.name}」の攻撃の後、自分のシールドをすべてブレイクする`);
+        await this.breakShields(1 - pi, this.p[pi].shields.length, card);
+      }
       if (card.untapAfterAttackTurn === this.turn && this.zoneOf(card) === 'battle') {
         card.untapAfterAttackTurn = null;
         card.tapped = false;
@@ -4561,6 +4608,7 @@
         } else this.moveTo(s, 'hand');
       }
       this.log(`${op.name}のシールドを${picked.length}つブレイクした（残り${op.shields.length}）`);
+      for (const s2 of this.permanents(op.idx)) if (this.isOnField(s2) && this.hasAbility(s2, 'ownShieldBroken')) await this.trigger(s2, 'ownShieldBroken', op.idx, s2.def, null, { defer: true });
       await this.pause();
       // ブレイクした時の効果（ニガ=アブシュームなど）
       if (src && this.zoneOf(src) === 'battle') await this.trigger(src, 'broke', src.owner);

@@ -14,6 +14,7 @@
       .replace(/[，]/g, '、')
       .replace(/[．]/g, '。')
       .replace(/\r/g, '')
+      .replace(/^(\{O[A-Z]?\}|\[O[A-Z]?\])\s*/gm, '〔バズ〕') // バズレンダで使う能力の印
       .replace(/\{[^}]{1,6}\}\s*/g, '') // 公式ページのアイコン記号 {GS} {x+} など
       .replace(/^[a-z]{1,2}[A-Z]?(?=この|自分|相手|各ターン)/gm, '') // 行頭に残ったアイコンの文字
       .replace(/\s*\[([lwdfn]{1,5})(\d{2})\]\s*支払って/g, '〔代替$1$2〕支払って') // 代わりに払うコスト
@@ -175,6 +176,9 @@
     [/^相手が(自身の)?手札を(\d+枚)?捨てた(時|とき)/, 'oppDiscarded'],
     [/^自分のターンが終わる(時|とき)/, 'turnEnd'],
     [/^カードが自分の墓地から離れた(時|とき)/, 'graveLeft'],
+    [/^自分のシールドがブレイクされた(時|とき)/, 'ownShieldBroken'],
+    [/^他のクリーチャーが(バトルゾーンを)?離れた(時|とき)/, 'anyLeft'],
+    [/^自分のクリーチャーが(バトルゾーンに)?出た(時|とき)/, 'allyEnterAny'],
   ];
   // 行頭の発動タイミングを読む。読めたら {whens, rest, cond}
   function parseTriggerHead(line) {
@@ -201,7 +205,7 @@
       cond.firstPerTurn = true;
       rest = rest.slice(mm[0].length);
     }
-    if ((mm = rest.match(/^(各ターンに(1|一)度、)/))) {
+    if ((mm = rest.match(/^(各ターンに(1|一)度、|各ターン1回、)/))) {
       cond.oncePerTurn = true;
       rest = rest.slice(mm[0].length);
     }
@@ -328,6 +332,9 @@
     }
     if ((m = s.match(/^それを(持ち主の)?(マナゾーンに置|シールド化|手札に戻|山札の下に置)(く|する|す|いてもよい|してもよい)$/))) return { act: 'moveEvent', to: { マナゾーンに置: 'mana', シールド化: 'shields', 手札に戻: 'hand', 山札の下に置: 'deckBottom' }[m[2]], optional: /もよい/.test(m[3]) };
     if ((m = s.match(/^コストの合計が(\d+)以下になるように(、)?([^、。]*?)クリーチャーを好きな数(、)?自分の(墓地|手札)から(バトルゾーンに)?出す$/))) return { act: 'putSumCost', max: +m[1], from: m[5] === '墓地' ? 'grave' : 'hand', cond: m[3] ? lookCond(m[3].replace(/の$/, '')) : null };
+    if ((m = s.match(/^(自分の)?山札の上から(\d+)枚(目)?を、(自分の)?マナゾーンに置く$/))) return { act: 'manaBoost', n: +m[2], optional: false };
+    if ((m = s.match(/^自分のマナゾーンにある(光|水|闇|火|自然)?(の)?カードを(\d+)枚タップ(する|してもよい)$/))) return { act: 'tapManaCost', n: +m[3], civ: m[1] ? { 光: 'light', 水: 'water', 闇: 'darkness', 火: 'fire', 自然: 'nature' }[m[1]] : null, optional: m[4] !== 'する' };
+    if ((m = s.match(/^(バトルゾーンにある)?自分のクリーチャー(\d+)体は(、)?(このターンの終わりまで|このターン)、?「(.+?)」を得る$/))) return { act: 'teamBuff', until: 'turn', all: false, n: +m[2], others: false, who: null, power: 0, names: [m[5]] };
     if (/^そのクリーチャーとこのクリーチャーを破壊する$/.test(s)) return { act: 'seq', acts: [{ act: 'destroyEvent' }, { act: 'selfDestroy', optional: false }] };
     if (/^自分の墓地にあるカードをすべて(自分の)?山札に加え(、|て)シャッフルする$/.test(s)) return { act: 'graveAllToDeck' };
     if (/^自分の山札の(一番)?上のカードを表にして(自分の)?マナゾーンに置く$/.test(s)) return { act: 'manaBoost', n: 1, optional: false };
@@ -497,8 +504,8 @@
     if ((m = s.match(/^次の自分のターンのはじめまで、このクリーチャーは(相手に選ばれない|離れない)$/))) {
       return { act: 'selfGuard', kind: m[1] === '離れない' ? 'noLeave' : 'untargetable' };
     }
-    if ((m = s.match(/^(バトルゾーンにある)?相手の(コスト(\d+)以下の)?(進化ではない)?(クリーチャー|エレメント)を(\d+)(体|つ)選び、(持ち主の)?シールド化(する|してもよい)$/))) {
-      return { act: 'toShield', side: 'opp', n: +m[6], optional: /てもよい/.test(s), any: m[5] === 'エレメント', maxCost: m[3] ? +m[3] : null };
+    if ((m = s.match(/^(バトルゾーンにある)?相手の(コスト(\d+)以下の)?(進化ではない)?(クリーチャー|エレメント)を(\d+)(体|つ)(まで)?選び、(持ち主の)?シールド化(する|してもよい)$/))) {
+      return { act: 'toShield', side: 'opp', n: +m[6], optional: /てもよい/.test(s) || !!m[8], any: m[5] === 'エレメント', maxCost: m[3] ? +m[3] : null, notEvo: !!m[4] };
     }
     if ((m = s.match(/^自分のシールドを(\d+)つ(まで)?、?(選び、)?手札に(加え|戻)(る|す|てもよい|してもよい)(。ただし、その「S・トリガー」は使えない)?$/))) {
       return { act: 'shieldToHand', n: +m[1], optional: !!m[2] || /てもよい/.test(s), noTrigger: true };
@@ -810,6 +817,7 @@
     if ((mm = ct.match(/^それが(その|この)ターン(はじめて|最初)の攻撃(であれば|なら)$/))) return { firstAttack: true };
     if ((mm = ct.match(/^このクリーチャーが(カード(\d+)枚で)?リンクして(いれば|いる|いる時|い)?$/))) return { linked: mm[2] ? +mm[2] : 2 };
     if (/^自分のシールドの数が相手のより多ければ$/.test(ct)) return { shieldsMore: true };
+    if ((mm = ct.match(/^コストが異なる自分のエレメントが(\d+)(つ|枚|体)以上あれば$/))) return { distinctCosts: +mm[1] };
     if ((mm = ct.match(/^(バトルゾーンに)?自分の(、)?名前に[《「](.+?)[》」]を?(持つ|とある)クリーチャーが(\d+)体以上(バトルゾーンに)?あれば$/))) return { count: { what: mm[3], n: +mm[5] } };
     if ((mm = ct.match(/^それが(その|この)ターン(はじめて|最初)の攻撃でなければ$/))) return { notFirstAttack: true };
     if ((mm = ct.match(/^(カードがこれの下に|このクリーチャーの下に(\d+)枚以上カードが|このクリーチャーにカードが(\d+)枚以上含まれて)(あれば|いれば)$/))) return { underGE: mm[2] ? +mm[2] : mm[3] ? +mm[3] - 1 : 1 };
@@ -935,6 +943,7 @@
   }
   function parseEffects(body) {
     body = lookNorm(String(body || '').replace(/パワーを\s*-∞\s*する/g, 'パワーを0にする'))
+      .replace(/(を|を、)?新しいシールドとして(持ち主の|自分の|自身の)?シールドゾーンに(裏向きにして|裏向きのまま)?(加える|置く|加え、|加えてもよい|置いてもよい)/g, (x, a, b, c, d) => (a || '') + { 加える: 'シールド化する', 置く: 'シールド化する', '加え、': 'シールド化し、', 加えてもよい: 'シールド化してもよい', 置いてもよい: 'シールド化してもよい' }[d])
       .replace(/相手のクリーチャーを(\d+)体選んで破壊し、/g, '相手のクリーチャーを$1体選び、破壊する。')
       .replace(/。?これらのクリーチャーが出ることによって起こる効果やルールはすべて無視する。?/g, '。それらの出た時の効果は起こらない');
     const l3 = body.match(/^(自分の)?山札の上から3枚を(見る|表向きにする)。(その中から|そのうち(の)?)1枚を([^、。]+?)、1枚を([^、。]+?)、(残りの1枚|最後の1枚|もう1枚)を([^、。]+?)。?$/);
@@ -1148,11 +1157,14 @@
 
     let tapNext = false;
     let linkFrom = null;
+    let linkCond = null;
     let markAb = null;
     const applyLink = () => {
       if (linkFrom == null) return;
-      for (const ab of abilities.slice(linkFrom)) ab.cond = ab.cond ? { and: [ab.cond, { linked: 2 }] } : { linked: 2 };
+      const lc = linkCond || { linked: 2 };
+      for (const ab of abilities.slice(linkFrom)) ab.cond = ab.cond ? { and: [ab.cond, lc] } : lc;
       linkFrom = null;
+      linkCond = null;
     };
     for (const rawObj of lines) {
       applyLink();
@@ -1171,6 +1183,60 @@
         if (vm) {
           const CV = { l: 'light', w: 'water', d: 'darkness', f: 'fire', n: 'nature' };
           (inHyper ? hyper.kw : kw).vivid = { cost: +vm[2], civs: [...new Set(vm[1].split(''))].filter((x) => CV[x]).map((x) => CV[x]) };
+          continue;
+        }
+      }
+      // バズレンダ
+      if (/^バズレンダ/.test(line)) {
+        const vm = raw.match(/\[([a-z]+)(\d+)\]/) || raw.match(/〔代替([a-z]+)(\d+)〕/);
+        (inHyper ? hyper.kw : kw).buzz = { cost: vm ? +vm[2] : 2 };
+        continue;
+      }
+      if (/^〔バズ〕/.test(line)) {
+        const body = parseEffects(line.replace(/^〔バズ〕\s*/, '').replace(/。$/, ''));
+        if (body && !body.some((x) => x.act === 'manualNote')) {
+          A_PUSH('summon', { when: 'summon', acts: [{ act: 'repeatBuzz', acts: body }], text: raw });
+          continue;
+        }
+      }
+      // バラバラエティN：コストが異なる自分のエレメントがN以上あれば
+      const bv = line.match(/^バラバラエティ(\d+)[：:]\s*(.+)$/);
+      if (bv) {
+        if (parseTriggerHead(bv[2]) || TRIGGERS.some((t) => t.re.test(bv[2]))) {
+          line = bv[2];
+          linkFrom = abilities.length;
+          linkCond = { distinctCosts: +bv[1] };
+        } else line = `コストが異なる自分のエレメントが${bv[1]}つ以上あれば、${bv[2]}`;
+      }
+      // パワーがN以上のとき「X」を得る
+      const pw = line.match(/^このクリーチャーは(、)?パワーが(\d+)以上の(とき|時|間)、「(.+?)」を得る。?$/);
+      if (pw) {
+        const KK = inHyper ? hyper.kw : kw;
+        (KK.condGrants = KK.condGrants || []).push({ cond: { selfPowerGE: +pw[2] }, power: 0, names: [pw[4]] });
+        continue;
+      }
+      // 召喚する時、手札のカードを見せてコストを下げる
+      const shc = line.match(/^このクリーチャーを召喚する(時|とき)、自分の手札から(コスト(\d+)以上の)?([^、。]*?)カードを(\d+)枚、相手に見せてもよい。(そうした場合|そうしたら)、このクリーチャーの召喚コストは(最大)?(\d+)少なくなる。?$/);
+      if (shc) {
+        (inHyper ? hyper.kw : kw).summonCostOpt = { act: { act: 'showOwn', n: +shc[5], cond: { ...(shc[3] ? { minCost: +shc[3] } : {}), civs: [], text: 'カード' } }, n: +shc[9], text: '手札のカードを見せ' };
+        continue;
+      }
+      // マナがN枚以上あれば、代わりのコストで召喚
+      const mal = line.match(/^自分のマナゾーンにカードが(\d+)枚以上あれば、この(クリーチャー|呪文)を〔代替([lwdfn]+)(\d+)〕支払って(召喚して|唱えて)もよい。?$/);
+      if (mal) {
+        const CV = { l: 'light', w: 'water', d: 'darkness', f: 'fire', n: 'nature' };
+        (inHyper ? hyper.kw : kw).altPay = { cost: +mal[4], civs: [...new Set(mal[3].split(''))].map((x) => CV[x]), then: [], text: '', manaGE: +mal[1] };
+        continue;
+      }
+      if (/^フリーズ\s*$/.test(line)) {
+        A_PUSH('unblocked', { when: 'unblocked', acts: [{ act: 'tap', side: 'opp', all: false, n: 1, optional: true }, { act: 'freezeLast' }], text: raw });
+        continue;
+      }
+      const bwd = line.match(/^このクリーチャーがバトルに勝った(時|とき)、破壊する。?(その後、(.+))?$/);
+      if (bwd) {
+        const more = bwd[3] ? parseEffects(bwd[3].replace(/。$/, '')) : [];
+        if (more && !more.some((x) => x.act === 'manualNote')) {
+          A_PUSH('battleWin', { when: 'battleWin', acts: [{ act: 'selfDestroy', optional: false }, ...more], text: raw });
           continue;
         }
       }
@@ -1353,7 +1419,7 @@
         }
       }
       const cc = line.match(/(バトルゾーンに)?自分の([^、。]+?)が(\d+)(体|枚|つ)以上あれば、/);
-      if (cc && !/マナゾーンに/.test(cc[0])) {
+      if (cc && !/マナゾーンに/.test(cc[0]) && !/異なる$/.test(line.slice(0, cc.index))) {
         cond = { ...(cond || {}), count: { what: cc[2], n: +cc[3] } };
         line = line.replace(cc[0], '');
       }
@@ -1610,6 +1676,7 @@
     putFromMana: (a) => `マナから${a.cond.text}を${a.n}体出す`,
     selfFromHand: () => 'このクリーチャーを手札から出す',
     selfDiscardFromHand: () => 'このカードを手札から捨てる',
+    repeatBuzz: () => 'バズレンダの能力（支払った回数＋1回）',
     graveAllToDeck: () => '墓地をすべて山札に戻してシャッフル',
     resetHands: (a) => `各プレイヤーは手札と墓地を山札に戻し${a.n}枚引く`,
     hyperSummonN: (a) => `超次元ゾーンからコスト${a.n}以下を召喚`,

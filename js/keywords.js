@@ -202,7 +202,7 @@
     { name: 'クロスギアのマナ置き', re: /^このクロスギアはマナゾーンにタップして置かれる。?$/, auto: true, set: () => {}, desc: 'マナゾーンにタップして置く' },
     { name: '破壊される時に下に置く', re: /^(?<who>このクリーチャー|自分の他の(、)?[^、。]+?)が破壊される時、墓地に置くかわりに(?<host>このクリーチャー|自分の[^、。]+?)(\d+体)?の下に置いてもよい。?$/, auto: true,
       set: (k, m) => (k.underRepl = (k.underRepl || []).concat({ self: m.groups.who === 'このクリーチャー', who: m.groups.who.replace(/^自分の他の(、)?/, ''), host: m.groups.host === 'このクリーチャー' ? null : m.groups.host.replace(/^自分の/, '') })), desc: '破壊される時、墓地のかわりにクリーチャーの下に置ける' },
-    { name: 'バトル中破壊されない', re: /^このクリーチャーは(、)?バトル中(、)?破壊されない。?$/, auto: true, set: (k) => (k.noDestroyInBattle = true), desc: 'バトルでは破壊されない' },
+    { name: 'バトル中破壊されない', re: /^(このクリーチャーは(、)?バトル中(、)?|バトル中、このクリーチャーは)破壊されない。?$/, auto: true, set: (k) => (k.noDestroyInBattle = true), desc: 'バトルでは破壊されない' },
     { name: '同じ名前のエグザイルは1体まで', re: /^自分の他の(、)?名前に《(.+?)》とある(エグザイル・)?クリーチャーを(バトルゾーンに)?出すことはできない。?$/, auto: true, set: (k, m) => (k.exileLock = m[2]), desc: '名前に《○○》とある自分のクリーチャーは、他に1体しか出せない' },
     { name: '味方が破壊される時の行き先', re: /^自分の(他の)?(、)?(?<who>[^、。]+?)が破壊される時、(そのクリーチャーを)?墓地に置くかわりに(自分の)?(持ち主の)?(?<to>マナゾーン|手札)に(置く|戻す|加える|置いてもよい|戻してもよい)。?$/, auto: true,
       set: (k, m) => (k.allyDestroyTo = (k.allyDestroyTo || []).concat({ who: m.groups.who, others: !!m[1], to: m.groups.to === '手札' ? 'hand' : 'mana', optional: /もよい/.test(m[0]) })), desc: '自分のクリーチャーが破壊される時、墓地のかわりに別の場所へ' },
@@ -232,6 +232,29 @@
     { name: '種族はすべてのバトルに勝つ', re: /^自分の([^、。]+?)(・)?クリーチャーは(、)?すべてのバトルに勝つ。?$/, auto: true, set: (k, m) => (k.teamWinAll = m[1]), desc: '指定の自分のクリーチャーはすべてのバトルに勝つ' },
     { name: '出たターンに攻撃できない（全体）', re: /^([^、。]+?)ではないクリーチャーは(、)?(バトルゾーンに)?出たターンに攻撃できない。?$/, auto: true, set: (k, m) => (k.globalSickExcept = m[1]), desc: '指定以外のクリーチャーは出たターンに攻撃できない' },
     { name: 'マナに置いた時に見せてアンタップ', re: /^このカードを自分の(手札から)?マナゾーンに置いた(時|とき)、自分の手札にある([^、。]+?)(・)?カードを1枚、(表向きにして|相手に見せて)もよい。そうしたら、このカードをアンタップする。?$/, auto: true, set: (k, m) => (k.chargeReveal = m[3]), desc: '手札からマナに置いた時、指定のカードを見せればアンタップ' },
+    { name: '超GRに3枚以上', re: /^(このカード|《.+?》)は(、)?(\d+)枚より多く超GRに入れることができる。?$/, auto: true, set: (k) => (k.noCopyLimit = true), desc: '超GRに3枚以上入れられる' },
+    { name: 'どの種族の進化でも置ける', re: /^(この(クリーチャー|タマシード)の上に、どの種族の進化クリーチャーを置いてもよい|どんな種族の進化クリーチャーを、このクリーチャーの上に置いてもよい)。?$/, auto: true, set: () => {}, desc: '種族を問わず進化元になれる（この対戦エンジンは進化元の種族を問わないので常に満たす）' },
+    { name: '飛行', re: /^飛行$/, auto: true, set: (k) => (k.flying = true), desc: '飛行を持たないクリーチャーから攻撃もブロックもされない' },
+    { name: 'G・ブレイカー', re: /^G・ブレイカー$/, auto: true, set: (k) => { k.breaker = 99; k.gBreaker = true; }, desc: '相手のシールドをすべてブレイクし、攻撃の後に自分のシールドもすべてブレイクする' },
+    { name: 'タップして出てもよい', re: /^このクリーチャーを(、)?タップしてバトルゾーンに出してもよい。?$/, auto: true, set: (k) => (k.enterTappedOpt = true), desc: 'タップして出すかを選べる' },
+    { name: 'タップして出る（置く）', re: /^バトルゾーンに出す時、このクリーチャーはタップして置く。?$/, auto: true, set: (k) => (k.enterTapped = true), desc: 'タップして出る' },
+    { name: 'バトルに勝っても破壊される', re: /^このクリーチャーは(、)?バトルに勝っても、バトルの後(、)?(破壊される|持ち主の墓地に置かれる)。?$/, auto: true, set: (k) => (k.dieAfterBattle = true), desc: 'バトルの後、破壊される' },
+    { name: '呪文で選ばれない', re: /^このクリーチャーは(、)?呪文によって相手に選ばれない。?$/, auto: true, set: (k) => (k.untargetableSpell = true), desc: '相手の呪文で選ばれない' },
+    { name: '小さいものにブロックされない', re: /^このクリーチャーは(、)?これよりパワーが小さいクリーチャーにブロックされない。?$/, auto: true, set: (k) => (k.unblockableSmaller = true), desc: '自分よりパワーが小さいクリーチャーにブロックされない' },
+    { name: 'アンタップの文明を攻撃', re: /^このクリーチャーは(、)?タップされていない(光|水|闇|火|自然)のクリーチャーを攻撃できる。?$/, auto: true, set: (k, m) => (k.attackUntappedCiv = civsIn(m[2])[0]), desc: '指定の文明のアンタップしているクリーチャーも攻撃できる' },
+    { name: 'シールドの数だけパワー減', re: /^自分のシールド(\d+)(つ|枚)につき、このクリーチャーのパワーを-(\d+)する。?$/, auto: true, set: (k, m) => (k.powerPerShield = { per: +m[1], n: -m[3] }), desc: '自分のシールドの数だけパワーが下がる' },
+    { name: '名前のエグザイルは出せない', re: /^自分の他の(、)?名前に[《「](.+?)[》」]とある(エグザイル・)?クリーチャーは(バトルゾーンに)?出せない。?$/, auto: true, set: (k, m) => (k.exileLock = m[2]), desc: '名前に○○とある自分のクリーチャーは、他に出せない' },
+    { name: '相手は出たターン自分を攻撃できない', re: /^相手のクリーチャーは(、)?(バトルゾーンに)?出たターン(、|に)?(自分|あなた)を攻撃できない。?$/, auto: true, set: (k) => (k.oppSickNoPlayer = true), desc: '相手のクリーチャーは出たターン、プレイヤーを攻撃できない' },
+    { name: '可能ならブロックする', re: /^相手のクリーチャーが攻撃する時、このクリーチャーは可能であればブロックする。?$/, auto: true, set: (k) => (k.mustBlock = true), desc: '可能ならブロックする' },
+    { name: '名前のコスト軽減', re: /^自分の(、)?名前に[《「](.+?)[》」]とあるクリーチャーを召喚するコストを(\d+)少なくしてもよい。?$/, auto: true, set: (k, m) => (k.costAura = (k.costAura || []).concat({ side: 'self', subj: 'クリーチャー', nameHas: m[2], n: -m[3] })), desc: '名前に○○とあるクリーチャーのコストを下げる' },
+    { name: '種族のコスト軽減', re: /^自分の([^、。「」《》]+?)を召喚するコストを(\d+)少なくしてもよい。?$/, auto: true, set: (k, m) => (k.costAura = (k.costAura || []).concat({ side: 'self', subj: m[1], n: -m[2] })), desc: '指定のクリーチャーのコストを下げる' },
+    { name: '文明のクリーチャーに能力', re: /^(バトルゾーンにある)?自分の(光|水|闇|火|自然)と(光|水|闇|火|自然)のクリーチャーは「(.+?)」を得る。?$/, auto: true, set: (k, m) => (k.grant = { others: false, who: null, civ: null, civs: civsIn(m[2] + m[3]), names: [m[4]] }), desc: '指定の文明のクリーチャーに能力を与える' },
+    { name: '手札進化', re: /^手札進化\s*[：:\-－―]\s*(.+)$/, auto: true,
+      set: (k, m) => {
+        const t = m[1];
+        k.evolution = 'grave';
+        k.graveEvo = { n: +((t.match(/(\d+)体/) || [])[1] || 1), any: false, civs: civsIn(t), what: '', zone: 'hand' };
+      }, desc: '自分の手札のクリーチャーの上に重ねて出す' },
     { name: 'エターナル・Κ', re: /^エターナル・Κ$/, auto: true, set: (k) => (k.eternalK = 3), desc: '離れる時、かわりに裏向きのマナ3枚を表向きにしてもよい' },
     { name: 'ヌル・ブレイカー', re: /^ヌル・ブレイカー$/, auto: true, set: (k) => (k.nullBreaker = true), desc: 'シールドをブレイクしない' },
     { name: 'Evoチャージャー', re: /^Evoチャージャー$/, auto: true, set: (k) => (k.evoCharger = true), desc: '唱えた後マナに置き、マナのクリーチャーを進化クリーチャーの下に置ける' },
@@ -282,7 +305,7 @@
     { name: '破壊されない', re: /^このクリーチャーは(、)?破壊されない。?$/, auto: true, set: (k) => (k.noDestroy = true), desc: '破壊されない' },
     { name: '離れない', re: /^このクリーチャーは(、)?(バトルゾーンを)?離れない。?$/, auto: true, set: (k) => (k.noLeave = true), desc: 'バトルゾーンを離れない' },
     { name: '超次元ゾーンから召喚', re: /^このクリーチャーを(、)?(自分の)?超次元ゾーンから召喚してもよい。?$/, auto: true, set: (k) => (k.hyperSummon = true), desc: '超次元ゾーンから召喚できる' },
-    { name: 'マナゾーンから召喚', re: /^このクリーチャーを(、)?自分のマナゾーンから召喚してもよい。?$/, auto: true, set: (k) => (k.manaSummon = true), desc: 'マナゾーンから召喚できる' },
+    { name: 'マナゾーンから召喚', re: /^このクリーチャーを(、)?(自分の)?マナゾーンから召喚してもよい。?$/, auto: true, set: (k) => (k.manaSummon = true), desc: 'マナゾーンから召喚できる' },
     { name: 'アビスラッシュ', re: /^アビスラッシュ([：:]このクリーチャーを自分の墓地から召喚してもよい。そうしたら、このターン、このクリーチャーはプレイヤーを攻撃でき、ターンの終わりに山札の下に置かれる。?)?$/, auto: true, set: (k) => ((k.graveSummon = true), (k.abyssRush = true)), desc: '墓地から召喚でき、そのターンはプレイヤーを攻撃できる。ターンの終わりに山札の下へ' },
     { name: '条件でブロックされない', re: /^このクリーチャーは(、)?(このクリーチャーよりパワーが小さい|パワー(?<p>\d+)以下の)クリーチャーにブロックされない。?$/, auto: true, set: (k, m) => (k.unblockableBy = { maxPower: m.groups.p ? +m.groups.p : null, lessThanSelf: !m.groups.p }), desc: '条件に合うクリーチャーにはブロックされない' },
     { name: 'パワード・ブロッカー', re: /^パワード・ブロッカー\s*\+?(\d+)$/, auto: true, set: (k, m) => ((k.blocker = true), (k.blockPower = +m[1])), desc: 'ブロッカー。ブロックしている間パワーが上がる' },
@@ -318,7 +341,7 @@
           (k.protects = k.protects || []).push({ ...o, who: g.who.replace(/^、/, '') });
         } else k.untargetable = Object.keys(o).length ? o : true;
       }, desc: '相手に選ばれない（条件つき）' },
-    { name: '攻撃されない', re: /^(?<other>自分の他のクリーチャーがあれば、)?このクリーチャーは(、)?((?<civ>光|水|闇|火|自然)のクリーチャー(から|に))?攻撃(?<blk>またはブロック)?されない。?$/, auto: true,
+    { name: '攻撃されない', re: /^(?<other>自分の他のクリーチャーがあれば、)?このクリーチャーは(、)?((?<civ>光|水|闇|火|自然)のクリーチャー(から|に))?攻撃(?<blk>またはブロック|もブロックも)?されない。?$/, auto: true,
       set: (k, m) => {
         k.noBeAttacked = m.groups.other || m.groups.civ ? { needOther: !!m.groups.other, byCiv: m.groups.civ ? CIVJ[m.groups.civ] : null } : true;
         if (m.groups.blk) k.unblockable = true;
@@ -334,7 +357,7 @@
     { name: '選べない', re: /^相手は(、)?このクリーチャーを選べない。?$/, auto: true, set: (k) => (k.untargetable = true), desc: '相手に選ばれない' },
     { name: 'タップして出てアンタップしない', re: /^このクリーチャーは(、)?タップして(バトルゾーンに)?出て、自分のターンのはじめにアンタップしない。?$/, auto: true, set: (k) => ((k.enterTapped = true), (k.noUntap = true)), desc: 'タップ状態で出て、自分のターンのはじめにアンタップしない' },
     { name: 'タップして出る', re: /^このクリーチャーは(、)?タップして(バトルゾーンに)?出る。?$/, auto: true, set: (k) => (k.enterTapped = true), desc: 'タップ状態で出る' },
-    { name: 'アンタップしない', re: /^このクリーチャーは(、)?自分のターンのはじめにアンタップしない。?$/, auto: true, set: (k) => (k.noUntap = true), desc: '自分のターンのはじめにアンタップしない' },
+    { name: 'アンタップしない', re: /^(このクリーチャーは(、)?自分のターンのはじめに|自分のターンのはじめに、このクリーチャーは)アンタップしない。?$/, auto: true, set: (k) => (k.noUntap = true), desc: '自分のターンのはじめにアンタップしない' },
     { name: '呪文ロック', re: /^相手は(、)?コスト(\d+)以下の呪文を唱えられない。?$/, auto: true, set: (k, m) => (k.spellLockMax = +m[2]), desc: '相手は指定コスト以下の呪文を使えない' },
     { name: 'ブレイク身代わり', re: /^(ブレイク身代わり|相手のクリーチャーがシールドを\d+つ以上ブレイクする時、かわりにこのシールドをブレイクさせてもよい。?)$/, auto: true, set: (k) => (k.breakSubstitute = true), desc: '相手クリーチャーのブレイクを、この1枚で受けられる' },
     { name: 'ニンジャ・ストライク', re: /^ニンジャ・ストライク\s*(\d+)$/, auto: true, set: (k, m) => (k.ninjaStrike = +m[1]), desc: '相手の攻撃時、マナがN枚以上ならコストを払わずに出せる。ターンの終わりに山札の下へ' },
@@ -345,7 +368,7 @@
         if (r) k.sasageFor = r[1].replace(/^(コスト\d+以上の)?/, '').replace(/・クリーチャー$/, '');
       }, desc: 'このカードを破壊して、召喚するカードのコストをN下げられる' },
     { name: 'シンパシー', re: /^シンパシー[：:]\s*(.+)$/, auto: true, set: (k, m) => (k.sympathy = m[1].replace(/。$/, '')), desc: '自分の場の指定のカード1枚につき、コストが1下がる（1未満にはならない）' },
-    { name: '革命チェンジ', re: /^革命チェンジ[：:－-]\s*(.+)$/, auto: true, set: (k, m) => (k.revChange = condOf(m[1])), desc: '条件に合う自分のクリーチャーが攻撃する時、手札のこれと入れ替えられる' },
+    { name: '革命チェンジ', re: /^革命チェンジ\s*[：:－\-―─]\s*(.+)$/, auto: true, set: (k, m) => (k.revChange = condOf(m[1])), desc: '条件に合う自分のクリーチャーが攻撃する時、手札のこれと入れ替えられる' },
     { name: '侵略', re: /^(S級)?侵略(ZERO)?[：:－\-―─]\s*(.+)$/, auto: true, set: (k, m) => (k.invasion = condOf(m[3])), desc: '条件に合う自分のクリーチャーが攻撃する時、手札のこれをその上に重ねて進化できる' },
     { name: '進化', re: /^(NEO)?進化(クリーチャー)?[：:－-]?\s*(.*)$/, auto: true, set: (k, m) => {
         k.evolution = m[1] ? 'neo' : 'evo';
