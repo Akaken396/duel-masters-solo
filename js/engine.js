@@ -4712,6 +4712,13 @@
           for (const c of r) if (await this.leave(c, a.to, { byOpp: true })) this.log(`${op.name}は「${c.def.name}」を${ZONE_LABEL[a.to]}に置いた`);
           break;
         }
+        case 'tapSelfCancel':
+          if (this.zoneOf(src) !== 'battle' || src.tapped) break;
+          if (!(await this.yesNo(pi, `${nm}: タップしてその攻撃を中止しますか？`, src))) break;
+          src.tapped = true;
+          this._attackCancelled = true;
+          this.log(`「${src.def.name}」をタップして攻撃を中止させた`);
+          break;
         case 'cancelAttack':
           this._attackCancelled = true;
           this.log('攻撃は中止された');

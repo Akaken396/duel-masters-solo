@@ -666,6 +666,7 @@
     if ((m = s.replace(/^(この|その)ターン、/, '').match(/^そのクリーチャーに「(.+?)」(と「(.+?)」)?を与え、(この|その)ターンの終わりに破壊する$/))) return { act: 'grantEndLast', names: [m[1], m[3]].filter(Boolean) };
     if ((m = s.match(/^相手は自身のクリーチャーを(\d+)体マナゾーンに置き、自分はクリーチャーを(\d+)体まで自分のマナゾーンから出す$/))) return { act: 'seq', acts: [{ act: 'oppOwnTo', n: +m[1], to: 'mana' }, { act: 'putFromMana', cond: lookCond('クリーチャー'), n: +m[2], optional: true }] };
     if (/^攻撃を中止する$/.test(s)) return { act: 'cancelAttack' };
+    if (/^このクリーチャーをタップして(、)?その攻撃を(中止|阻止)してもよい$/.test(s)) return { act: 'tapSelfCancel' };
     if (/^それがウエポンなら、自分のクリーチャーに装備する$/.test(s)) return { act: 'noop' };
     if ((m = s.match(/^自分と相手のクリーチャーを1体ずつ選(ぶ|んでもよい)$/))) return { act: 'pairPick', optional: m[1] !== 'ぶ' };
     if ((m = s.match(/^相手のクリーチャーを(\d+)体選び、持ち主の超次元ゾーンに置く$/))) return { act: 'moveTarget', side: 'opp', all: false, n: +m[1], to: 'hyper', optional: false };
@@ -1153,6 +1154,7 @@
     if ((mm0 = ct.match(/^(バトルゾーンに)?相手の([^、。]+?)が(1枚|1体|1つ)?(も)?(なければ|あれば)$/)) && !/シールド|マナ|手札|墓地|山札/.test(mm0[2])) return mm0[5] === 'なければ' ? { not: { oppHas: mm0[2] } } : { oppHas: mm0[2] };
     if ((mm0 = ct.match(/^自分の([^、。]+?)がバトルゾーンにあれば$/))) return { count: { what: mm0[1], n: 1 } };
     if (/^自分のマナゾーンのカードがすべてタップされていれば$/.test(ct)) return { manaAllTapped: true };
+    if (/^このクリーチャーにクロスギアがクロスされていれば$/.test(ct)) return { crossedGE: 1 };
     if (/^このクリーチャーがタップしていたら$/.test(ct)) return { selfTapped: true };
     if (/^自分のシールドが相手(のもの)?よりも?少なければ$/.test(ct)) return { shieldsLess: true };
     if (/^(この|その)ターン、自分のシールドゾーンにカードが置かれていれば$/.test(ct)) return { shieldAddedThisTurn: true };
@@ -1727,6 +1729,13 @@
         if (both3 && !/この|ターン/.test(both3[4])) return ['このクリーチャーが出た時、' + both3[7], '自分の他の' + both3[4] + 'が出た時、' + both3[7]];
         const both2 = l.match(/^このクリーチャー(、)?(または|か)(、)?自分の他の(.+?)を召喚して(バトルゾーンに)?出した(時|とき)、(.+)$/);
         if (both2) return ['このクリーチャーが召喚によって出た時、' + both2[7], '自分の他の' + both2[4] + 'を召喚した時、' + both2[7]];
+        if (/^ホーリー・フィールド\s*[(（][^)）]*[)）]\s*\S/.test(l)) return [l.replace(/^ホーリー・フィールド\s*[(（][^)）]*[)）]\s*/, '自分のシールドの数が相手以上であれば、')];
+        if (/^アクセル\s*[(（][^)）]*[)）]\s*\S/.test(l)) return [l.replace(/^アクセル\s*[(（][^)）]*[)）]\s*(a\s+)?/, 'このクリーチャーにクロスギアがクロスされていれば、')];
+        {
+          const rs = l.match(/^([^()（）、。]{2,20}[(（][^()（）]*[)）])\s+(\S.+)$/);
+          const K1 = KWD();
+          if (rs && K1 && K1.match(stripReminder(rs[1]).trim(), rs[1])) return [rs[1], rs[2]];
+        }
         const t = stripReminder(l).trim();
         if (/^[^、。]{2,24}((\s{2,}|　)[^、。]{2,24})+$/.test(t)) return t.split(/\s{2,}|　/);
         {
@@ -1876,6 +1885,19 @@
           linkFrom = abilities.length;
           linkCond = { distinctCosts: +bv[1] };
         } else line = `コストが異なる自分のエレメントが${bv[1]}つ以上あれば、${bv[2]}`;
+      }
+      // 「条件、トリガー時、効果」：条件を満たしている時だけ誘発する
+      if (linkFrom == null) {
+        const ctg = line.match(/^([^。]+?(あれば|なら|いれば|されていれば))、(.+)$/);
+        if (ctg) {
+          const cc = parseCondText(ctg[1]);
+          const restT = ctg[3];
+          if (cc && Object.keys(cc).length && (TRIGGERS.some((t) => t.re.test(restT)) || parseTriggerHead(restT))) {
+            line = restT;
+            linkFrom = abilities.length;
+            linkCond = cc;
+          }
+        }
       }
       // パワーがN以上のとき「X」を得る
       const pw = line.match(/^このクリーチャーは(、)?パワーが(\d+)以上の(とき|時|間)、「(.+?)」を得る。?$/);
