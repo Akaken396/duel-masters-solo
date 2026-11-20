@@ -2349,6 +2349,19 @@
         this.log(`「${card.def.name}」は墓地以外へは離れず、バトルゾーンにとどまった`);
         return false;
       }
+      if (toZone !== 'battle' && this.isCreature(card) && this.permanents(card.owner).some((s2) => this.kw(s2).leaveSubFaceUp)) {
+        const fu = [0, 1].flatMap((q) => [...this.p[q].shields.filter((x) => x.faceUp), ...this.p[q].shields.flatMap((x) => (x.under || []).filter((u) => u.faceUp))]);
+        if (fu.length && (await this.yesNo(card.owner, `「${card.def.name}」が離れるかわりに、シールドゾーンの表向きのカードを1枚墓地に置きますか？`, card))) {
+          const pick = this.p[card.owner].isAI ? [fu.find((x) => x.owner !== card.owner) || fu[0]] : await this.pickCards(card.owner, fu, 1, false, '墓地に置く表向きのカード', 'discard');
+          if (pick[0]) {
+            const wasShield = this.p[pick[0].owner].shields.includes(pick[0]);
+            this.moveTo(pick[0], 'grave');
+            this.log(`「${card.def.name}」は離れるかわりに、表向きの「${pick[0].def.name}」を墓地に置いた`);
+            if (wasShield) await this.shieldsLeft(pick[0].owner);
+            return false;
+          }
+        }
+      }
       if (toZone !== 'battle' && this.isCreature(card) && this.p[card.owner].shields.length) {
         for (const s2 of this.permanents(card.owner)) {
           const lh = this.kw(s2).leaveSubHand;
@@ -3366,7 +3379,7 @@
           if (['grave', 'battle', 'hand'].includes(this.zoneOf(src))) await this.stackOnShield(src, pi);
           break;
         case 'stackOppOnShield': {
-          const pool = op.battle.filter((c) => this.isCreature(c) && (a.maxCost == null || (+c.def.cost || 0) <= a.maxCost) && (!a.notEvo || !(c.under || []).length));
+          const pool = op.battle.filter((c) => (a.any || this.isCreature(c)) && (a.maxCost == null || (+c.def.cost || 0) <= a.maxCost) && (!a.notEvo || !(c.under || []).length));
           const r = await this.pickCards(pi, pool, a.n, !!a.optional, `${nm}: 持ち主のシールドの上に置く相手のクリーチャー`, 'target', 'bounce');
           for (const c of r) {
             if (this.cannotLeave(c)) {
@@ -4003,7 +4016,14 @@
           break;
         }
         case 'selfDestroy':
-          if (src && this.zoneOf(src) === 'battle') await this.destroyMany([src], { byOpp: false });
+          if (!src || this.zoneOf(src) !== 'battle') break;
+          if (a.optional && !(await this.yesNo(pi, `${nm}を破壊しますか？`, src))) break;
+          this._selfDestroyTried = true;
+          if (this.cannotLeave(src)) {
+            this.log(`${nm}は破壊しようとしたが、離れない`);
+            break;
+          }
+          await this.destroyMany([src], { byOpp: false });
           break;
         case 'selfToGrave':
           if (src && this.zoneOf(src) && this.zoneOf(src) !== 'grave') {
@@ -4091,8 +4111,9 @@
         case 'ifDo': {
           if (a.optional && !(await this.yesNo(pi, `${nm}: ${a.text}`, src))) break;
           const before = this.stateSig();
+          this._selfDestroyTried = false;
           await this.doAction(a.first, src, pi);
-          if (this.stateSig() === before) {
+          if (this.stateSig() === before && !(a.first.act === 'selfDestroy' && this._selfDestroyTried)) {
             this.log(`${nm}: できなかったので、その後の効果はない`);
             break;
           }
@@ -4680,6 +4701,7 @@
             const bl = blockers.find((c) => c.uid === r[0]);
             if (bl) {
               bl.tapped = true;
+              if (this.hasAbility(bl, 'tapped')) await this.trigger(bl, 'tapped', op.idx, bl.def, null, { defer: true });
               this.log(`${op.name}の「${bl.def.name}」がブロック！`);
               await this.pause();
               await this.trigger(bl, 'block', op.idx);
@@ -4825,6 +4847,27 @@
 
     async breakShields(pi, n, src) {
       const op = this.opp(pi);
+      if (src && src.owner === pi && this.zoneOf(src) === 'battle' && this.kw(src).dragonBreaker && !this._inDragonBreak) {
+        const me = this.p[pi];
+        const nb = Math.min(n, op.shields.length);
+        for (let i = 0; i < nb; i++) {
+          if (me.deck.length) {
+            const opts = [{ id: 'new', label: '山札の上を裏向きのまま新しいシールドにする' }];
+            if (me.shields.length) opts.push({ id: 'stack', label: '山札の上を表向きにして自分のシールドの上に置く' });
+            const [m] = await this.chooseModes(pi, `「${src.def.name}」のドラゴン・ブレイカー（${i + 1}回目のブレイクの前）`, opts, { aiPick: [me.shields.length ? 'stack' : 'new'] });
+            if (m === 'stack') await this.stackOnShield(me.deck[0], pi);
+            else if (await this.addShieldFromDeck(pi, 1)) this.log(`${me.name}は山札の上を新しいシールドにした`);
+          }
+          if (!op.shields.length) break;
+          this._inDragonBreak = true;
+          try {
+            await this.breakShields(pi, 1, src);
+          } finally {
+            this._inDragonBreak = false;
+          }
+        }
+        return;
+      }
       n = Math.min(n, op.shields.length);
       if (!n) return;
       // ブレイク身代わり（セイント・キャッスルなど）

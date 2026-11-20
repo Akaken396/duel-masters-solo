@@ -351,6 +351,7 @@
     }
     if ((m = s.match(/^カードを(\d+)枚、自分のシールドゾーンから手札に加え(る|てもよい)$/))) return { act: 'shieldToHand', n: +m[1], optional: m[2] !== 'る' };
     if (/^(この(クリーチャー|カード)を、?)?自分のシールド(1つ)?の上に表向きにして置く$/.test(s)) return { act: 'stackSelfOnShield' };
+    if ((m = s.match(/^(バトルゾーンにある)?相手のカードを(\d+)枚選び、表向きにして持ち主のシールド(1つ)?の上に置く$/))) return { act: 'stackOppOnShield', n: +m[2], any: true };
     if ((m = s.match(/^相手の(コスト(\d+)以下の)?(、)?(進化ではない)?クリーチャーを(\d+)体選び、持ち主のシールド(1つ)?の上に表向きにして置く$/))) return { act: 'stackOppOnShield', n: +m[5], maxCost: m[2] ? +m[2] : null, notEvo: !!m[4] };
     if ((m = s.match(/^自分の手札から([^、。]+?)を(\d+)枚、コストを支払わずに唱え(る|てもよい)$/))) return { act: 'castFromHand', n: +m[2], cond: lookCond(m[1]), optional: m[3] !== 'る' };
     if ((m = s.match(/^自分の手札を(\d+)枚まで捨て、その枚数より(\d+)枚多くカードを引く$/))) return { act: 'discardDrawPlus', n: +m[1], plus: +m[2] };
@@ -725,6 +726,14 @@
     const c = {};
     let m;
     if ((m = t.match(/^《(.+?)》$/))) return { nameIs: m[1], text: t };
+    // 「メタリカ、ドラゴン、呪文」のような並び（どれかに合えばよい）
+    if (/、/.test(t) && !/^(コスト|パワー|進化|名前|文明)|以下の、|以上の、|ではない/.test(t)) {
+      const parts = t.split(/、|または/).map((x) => x.trim()).filter(Boolean);
+      if (parts.length >= 2 && parts.every((x) => !/^(コスト|パワー)/.test(x))) {
+        const subs = parts.map((x) => lookCond(x));
+        if (subs.every((x) => !x.unknown)) return { any: subs, text: t };
+      }
+    }
     let nameNot = null;
     if ((m = t.match(/名前が《(.+?)》ではない(、)?/))) {
       nameNot = m[1];
@@ -1077,6 +1086,11 @@
         const then = parseEffects(sent[0]);
         if (then && then[0].act !== 'manualNote') {
           const restTxt = sent.slice(1).join('。').trim();
+          // 「〜なら、Xしてもよい。そうしたら、Y」は Y も条件の内側
+          if (/^(そうしたら|そうした場合)、/.test(restTxt)) {
+            const whole = parseEffects(cdm[3]);
+            if (whole && !whole.some((x) => x.act === 'manualNote')) return [{ act: 'ifCond', cond, acts: whole, text: cdm[1] }];
+          }
           return [{ act: 'ifCond', cond, acts: then, text: cdm[1] }, ...afterActs(restTxt)];
         }
       }

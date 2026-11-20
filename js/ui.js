@@ -376,16 +376,15 @@
       e.style.setProperty('--cw', '54px');
       e.addEventListener('contextmenu', (ev) => manualMenu(ev, c, 'shields'));
       if ((c.under || []).length) {
-        // シールドの上に重なった表向きのカード（裁きの紋章など）
-        const wrap = el('div', { class: 'shstack', title: '重なっているカード：' + c.under.map((u) => u.def.name).join('、') });
-        wrap.append(e);
-        for (const u of c.under) {
-          const ue = cardFace(u.def, { inst: u, nameBadge: true });
-          ue.style.setProperty('--cw', '54px');
-          ue.classList.add('stacked');
-          ue.addEventListener('contextmenu', (ev) => manualMenu(ev, u, 'shields'));
-          wrap.append(ue);
-        }
+        // シールドの束：一番上のカードだけ表示し、クリックで中身を見る
+        const topC = c.under[c.under.length - 1];
+        const te = cardFace(topC.def, { inst: topC, nameBadge: true });
+        te.style.setProperty('--cw', '54px');
+        te.classList.add('click');
+        te.title = 'クリックで束の中身を見る';
+        te.addEventListener('contextmenu', (ev) => manualMenu(ev, topC, 'shields'));
+        te.addEventListener('click', () => shieldStackModal(c));
+        const wrap = el('div', { class: 'shstack' }, te, el('span', { class: 'n', text: '束' + (c.under.length + 1) }));
         sh.c.append(wrap);
       } else sh.c.append(e);
     });
@@ -584,6 +583,17 @@
     ]);
   }
 
+  // シールドの束の中身（上から順に）
+  function shieldStackModal(sh) {
+    const box = el('div', { class: 'opts' });
+    for (const u of sh.under.slice().reverse()) {
+      const ue = cardFace(u.def, { inst: u });
+      ue.addEventListener('contextmenu', (ev) => manualMenu(ev, u, 'shields'));
+      box.append(el('div', { class: 'opt' }, ue, el('div', { text: '表向き' })));
+    }
+    box.append(el('div', { class: 'opt' }, sh.faceUp ? cardFace(sh.def, { inst: sh }) : cardBack('?'), el('div', { text: sh.faceUp ? '一番下（表向き）' : '一番下：裏向きのシールド' })));
+    openModal(el('h3', { text: `シールドの束（${sh.under.length + 1}枚・上から順に）　右クリックで移動` }), box, el('div', { class: 'acts' }, el('button', { text: '閉じる', onclick: () => closeModal() })));
+  }
   function graveModal(pi) {
     pileModal(pi, 'grave');
   }
