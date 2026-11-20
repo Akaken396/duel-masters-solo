@@ -1380,6 +1380,11 @@
 
     async endTurnEffects() {
       for (const pl of this.p) for (const c of pl.battle.slice()) {
+        if (c._uraEnd !== this.turn) continue;
+        delete c._uraEnd;
+        if (await this.leave(c, 'deck', { byOpp: false, moveOpt: { top: false } })) this.log(`ウラ・ニンジャ・ストライク：「${c.def.name}」を山札の下に置いた`);
+      }
+      for (const pl of this.p) for (const c of pl.battle.slice()) {
         if (c._joeTurn !== this.turn) continue;
         delete c._joeTurn;
         const jo = parsed(c.def).kw.joe;
@@ -2551,6 +2556,20 @@
       await this.trigger(card, 'summon', pi);
       if (how === 'summon' && this.zoneOf(card) === 'battle') await this.trigger(card, 'summonOnly', pi);
       if (this.zoneOf(card) === 'battle' && this.kw(card).kizuna === 'enter') await this.kizunaUse(card, pi, 'one');
+      if (this.zoneOf(card) === 'battle' && this.kw(card).soulRaid) {
+        const me2 = this.p[pi];
+        const look = me2.deck.splice(0, Math.min(this.kw(card).soulRaid, me2.deck.length));
+        if (look.length) {
+          this.log(`超魂レイド：山札の上から${look.length}枚を表向きにした：${look.map((c) => c.def.name).join('、')}`);
+          const pool = look.filter((c) => this.isCreatureDef(c) || c.def.type === 'tamaseed');
+          const r = await this.pickCards(pi, pool, 1, true, '超魂レイド：このクリーチャーの下に置くカード', 'recover');
+          if (r[0]) {
+            card.under = (card.under || []).concat(r[0]);
+            this.log(`超魂レイド：「${r[0].def.name}」を「${card.def.name}」の下に置いた`);
+          }
+          me2.deck.push(...look.filter((c) => c !== r[0]));
+        }
+      }
       if (card._toHyperAfterEnter) {
         delete card._toHyperAfterEnter;
         if (this.zoneOf(card) === 'battle') {
@@ -6058,6 +6077,19 @@
             this.log(`${op.name}: ニンジャ・ストライク！`);
             await this.enterBattle(r[0], op.idx, 'other');
             if (this.zoneOf(r[0]) === 'battle') r[0].returnAtEnd = true;
+          }
+          if (r[0]) this._ninjaUsedAttack = card.uid;
+        }
+        // ウラ・ニンジャ・ストライク：ニンジャ・ストライクを使っていなければ、条件を満たすシノビを召喚。ターンの終わりに山札の下へ
+        if (this._ninjaUsedAttack !== card.uid) {
+          const uras = op.hand.filter((h) => { const u = parsed(h.def).kw.uraNinja; return u && op.mana.length >= u.n && (!u.civ || op.mana.some((m) => !m.faceDown && (m.def.civs || []).includes(u.civ))); });
+          if (uras.length) {
+            const r = await this.pickCards(op.idx, uras, 1, true, 'ウラ・ニンジャ・ストライクで召喚するシノビ（任意）', 'recover');
+            if (r[0]) {
+              this.log(`${op.name}: ウラ・ニンジャ・ストライク！`);
+              await this.enterBattle(r[0], op.idx, 'summon');
+              if (this.zoneOf(r[0]) === 'battle') r[0]._uraEnd = this.turn;
+            }
           }
         }
         // 攻撃された時
