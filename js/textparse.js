@@ -786,6 +786,7 @@
     let mm;
     ct = ct.replace(/(である間|ある間|の間|いる間)$/, '');
     if ((mm = ct.match(/^それが(その|この)ターン(はじめて|最初)の攻撃(であれば|なら)$/))) return { firstAttack: true };
+    if ((mm = ct.match(/^このクリーチャーが(カード(\d+)枚で)?リンクして(いれば|いる|いる時|い)?$/))) return { linked: mm[2] ? +mm[2] : 2 };
     if ((mm = ct.match(/^それが(その|この)ターン(はじめて|最初)の攻撃でなければ$/))) return { notFirstAttack: true };
     if ((mm = ct.match(/^(カードがこれの下に|このクリーチャーの下に(\d+)枚以上カードが|このクリーチャーにカードが(\d+)枚以上含まれて)(あれば|いれば)$/))) return { underGE: mm[2] ? +mm[2] : mm[3] ? +mm[3] - 1 : 1 };
     if ((mm = ct.match(/^相手の手札が(\d+)枚もなければ$/))) return { oppHandLE: +mm[1] - 1 };
@@ -1122,10 +1123,39 @@
     }
 
     let tapNext = false;
+    let linkFrom = null;
+    const applyLink = () => {
+      if (linkFrom == null) return;
+      for (const ab of abilities.slice(linkFrom)) ab.cond = ab.cond ? { and: [ab.cond, { linked: 2 }] } : { linked: 2 };
+      linkFrom = null;
+    };
     for (const rawObj of lines) {
+      applyLink();
       const raw = String(rawObj);
       let line = stripReminder(raw);
       if (!line) continue;
+      // 「このクリーチャーがリンクしていて○○時」「リンクしている時、○○時」は、リンク中だけ誘発する
+      const lk = line.match(/^このクリーチャーがリンクしてい(て、?|る(時|間)、)(?=(攻撃する|バトルに勝った|ブロックした|自分のターンのはじめ|自分のターンの終わり|相手のクリーチャーが|自分の))/);
+      if (lk) {
+        line = line.slice(lk[0].length).replace(/^(攻撃する|バトルに勝った|ブロックした)/, 'このクリーチャーが$1');
+        linkFrom = abilities.length;
+      }
+      // ビビッドロー：コストは注意書きの中にある
+      if (/^ビビッドロー\s*$/.test(line)) {
+        const vm = raw.match(/〔代替([lwdfnc]+)(\d+)〕/);
+        if (vm) {
+          const CV = { l: 'light', w: 'water', d: 'darkness', f: 'fire', n: 'nature' };
+          (inHyper ? hyper.kw : kw).vivid = { cost: +vm[2], civs: [...new Set(vm[1].split(''))].filter((x) => CV[x]).map((x) => CV[x]) };
+          continue;
+        }
+      }
+      // 侍流ジェネレート：出た時、手札のクロスギアをコストなしでジェネレート
+      if (/^侍流ジェネレート\s*$/.test(line)) {
+        A_PUSH('summon', { when: 'summon', acts: [{ act: 'generateFromHand', optional: true }], text: raw });
+        continue;
+      }
+      // リンクしている時の能力
+      line = line.replace(/^このクリーチャーは、?リンクしている(時|間)、?(「)/, 'このクリーチャーがリンクしている間、このクリーチャーは$2').replace(/^このクリーチャーは、?リンクしている(時|間)、/, 'このクリーチャーがリンクしている間、');
       // 「この呪文を〔代替〕支払って唱えてもよい。そうしたら、○○」
       const alp = line.match(/^この(呪文|クリーチャー)を〔代替([lwdfn]+)(\d+)〕支払って(唱えて|召喚して)もよい。((そうしたら|そうした場合)、(.+))?$/);
       if (alp) {
@@ -1454,6 +1484,7 @@
       }
     }
     // パワーアタッカー・ブレイカーなどの初期値
+    applyLink();
     for (const ab of abilities) if (FROM_HAND(ab.acts) || (ab.modal && ab.modal.options.some((o) => FROM_HAND(o.acts)))) ab.fromHand = true;
     return { kw, abilities, manual, known, hyper: hyperUsed ? hyper : null };
   }
@@ -1511,6 +1542,7 @@
     putFromMana: (a) => `マナから${a.cond.text}を${a.n}体出す`,
     selfFromHand: () => 'このクリーチャーを手札から出す',
     selfDiscardFromHand: () => 'このカードを手札から捨てる',
+    generateFromHand: () => '手札のクロスギアをコストなしでジェネレート',
     graveAnyToMana: (a) => `墓地の${a.cond.text}を好きな数マナへ`,
     moveEvent: (a) => `それを${ZONE_JA[a.to] || a.to}へ`,
     putSumCost: (a) => `${a.from === 'grave' ? '墓地' : '手札'}からコスト合計${a.max}以下で好きな数出す`,
