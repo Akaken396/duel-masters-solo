@@ -1769,6 +1769,18 @@
       const bb = rawLines[i].match(/^ブレイク・ボーナス\s*[(（][^)）]*[)）]\s*(.+)$/);
       if (bb) rawLines[i] = 'ブレイクボーナス〔〕、' + bb[1];
     }
+    // キズナのP能力：「[P]」「P」「oP」で始まる行
+    for (let i = 0; i < rawLines.length; i++) {
+      const t = stripReminder(rawLines[i]).trim();
+      const kz = t.match(/^((スーパー)?キズナ(コンプ|プラス)?)\s*(\[P\]|oP|P)\s*(.+)$/);
+      if (kz) {
+        rawLines.splice(i, 1, kz[1], '〔P能力〕' + kz[5]);
+        i++;
+        continue;
+      }
+      const pm = t.match(/^(\[P\]|oP\s|P(?=[^\x00-\x7F]))\s*(.+)$/);
+      if (pm && !/^P能力/.test(pm[2])) rawLines[i] = '〔P能力〕' + pm[2];
+    }
     // スペース・チャージ：「q 文明：効果」を、マナに置かれた時の誘発に書き換える
     {
       const CVQ = { 光: 'light', 水: 'water', 闇: 'darkness', 火: 'fire', 自然: 'nature', 多色: 'multi' };
@@ -2267,6 +2279,13 @@
       if (mgu) {
         A.push({ when: 'mugetsuUsed', fromGrave: true, fromHand: !!mgu[1], acts: [], text: raw });
         continue;
+      }
+      if (/^〔P能力〕/.test(line)) {
+        const pa = parseEffects(line.replace(/^〔P能力〕\s*/, '').replace(/。$/, ''));
+        if (pa && !pa.some((x) => x.act === 'manualNote')) {
+          A.push({ when: 'kizunaP', acts: pa, text: raw });
+          continue;
+        }
       }
       if (/^ブレイクボーナス〔〕、/.test(line)) {
         const bba = parseEffects(line.replace(/^ブレイクボーナス〔〕、/, '').replace(/。$/, ''));

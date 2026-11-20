@@ -2390,6 +2390,7 @@
       if (this._suppressEnter) return true; // 出ることで起こる効果を無視する時
       await this.trigger(card, 'summon', pi);
       if (how === 'summon' && this.zoneOf(card) === 'battle') await this.trigger(card, 'summonOnly', pi);
+      if (this.zoneOf(card) === 'battle' && this.kw(card).kizuna === 'enter') await this.kizunaUse(card, pi, 'one');
       if (card._toHyperAfterEnter) {
         delete card._toHyperAfterEnter;
         if (this.zoneOf(card) === 'battle') {
@@ -2906,6 +2907,24 @@
       const sc = this.script(def);
       if (sc && sc[when]) return true;
       return this.abilities(card, def).some((ab) => ab.when === when);
+    }
+    // キズナ：自分のクリーチャーのP能力を使う
+    hasP(c) {
+      return this.abilities(c).some((ab) => ab.when === 'kizunaP');
+    }
+    async runP(c, pi) {
+      for (const ab of this.abilities(c)) {
+        if (ab.when !== 'kizunaP') continue;
+        this.log(`「${c.def.name}」のP能力を使う`);
+        for (const a of ab.acts) await this.doAction(a, c, pi);
+      }
+    }
+    async kizunaUse(src, pi, mode) {
+      const pool = this.p[pi].battle.filter((c) => this.isCreature(c) && this.hasP(c) && (mode !== 'other' || c !== src));
+      if (!pool.length) return;
+      const n = mode === 'any' ? pool.length : 1;
+      const r = await this.pickCards(pi, pool, n, mode === 'any', `キズナ：P能力を使うクリーチャーを${mode === 'any' ? '好きな数' : '1体'}選んでください`, 'recover');
+      for (const c of r) await this.runP(c, pi);
     }
     // 無月の門：魔導具を重ねて、手札か墓地から召喚する
     async mugetsuCheck(pi, when) {
@@ -5647,6 +5666,16 @@
       await this.pause();
       // 攻撃する時の誘発をすべて待機に入れ、ターンプレイヤー→相手の順に、それぞれ好きな順番で解決する
       await this.allyEvent(card, pi, 'allyAttack');
+      if (this.kw(card).kizuna === 'comp') await this.queueFn(card, pi, `「${card.def.name}」のキズナコンプ`, () => this.kizunaUse(card, pi, 'any'), { defer: true });
+      if (this.kw(card).kizuna === 'plus' && (card.under || []).length) await this.queueFn(card, pi, `「${card.def.name}」のキズナプラス`, async () => {
+        if (!(card.under || []).length || this.zoneOf(card) !== 'battle') return;
+        if (!(await this.yesNo(pi, `キズナプラス：「${card.def.name}」の下のカードを1枚墓地に置きますか？`, card))) return;
+        const u = card.under.pop();
+        this.p[u.owner].grave.push(u);
+        this.log(`キズナプラス：下の「${u.def.name}」を墓地に置いた`);
+        await this.runP(card, pi);
+        await this.kizunaUse(card, pi, 'other');
+      }, { defer: true });
       // D・D・D：自分のクリーチャーが攻撃する時、手札から指定のコストで使える
       for (const c of me.hand.slice()) {
         const dd = parsed(c.def).kw.ddd || (c.def.twin && parsed(c.def.twin).kw.ddd);
