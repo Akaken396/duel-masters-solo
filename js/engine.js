@@ -6400,6 +6400,17 @@
           }
         }
       }
+      // S・バック：指定のカードがシールドから手札に来た時、それを捨てて手札のこのカードをタダで使う
+      for (const c of this.p[op.idx].hand.slice()) {
+        const sb = parsed(c.def).kw.sBack || (c.def.twin && parsed(c.def.twin).kw.sBack);
+        if (!sb) continue;
+        const fits = picked.filter((x) => x !== c && this.zoneOf(x) === 'hand' && this.fitLook(x, G.TextParse.lookCond(sb.replace(/^(光|水|闇|火|自然)$/, '$1のカード'))));
+        if (!fits.length || this.zoneOf(c) !== 'hand') continue;
+        if (!(await this.yesNo(op.idx, `S・バック：「${fits[0].def.name}」を捨てて「${c.def.name}」をコストを支払わずに使いますか？`, c))) continue;
+        await this.discardCard(fits[0], op.idx);
+        this.log(`${this.p[op.idx].name}はS・バックで「${c.def.name}」を使った`);
+        await this.putIntoPlay(op.idx, c, true);
+      }
     }
 
     // ===== 手動操作（ルールを無視して動かす） =====
