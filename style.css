@@ -261,3 +261,7 @@ header nav button.on { background: var(--panel2); border-color: var(--line); }
 /* 手動で処理する文の数 */
 .mc { font-size: 10px; padding: 0 4px; border-radius: 6px; background: #b45309; color: #fff; margin-left: 4px; white-space: nowrap; }
 .gi .mc { position: absolute; left: 2px; bottom: 2px; margin: 0; }
+
+/* シールドの束（上に重なった表向きのカード） */
+.shstack { display: inline-flex; flex-direction: column; gap: 0; }
+.shstack .stacked { margin-top: -46px; box-shadow: 0 -2px 6px rgba(0, 0, 0, 0.5); }

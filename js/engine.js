@@ -539,7 +539,8 @@
       }
       if (c.n != null && c.manaCiv !== undefined && me.mana.filter((m) => !c.manaCiv || (m.def.civs || []).includes(c.manaCiv)).length < c.n) return false;
       if (c.count && this.countOwn(pi, c.count.what) < c.count.n) return false;
-      if (c.faceUpShieldsGE != null && me.shields.filter((s) => s.faceUp).length < c.faceUpShieldsGE) return false;
+      if (c.faceUpShieldsGE != null && this.faceUpInShields(pi) < c.faceUpShieldsGE) return false;
+      if (c.faceUpAllShieldsGE != null && this.faceUpInShields(0) + this.faceUpInShields(1) < c.faceUpAllShieldsGE) return false;
       return this.condOk(pi, c);
     }
     // 条件の比較
@@ -666,7 +667,7 @@
     // 場で効果を持つカード（バトルゾーン＋表向きシールド）
     permanents(pi) {
       const pl = this.p[pi];
-      return [...pl.battle, ...pl.shields.filter((s) => s.faceUp)];
+      return [...pl.battle, ...pl.shields.filter((s) => s.faceUp), ...pl.shields.flatMap((s) => (s.under || []).filter((u) => u.faceUp))];
     }
     // その手番プレイヤー pi にとっての「次の pi のターン」
     nextTurnOf(pi) {
@@ -832,7 +833,53 @@
           if (i >= 0) return { card: pl[z][i], zone: z, player: pl, index: i };
         }
       }
+      // シールドの上に重ねて置かれたカード（裁きの紋章など）は、シールドゾーンにある扱い
+      for (const pl of this.p) {
+        for (const sh of pl.shields) {
+          const i = (sh.under || []).findIndex((c) => c.uid === uid);
+          if (i >= 0) return { card: sh.under[i], zone: 'shields', player: pl, index: i, arr: sh.under, host: sh };
+        }
+      }
       return null;
+    }
+    // シールドゾーンにある表向きのカードの数（束に重なったものも数える）
+    faceUpInShields(pi) {
+      const sh = this.p[pi].shields;
+      return sh.filter((s) => s.faceUp).length + sh.reduce((t, s) => t + (s.under || []).filter((u) => u.faceUp).length, 0);
+    }
+    isSabakiCrest(card) {
+      return (card.def.races || []).some((r) => /^裁きの紋章/.test(r));
+    }
+    // サバキZ：裁きの紋章がシールドゾーンから手札に加わったら、それを捨ててサバキZの呪文を唱えてよい
+    async sabakiZ(pi) {
+      const came = (this._stackToHand || []).filter((c) => c.owner === pi && this.zoneOf(c) === 'hand' && this.isSabakiCrest(c));
+      this._stackToHand = (this._stackToHand || []).filter((c) => c.owner !== pi);
+      for (const crest of came) {
+        const zs = this.p[pi].hand.filter((c) => c !== crest && parsed(c.def).kw.sabakiZ && !this.locked(pi, c.def));
+        if (!zs.length || this.zoneOf(crest) !== 'hand') continue;
+        const r = await this.pickCards(pi, zs, 1, true, `サバキZ：「${crest.def.name}」を捨てて、コストを支払わずに唱える呪文`, 'recover');
+        if (!r.length) continue;
+        await this.discardCard(crest, pi);
+        this.log(`サバキZ：「${crest.def.name}」を捨てて「${r[0].def.name}」を唱える`);
+        await this.putIntoPlay(pi, r[0], true);
+      }
+    }
+    // カードを自分（owner）のシールド1つの上に表向きで重ねる
+    async stackOnShield(card, chooser = card.owner) {
+      const pl = this.p[card.owner];
+      if (!pl.shields.length) {
+        this.log(`${pl.name}にシールドがないので、「${card.def.name}」はシールドの上に置けない`);
+        return;
+      }
+      const host = pl.isAI && chooser === card.owner ? pl.shields[pl.shields.length - 1] : (await this.pickCards(chooser, pl.shields, 1, false, `「${card.def.name}」を上に重ねるシールド`, 'shield'))[0];
+      const f = this.find(card.uid);
+      if (f) (f.arr || f.player[f.zone]).splice(f.index, 1);
+      card.tapped = false;
+      card.under = null;
+      card.faceUp = true;
+      host.under = host.under || [];
+      host.under.push(card);
+      this.log(`「${card.def.name}」を${pl.name}のシールドの上に表向きで置いた（シールドの束は1つと数える）`);
     }
 
     zoneOf(card) {
@@ -855,7 +902,7 @@
       const top = o.top !== false;
       let tapped = !!o.tapped;
       const f = this.find(card.uid);
-      if (f) f.player[f.zone].splice(f.index, 1);
+      if (f) (f.arr || f.player[f.zone]).splice(f.index, 1);
       const from = f ? f.zone : null;
       const owner = this.p[card.owner];
       if (from === 'mana' && zone !== 'mana') delete card.faceDown;
@@ -880,7 +927,19 @@
         card.attacking = false;
         card.sick = false;
       }
+      if (from === 'shields' && zone !== 'shields' && !(f && f.arr) && (card.under || []).length) {
+        const stack = card.under.splice(0);
+        card.under = null;
+        const dest = zone === 'battle' ? 'hand' : zone;
+        for (const u of stack) {
+          u.faceUp = false;
+          (dest === 'deck' ? owner.deck : this.p[u.owner][dest]).push(u);
+          if (dest === 'hand') this._stackToHand = (this._stackToHand || []).concat(u);
+        }
+        this.log(`シールドの束に重なっていた${stack.map((u) => '「' + u.def.name + '」').join('')}も${{ hand: '手札', grave: '墓地', mana: 'マナゾーン', deck: '山札' }[dest] || dest}へ`);
+      }
       if (from === 'shields' && zone !== 'shields') {
+        if (zone === 'hand' && this.isSabakiCrest(card)) this._stackToHand = (this._stackToHand || []).concat(card);
         card.faceUp = false;
         for (const c of this.p[card.owner].battle) {
           if (parsed(c.def).kw.zRush) {
@@ -1368,7 +1427,8 @@
       }
       const k = parsed(def).kw;
       const me = this.p[pi];
-      if (k.sympathy) {
+      if (k.sympathy && /シールドゾーンにある表向き/.test(k.sympathy)) cost -= this.faceUpInShields(pi);
+      else if (k.sympathy) {
         const w = k.sympathy.replace(/^自分の/, '');
         const n = me.battle.filter((c) => this.isCreature(c) && (w === 'クリーチャー' || ((c.def.races || []).join('/') + c.def.name).includes(w))).length;
         cost -= n;
@@ -1878,6 +1938,7 @@
       const fr = free ? 'コストを払わずに' : '';
       if (def.type === 'spell') {
         this.log(`${name}は呪文「${def.name}」を${fr}唱えた`);
+        const castFrom = this.zoneOf(card);
         this.spellsThisTurn[pi]++;
         // 解決中は墓地へ（DMでは唱えた後に墓地）
         this.moveTo(card, 'grave');
@@ -1898,7 +1959,10 @@
           this.moveTo(card, 'hand');
           this.log(`「${def.name}」は唱えた後、手札に戻った`);
         }
-        if (parsed(def).kw.fortifyAfterCast && this.zoneOf(card) === 'grave' && this.p[pi].shields.length) {
+        if (parsed(def).kw.fortifyAfterCast && this.zoneOf(card) === 'grave' && (!parsed(def).kw.fortifyFromHand || castFrom === 'hand')) {
+          await this.stackOnShield(card, pi);
+        }
+        if (false) {
           this.moveTo(card, 'shields');
           card.faceUp = true;
           this.log(`「${def.name}」はシールドの上に表向きで置かれた`);
@@ -3239,6 +3303,23 @@
           if (!ev || this.zoneOf(ev) !== 'battle' || this.zoneOf(src) !== 'battle' || ev === src) break;
           if (a.optional && !(await this.yesNo(pi, `${nm}: 「${ev.def.name}」とバトルさせますか？`, src))) break;
           await this.battle(src, ev);
+          break;
+        }
+        case 'stackSelfOnShield':
+          if (['grave', 'battle', 'hand'].includes(this.zoneOf(src))) await this.stackOnShield(src, pi);
+          break;
+        case 'stackOppOnShield': {
+          const pool = op.battle.filter((c) => this.isCreature(c) && (a.maxCost == null || (+c.def.cost || 0) <= a.maxCost) && (!a.notEvo || !(c.under || []).length));
+          const r = await this.pickCards(pi, pool, a.n, !!a.optional, `${nm}: 持ち主のシールドの上に置く相手のクリーチャー`, 'target', 'bounce');
+          for (const c of r) {
+            if (this.cannotLeave(c)) {
+              this.log(`「${c.def.name}」は離れない`);
+              continue;
+            }
+            const under = (c.under || []).splice(0);
+            for (const u of under) this.p[u.owner].grave.push(u);
+            await this.stackOnShield(c, pi);
+          }
           break;
         }
         case 'breakOwn':
@@ -4731,12 +4812,17 @@
           this.log(`ブレイクされたシールドは、手札ではなく墓地に置かれた`);
           continue;
         }
-        if (s.faceUp) {
-          // 表向き（城など）は手札ではなく墓地へ
+        if (s.faceUp && s.def.type === 'castle') {
+          // 城は手札ではなく墓地へ
           this.moveTo(s, 'grave');
           this.log(`城「${s.def.name}」は墓地に置かれた`);
-        } else this.moveTo(s, 'hand');
+        } else {
+          const st = (s.under || []).slice();
+          this.moveTo(s, 'hand');
+          picked.push(...st.filter((u) => this.zoneOf(u) === 'hand'));
+        }
       }
+      picked = [...new Set(picked)];
       this.log(`${op.name}のシールドを${picked.length}つブレイクした（残り${op.shields.length}）`);
       for (const s2 of this.permanents(op.idx)) if (this.isOnField(s2) && this.hasAbility(s2, 'ownShieldBroken')) await this.trigger(s2, 'ownShieldBroken', op.idx, s2.def, null, { defer: true });
       await this.pause();
@@ -4744,6 +4830,7 @@
       if (src && this.zoneOf(src) === 'battle') await this.trigger(src, 'broke', src.owner);
       if (src && this.zoneOf(src) === 'battle') await this.notifyAll('onBreak', src);
       await this.shieldsLeft(op.idx);
+      await this.sabakiZ(op.idx);
       // 手札に加わったシールドの中から、使うS・トリガー／G・ストライクを先に宣言し、選んだ順に使う
       const cands = [];
       for (const sh of picked) {

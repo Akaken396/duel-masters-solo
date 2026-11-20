@@ -334,6 +334,9 @@
     }
     if ((m = s.match(/^それを(持ち主の)?(マナゾーンに置|シールド化|手札に戻|山札の下に置)(く|する|す|いてもよい|してもよい)$/))) return { act: 'moveEvent', to: { マナゾーンに置: 'mana', シールド化: 'shields', 手札に戻: 'hand', 山札の下に置: 'deckBottom' }[m[2]], optional: /もよい/.test(m[3]) };
     if ((m = s.match(/^コストの合計が(\d+)以下になるように(、)?([^、。]*?)クリーチャーを好きな数(、)?自分の(墓地|手札)から(バトルゾーンに)?出す$/))) return { act: 'putSumCost', max: +m[1], from: m[5] === '墓地' ? 'grave' : 'hand', cond: m[3] ? lookCond(m[3].replace(/の$/, '')) : null };
+    if (/^(この(クリーチャー|カード)を、?)?自分のシールド(1つ)?の上に表向きにして置く$/.test(s)) return { act: 'stackSelfOnShield' };
+    if ((m = s.match(/^相手の(コスト(\d+)以下の)?(、)?(進化ではない)?クリーチャーを(\d+)体選び、持ち主のシールド(1つ)?の上に表向きにして置く$/))) return { act: 'stackOppOnShield', n: +m[5], maxCost: m[2] ? +m[2] : null, notEvo: !!m[4] };
+    if ((m = s.match(/^自分の手札から([^、。]+?)を(\d+)枚、コストを支払わずに唱え(る|てもよい)$/))) return { act: 'castFromHand', n: +m[2], cond: lookCond(m[1]), optional: m[3] !== 'る' };
     if ((m = s.match(/^自分の手札を(\d+)枚まで捨て、その枚数より(\d+)枚多くカードを引く$/))) return { act: 'discardDrawPlus', n: +m[1], plus: +m[2] };
     if ((m = s.match(/^各プレイヤーは(、)?自身の手札を(\d+)枚選んで捨てる$/))) return { act: 'seq', acts: [{ act: 'selfDiscard', n: +m[2] }, { act: 'asOpp', acts: [{ act: 'selfDiscard', n: +m[2] }] }] };
     if ((m = s.match(/^自分のマナゾーンのカードを(\d+)枚(まで)?アンタップする$/))) return { act: 'untapManaN', n: +m[1] };
@@ -477,6 +480,7 @@
       return { act: 'endTurnLast', to: { 破壊する: 'destroy', 手札に戻す: 'hand', 山札の下に置く: 'deckBottom', マナゾーンに置く: 'mana' }[m[3]] };
     if (/^この(クリーチャー|タマシード|カード|フィールド|クロスギア)を破壊(する|してもよい)$/.test(s)) return { act: 'selfDestroy', optional: /もよい/.test(s) };
     // すべてアンタップ
+    if ((m = s.match(/^自分の([^、。]+?)をすべてアンタップ(する|してもよい)$/)) && !/クリーチャー|マナ|カード/.test(m[1])) return { act: 'untapAll', others: false, nameHas: null, evoOnly: false, race: m[1], optional: m[2] !== 'する' };
     if ((m = s.match(/^(バトルゾーンにある)?自分の(他の)?(、)?(名前に《(.+?)》とある)?(進化)?((.+?)・)?クリーチャー(をすべて|すべてを)アンタップする$/)))
       return { act: 'untapAll', others: !!m[2], nameHas: m[5] || null, evoOnly: !!m[6], race: m[8] || null };
     if (/^(この(クリーチャー|カード)を)?アンタップする$/.test(s)) return { act: 'untapSelf', optional: false };
@@ -856,6 +860,7 @@
     if ((mm = ct.match(/^それが(その|この)ターン(はじめて|最初)の攻撃(であれば|なら)$/))) return { firstAttack: true };
     if ((mm = ct.match(/^このクリーチャーが(カード(\d+)枚で)?リンクして(いれば|いる|いる時|い)?$/))) return { linked: mm[2] ? +mm[2] : 2 };
     if (/^自分のシールドの数が相手のより多ければ$/.test(ct)) return { shieldsMore: true };
+    if ((mm = ct.match(/^すべてのシールドゾーンにある表向きのカードの(合計|数)が(\d+)枚以上(なら|あれば)$/))) return { faceUpAllShieldsGE: +mm[2] };
     if ((mm = ct.match(/^コストが異なる自分のエレメントが(\d+)(つ|枚|体)以上あれば$/))) return { distinctCosts: +mm[1] };
     if ((mm = ct.match(/^(バトルゾーンに)?自分の(、)?名前に[《「](.+?)[》」]を?(持つ|とある)クリーチャーが(\d+)体以上(バトルゾーンに)?あれば$/))) return { count: { what: mm[3], n: +mm[5] } };
     if ((mm = ct.match(/^それが(その|この)ターン(はじめて|最初)の攻撃でなければ$/))) return { notFirstAttack: true };
@@ -1724,6 +1729,8 @@
     putFromMana: (a) => `マナから${a.cond.text}を${a.n}体出す`,
     selfFromHand: () => 'このクリーチャーを手札から出す',
     selfDiscardFromHand: () => 'このカードを手札から捨てる',
+    stackSelfOnShield: () => 'このカードをシールドの上に表向きで置く',
+    stackOppOnShield: (a) => `相手のクリーチャー${a.n}体を持ち主のシールドの上に表向きで置く`,
     discardDrawPlus: (a) => `手札を${a.n}枚まで捨て、捨てた数+${a.plus}枚引く`,
     gearToGrave: (a) => `クロスギアを${a.n}枚墓地へ`,
     oppManaToGrave: (a) => `相手のマナを${a.n}枚墓地へ`,

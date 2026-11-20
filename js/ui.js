@@ -375,7 +375,19 @@
       const e = c.faceUp ? cardFace(c.def, { inst: c, nameBadge: true }) : cardBack(i + 1);
       e.style.setProperty('--cw', '54px');
       e.addEventListener('contextmenu', (ev) => manualMenu(ev, c, 'shields'));
-      sh.c.append(e);
+      if ((c.under || []).length) {
+        // シールドの上に重なった表向きのカード（裁きの紋章など）
+        const wrap = el('div', { class: 'shstack', title: '重なっているカード：' + c.under.map((u) => u.def.name).join('、') });
+        wrap.append(e);
+        for (const u of c.under) {
+          const ue = cardFace(u.def, { inst: u, nameBadge: true });
+          ue.style.setProperty('--cw', '54px');
+          ue.classList.add('stacked');
+          ue.addEventListener('contextmenu', (ev) => manualMenu(ev, u, 'shields'));
+          wrap.append(ue);
+        }
+        sh.c.append(wrap);
+      } else sh.c.append(e);
     });
     const untapped = pl.mana.filter((m) => !m.tapped).length;
     const mana = zone('mana', `マナ ${untapped}/${pl.mana.length}　${manaCivSummary(pl)}`);
