@@ -939,6 +939,18 @@
         }
         this.log(`シールドの束に重なっていた${stack.map((u) => '「' + u.def.name + '」').join('')}も${{ hand: '手札', grave: '墓地', mana: 'マナゾーン', deck: '山札' }[dest] || dest}へ`);
       }
+      if (from === 'shields' && zone !== 'shields' && this.started) {
+        // EXライフのシールドが離れた
+        for (const pl2 of this.p) for (const bc of pl2.battle) {
+          if (bc.exLife === card.uid) bc.exLife = null;
+          else if ((bc.exLifes || []).includes(card.uid)) bc.exLifes = bc.exLifes.filter((u) => u !== card.uid);
+          else continue;
+          if (!this._exLifeByLeave && this.hasAbility(bc, 'exLifeLost')) {
+            this.pending = this.pending || [];
+            this.pending.push({ card: bc, when: 'exLifeLost', controller: bc.owner, def: bc.def, label: `【${pl2.name}】「${bc.def.name}」のEXライフシールドが離れた時の能力` });
+          }
+        }
+      }
       if (from === 'shields' && zone !== 'shields') {
         if (zone === 'hand' && this.isSabakiCrest(card)) this._stackToHand = (this._stackToHand || []).concat(card);
         card.faceUp = false;
@@ -958,7 +970,7 @@
         }
         delete card.sealCards;
         // 場を離れたら、場にいた間の状態を消す
-        for (const k of ['linkGroup', 'vividTurn', 'seals', 'exLife', 'forceShield', 'noLeaveUntil', 'frozenUntil', 'noAttackTurn', 'modesUsed', 'flipped', 'usedTurn', 'ignoreName', 'hyper', 'hyperUntil', 'jdUntil', 'returnAtEnd', 'badEnd', 'spellShieldUntil', 'blocking', 'protectUntil', 'allyUsed', 'winAllUntil', 'firstAttackDone', 'lockedUntil', 'unblockableTurn', 'noDestroyUntil', 'abUsed']) delete card[k];
+        for (const k of ['linkGroup', 'vividTurn', 'seals', 'exLife', 'exLifes', 'forceShield', 'noLeaveUntil', 'frozenUntil', 'noAttackTurn', 'modesUsed', 'flipped', 'usedTurn', 'ignoreName', 'hyper', 'hyperUntil', 'jdUntil', 'returnAtEnd', 'badEnd', 'spellShieldUntil', 'blocking', 'protectUntil', 'allyUsed', 'winAllUntil', 'firstAttackDone', 'lockedUntil', 'unblockableTurn', 'noDestroyUntil', 'abUsed']) delete card[k];
       }
       if (from === 'grave' && zone !== 'grave' && this.started) {
         for (const s of this.permanents(card.owner)) if (this.isOnField(s) && this.hasAbility(s, 'graveLeft')) {
@@ -1802,7 +1814,7 @@
       }
       await this.pay(pi, card, card.def);
       this.pendingEvoBase = null;
-      await this.putIntoPlay(pi, card, false, card.def, { evolveFrom });
+      await this.putIntoPlay(pi, card, false, card.def, { evolveFrom, evoChosen: true });
       return true;
     }
 
@@ -2103,7 +2115,7 @@
       }
       let base = o.evolveFrom;
       // 効果で出す時（墓地・山札・マナなどから）も、進化・NEO進化クリーチャーは進化元の上に重ねて出せる
-      if (!base && !(o.underCards && o.underCards.length) && how !== 'summon' && o.via !== 'change' && this.zoneOf(card) !== 'battle') {
+      if (!base && !o.evoChosen && !(o.underCards && o.underCards.length) && o.via !== 'change' && this.zoneOf(card) !== 'battle') {
         const ek = this.evoKind(card.def);
         if (ek === 'neo' || ek === 'evo') {
           const bases = this.evoBases(pi, card.def).filter((c) => c !== card);
@@ -2122,6 +2134,23 @@
         base.under = null;
         card.tapped = base.tapped;
         card.sick = false; // 進化クリーチャーは召喚酔いしない
+        // 進化元にかかっていた効果は、進化したクリーチャーに引き継ぐ
+        for (const k of ['tempPower', 'noAttackTurn', 'lockedUntil', 'frozenUntil', 'noDestroyUntil', 'noLeaveUntil', 'winAllUntil', 'unblockableTurn', 'protectUntil', 'spellShieldUntil', 'jdUntil', 'tempBreak', 'untapAfterAttackTurn', 'returnAtEnd', 'badEnd', 'attacking', 'enteredTurn']) {
+          if (base[k] != null && base[k] !== false && base[k] !== 0) card[k] = base[k];
+          delete base[k];
+        }
+        for (const q of this.p) {
+          for (const tg of q.tempGrants || []) if (tg.uids && tg.uids.includes(base.uid)) tg.uids = tg.uids.map((u) => (u === base.uid ? card.uid : u));
+          for (const ea of q.endTurnActs || []) if (ea.uid === base.uid) ea.uid = card.uid;
+        }
+        // EXライフのシールドも引き継ぐ（進化したクリーチャーのEXライフと合わせて複数になる）
+        const inh = [...(base.exLifes || []), base.exLife].filter((u) => u && this.p[base.owner].shields.some((s) => s.uid === u));
+        if (inh.length) {
+          card.exLifes = [...(card.exLifes || []), ...inh];
+          this.log(`「${base.def.name}」のEXライフのシールド${inh.length}つを「${card.def.name}」が引き継いだ`);
+        }
+        delete base.exLife;
+        delete base.exLifes;
         this.log(`「${card.def.name}」が「${base.def.name}」から進化した`);
         // シンカパワー：進化元の能力を、進化したクリーチャーに対して使う
         if (this.hasAbility(base, 'evolveSource')) await this.trigger(card, 'evolveSource', pi, base.def, null, { defer: true });
@@ -2404,11 +2433,18 @@
           return false;
         }
       }
+      if (!card.exLife && (card.exLifes || []).length) card.exLife = card.exLifes.pop();
+      while (!this.p[card.owner].shields.some((s) => s.uid === card.exLife) && (card.exLifes || []).length) card.exLife = card.exLifes.pop();
       if (card.exLife) {
         const sh = this.p[card.owner].shields.find((s) => s.uid === card.exLife);
         card.exLife = null;
         if (sh) {
-          this.moveTo(sh, 'grave');
+          this._exLifeByLeave = true;
+          try {
+            this.moveTo(sh, 'grave');
+          } finally {
+            this._exLifeByLeave = false;
+          }
           this.log(`「${card.def.name}」はかわりにEXライフのシールドを墓地に置いた`);
           await this.trigger(card, 'exLifeLost', card.owner);
           return false;

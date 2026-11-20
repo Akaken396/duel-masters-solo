@@ -473,7 +473,8 @@
     if (z === 'battle' && c.sick && !c.tapped) e.classList.add('sick');
     if (can) e.classList.add('can');
     if (z === 'battle' && c.seals > 0) e.append(el('div', { class: 'badge seal', text: `封印${c.seals}` }));
-    if (z === 'battle' && c.exLife) e.append(el('div', { class: 'badge seal', text: 'EXライフ' }));
+    const exN = (c.exLife ? 1 : 0) + (c.exLifes || []).length;
+    if (z === 'battle' && exN) e.append(el('div', { class: 'badge seal', text: exN > 1 ? `EXライフ×${exN}` : 'EXライフ' }));
     if (z === 'battle' && c.attachedTo) {
       const h = g.find(c.attachedTo);
       if (h) e.append(el('div', { class: 'badge seal', text: `${{ weapon: '装備', cross: 'クロス', aura: 'オーラ' }[Engine.attachKind(c.def)] || '付'}→${h.card.def.name.slice(0, 6)}` }));
