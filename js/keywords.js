@@ -288,6 +288,8 @@
         k.graveEvo = { n, any: false, civs: civsIn(what), what: /^(光|水|闇|火|自然)の?$/.test(what) ? '' : what, zone: 'mana' };
       }, desc: '自分のマナゾーンのクリーチャーの上に重ねて出す' },
     { name: '種族にサバイバーを追加', re: /^自分の(光|水|闇|火|自然)のクリーチャーはすべて、種族にサバイバーを追加する。?$/, auto: true, set: (k, m) => (k.addSurvivor = { 光: 'light', 水: 'water', 闇: 'darkness', 火: 'fire', 自然: 'nature' }[m[1]]), desc: '指定の文明のクリーチャーをサバイバーとして扱う' },
+    { name: '革命0トリガー（有効）', re: /^革命0トリガー〔有効〕$/, auto: true, set: (k) => (k.rev0 = true), desc: 'クリーチャーが自分を攻撃する時、自分のシールドが0なら手札からコストを支払わずに使える' },
+    { name: 'シールド・フォース（印）', re: /^〔シールド・フォース〕$/, auto: true, set: (k) => (k.shieldForce = true), desc: '出す時に自分のシールドを1つ選ぶ。それがある間、次の能力を得る' },
     { name: 'サバイバー', re: /^サバイバー\s*$/, auto: true, set: () => {}, desc: 'このクリーチャーがバトルゾーンにある間、自分の他のサバイバーもすぐ上の能力を得る' },
     { name: 'サイレントスキル', re: /^サイレントスキル\s*$/, auto: true, set: (k) => (k.silentSkill = true), desc: '自分のターンのはじめにタップしていたら、アンタップするかわりに次の能力を使ってもよい' },
     { name: '手札進化', re: /^手札進化\s*[：:\-－―]\s*(.+)$/, auto: true,

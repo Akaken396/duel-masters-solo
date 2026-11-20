@@ -520,6 +520,7 @@
       if (c.shieldsTotalLE != null && me.shields.length + op.shields.length > c.shieldsTotalLE) return false;
       if (c.civElemGE && me.battle.filter((x) => (this.isCreature(x) || x.def.type === 'tamaseed') && (x.def.civs || []).includes(c.civElemGE.civ)).length < c.civElemGE.n) return false;
       if (c.waveGE != null && [...me.battle, ...op.battle].filter((x) => x !== card && this.isCreature(x) && /ウェーブストライカー/.test(x.def.text || '')).length < c.waveGE) return false;
+      if (c.sfShield && !(card && card._sfShield && this.p[card.owner].shields.some((x) => x.uid === card._sfShield))) return false;
       if (c.evTwin && !(this._eventCard && this._eventCard.def.twin)) return false;
       if (c.evNotFromHand && !(this._eventCard && this._eventCard._enterFrom !== 'hand')) return false;
       if (c.spellsGE != null && (this.spellsThisTurn || [0, 0])[pi] < c.spellsGE) return false;
@@ -2497,6 +2498,13 @@
       this.noteManual(card);
       await this.pause();
       if (this._suppressEnter) return true; // 出ることで起こる効果を無視する時
+      if (this.kw(card).shieldForce && this.p[pi].shields.length) {
+        const r = await this.pickCards(pi, this.p[pi].shields.slice(), 1, true, `シールド・フォース：「${card.def.name}」のために自分のシールドを1つ選んでください`, 'shield');
+        if (r[0]) {
+          card._sfShield = r[0].uid;
+          this.log(`シールド・フォース：シールドを1つ選んだ`);
+        }
+      }
       await this.trigger(card, 'summon', pi);
       if (how === 'summon' && this.zoneOf(card) === 'battle') await this.trigger(card, 'summonOnly', pi);
       if (this.zoneOf(card) === 'battle' && this.kw(card).kizuna === 'enter') await this.kizunaUse(card, pi, 'one');
@@ -5863,6 +5871,16 @@
         await this.runP(card, pi);
         await this.kizunaUse(card, pi, 'other');
       }, { defer: true });
+      // 革命0トリガー：クリーチャーが自分を攻撃する時、自分のシールドがなければ、手札から使える
+      if (!op.shields.length) for (const c of op.hand.slice()) {
+        if (!(parsed(c.def).kw.rev0 || (c.def.twin && parsed(c.def.twin).kw.rev0))) continue;
+        await this.queueFn(c, op.idx, `手札の「${c.def.name}」の革命0トリガー`, async () => {
+          if (this.zoneOf(c) !== 'hand' || op.shields.length || this.locked(op.idx, c.def)) return;
+          if (!(await this.yesNo(op.idx, `革命0トリガー：「${c.def.name}」をコストを支払わずに使いますか？`, c))) return;
+          this.log(`${op.name}は革命0トリガーで「${c.def.name}」を使った`);
+          await this.putIntoPlay(op.idx, c, true);
+        }, { defer: true });
+      }
       // アタック・チャンス：指定のクリーチャーが攻撃する時、手札の呪文をコストなしで唱える
       for (const c of me.hand.slice()) {
         const ac = parsed(c.def).kw.attackChance || (c.def.twin && parsed(c.def.twin).kw.attackChance);

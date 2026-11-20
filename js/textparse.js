@@ -44,6 +44,8 @@
       .replace(/^(レインボーナス|オシオキムーン)\s*[：:]\s*/gm, '')
       .replace(/^水晶武装\s*[0-9]*\s*[：:]\s*/gm, '')
       .replace(/^革命\s*[0-9]+\s*[：:\-－―]\s*/gm, '')
+      .replace(/^(ドロン・ゴー|ファイナル革命|光臨)\s*[：:\-－―]\s*/gm, '')
+      .replace(/^革命0トリガー\s*[：:\-－―]\s*クリーチャーが自分を攻撃する時、自分のシールドが(0|1)(枚|つ)もなければ、この(呪文|クリーチャー)をコストを支払わずに(唱えて|召喚して)もよい。?/gm, '革命0トリガー〔有効〕')
       .replace(/このクリーチャーの下にあるカードを1枚選び(、)?墓地に置いてもよい。そうした場合、/g, 'このクリーチャーの下にあるカードを1枚墓地に置いてもよい。そうしたら、')
       .replace(/^鬼タイム\s*[：:]\s*(?!.*真上の)/gm, '')
       .replace(/\[[a-z]{1,5}\d{0,3}\]/g, '') // マナ記号 [ll02] など
@@ -1169,6 +1171,7 @@
     if (/^自分のマナゾーンのカードがすべてタップされていれば$/.test(ct)) return { manaAllTapped: true };
     if (/^このクリーチャーにクロスギアがクロスされていれば$/.test(ct)) return { crossedGE: 1 };
     if (/^他にウェーブストライカーが2体以上あれば$/.test(ct)) return { waveGE: 2 };
+    if (/^シールド・フォースのシールドがあれば$/.test(ct)) return { sfShield: true };
     if ((mm0 = ct.match(/^自分と相手のシールド(の数)?が合計(\d+)(つ|枚)以下(なら|であれば|ならば)$/))) return { shieldsTotalLE: +mm0[2] };
     if ((mm0 = ct.match(/^自分の(光|水|闇|火|自然)のクリーチャーまたは(光|水|闇|火|自然)のタマシードが合計(\d+)つ以上あれば$/))) return { civElemGE: { civ: { 光: 'light', 水: 'water', 闇: 'darkness', 火: 'fire', 自然: 'nature' }[mm0[1]], n: +mm0[3] } };
     if ((mm0 = ct.match(/^自分のマナゾーンのカードが(\d+)枚以上で(光|水|闇|火|自然)文明があれば$/))) return { and: [{ manaGE: +mm0[1] }, { manaCivAll: [{ 光: 'light', 水: 'water', 闇: 'darkness', 火: 'fire', 自然: 'nature' }[mm0[2]]] }] };
@@ -1794,11 +1797,20 @@
       if (!/^サイレントスキル\s*[(（]/.test(rawLines[i])) continue;
       rawLines[i + 1] = '〔サイレント〕' + rawLines[i + 1].replace(/^i\s+/, '');
     }
-    // ウェーブストライカー：次の行の能力は、他にウェーブストライカーが2体以上ある時だけ
+    // ウェーブストライカー・アクセル・メタモーフ・シールド・フォース：次の行の能力に条件がつく
     for (let i = 0; i < rawLines.length - 1; i++) {
-      if (!/^ウェーブストライカー\s*[(（]/.test(rawLines[i])) continue;
-      const nx = rawLines[i + 1].replace(/^w\s+/, '');
-      rawLines.splice(i, 2, '他にウェーブストライカーが2体以上あれば、' + nx);
+      let pre = null;
+      const l0 = rawLines[i];
+      if (/^ウェーブストライカー\s*[(（]/.test(l0)) pre = '他にウェーブストライカーが2体以上あれば、';
+      else if (/^アクセル\s*[(（][^)）]*[)）]\s*$/.test(l0)) pre = 'このクリーチャーにクロスギアがクロスされていれば、';
+      else if (/^メタモーフ\s*[(（]/.test(l0)) {
+        const mn = l0.normalize('NFKC').match(/(\d+)枚以上/);
+        pre = `自分のマナゾーンにカードが${mn ? mn[1] : 7}枚以上あれば、`;
+      } else if (/^シールド・フォース\s*[(（]/.test(l0)) pre = 'シールド・フォースのシールドがあれば、';
+      if (!pre) continue;
+      const nx = rawLines[i + 1].replace(/^[a-zA-Z]\s+/, '');
+      rawLines.splice(i, 2, pre + nx);
+      if (/^シールド・フォース/.test(l0)) rawLines.push('〔シールド・フォース〕');
     }
     // キズナのP能力：「[P]」「P」「oP」で始まる行
     for (let i = 0; i < rawLines.length; i++) {
