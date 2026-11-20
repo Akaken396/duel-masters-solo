@@ -10,6 +10,8 @@
       .replace(/ふたつ/g, '2つ')
       .replace(/みっつ/g, '3つ')
       .replace(/[＋]/g, '+')
+      .replace(/｢/g, '「')
+      .replace(/｣/g, '」')
       .replace(/[−－]/g, '-')
       .replace(/[，]/g, '、')
       .replace(/[．]/g, '。')
@@ -332,7 +334,43 @@
     }
     if ((m = s.match(/^それを(持ち主の)?(マナゾーンに置|シールド化|手札に戻|山札の下に置)(く|する|す|いてもよい|してもよい)$/))) return { act: 'moveEvent', to: { マナゾーンに置: 'mana', シールド化: 'shields', 手札に戻: 'hand', 山札の下に置: 'deckBottom' }[m[2]], optional: /もよい/.test(m[3]) };
     if ((m = s.match(/^コストの合計が(\d+)以下になるように(、)?([^、。]*?)クリーチャーを好きな数(、)?自分の(墓地|手札)から(バトルゾーンに)?出す$/))) return { act: 'putSumCost', max: +m[1], from: m[5] === '墓地' ? 'grave' : 'hand', cond: m[3] ? lookCond(m[3].replace(/の$/, '')) : null };
-    if ((m = s.match(/^(自分の)?山札の上から(\d+)枚(目)?を、(自分の)?マナゾーンに置く$/))) return { act: 'manaBoost', n: +m[2], optional: false };
+    if ((m = s.match(/^自分の手札を(\d+)枚まで捨て、その枚数より(\d+)枚多くカードを引く$/))) return { act: 'discardDrawPlus', n: +m[1], plus: +m[2] };
+    if ((m = s.match(/^各プレイヤーは(、)?自身の手札を(\d+)枚選んで捨てる$/))) return { act: 'seq', acts: [{ act: 'selfDiscard', n: +m[2] }, { act: 'asOpp', acts: [{ act: 'selfDiscard', n: +m[2] }] }] };
+    if ((m = s.match(/^自分のマナゾーンのカードを(\d+)枚(まで)?アンタップする$/))) return { act: 'untapManaN', n: +m[1] };
+    if ((m = s.match(/^自分の手札を(\d+)枚まで捨てる$/))) return { act: 'selfDiscard', n: +m[1], optional: true };
+    if ((m = s.match(/^他のクリーチャーを(\d+)体、自分の墓地から手札に戻(す|してもよい)$/))) return { act: 'graveToHand', n: +m[1], creatureOnly: true, notSelf: true, optional: m[2] !== 'す' };
+    if (/^自分のシールドをすべて墓地に置く$/.test(s)) return { act: 'ownShieldToGrave', n: 99 };
+    if ((m = s.match(/^このクリーチャーは(、)?自分のシールドを(\d+)(つ|枚)ブレイクする$/))) return { act: 'breakOwn', n: +m[2] };
+    if ((m = s.match(/^(バトルゾーンにある)?相手のクリーチャーを(\d+)体選び、このクリーチャーとバトルさせ(る|てもよい)$/))) return { act: 'seq', acts: [{ act: 'pickTarget', side: 'opp', n: 1, optional: m[3] !== 'る' }, { act: 'fightLast' }] };
+    if ((m = s.match(/^(バトルゾーンにある)?(相手の)?クロスギアを(\d+)枚選び、持ち主の墓地に置く$/))) return { act: 'gearToGrave', n: +m[3], side: m[2] ? 'opp' : 'any' };
+    if ((m = s.match(/^クリーチャーを(\d+)体、自分の墓地からマナゾーンに置(く|いてもよい)$/))) return { act: 'graveAnyToMana', cond: lookCond('クリーチャー'), n: +m[1], optional: m[2] !== 'く' };
+    if ((m = s.match(/^カードを(\d+)枚相手のマナゾーンから選び、持ち主の墓地に置く$/))) return { act: 'oppManaToGrave', n: +m[1] };
+    if ((m = s.match(/^自分の山札の上から(\d+)枚を裏向きのまま(自分の)?マナゾーンに置く$/))) return { act: 'manaBoost', n: +m[1], optional: false, faceDown: true };
+    if ((m = s.match(/^(その|この)ターン(の終わりまで)?、このクリーチャーは(、)?パワーを\+(\d+)され、シールドをさらに(\d+)(つ|枚)ブレイクする$/))) return { act: 'seq', acts: [{ act: 'powerUp', n: +m[4] }, { act: 'tempBreakExtra', n: +m[5] }] };
+    if ((m = s.match(/^(その|この)ターン、(バトルゾーンにある)?自分のクリーチャー(\d+)体のパワーは\+(\d+)され、シールドをさらに(\d+)(つ|枚)ブレイクする$/))) return { act: 'seq', acts: [{ act: 'pickTarget', side: 'self', n: +m[3], optional: false }, { act: 'powerLast', n: +m[4] }, { act: 'tempBreakExtraLast', n: +m[5] }] };
+    if ((m = s.match(/^相手の手札から(\d+)枚見ないで選び、相手はそれを(持ち主の)?墓地に置く$/))) return { act: 'discard', n: +m[1], random: true };
+    if (/^このクリーチャーを(、)?自分の手札または墓地から(バトルゾーンに)?タップして出(す|してもよい)$/.test(s)) return { act: 'selfFromHandOrGrave', tapped: true, optional: /もよい/.test(s) };
+    if ((m = s.match(/^相手のシールドを(\d+)(つ|枚)選び、持ち主の(墓地|マナゾーン)に置く$/))) return { act: 'oppShieldTo', n: +m[1], to: m[3] === '墓地' ? 'grave' : 'mana' };
+    if (/^このクリーチャーは(、)?ブロックされない$/.test(s)) return { act: 'selfTempGrant', until: 'turn', names: ['このクリーチャーはブロックされない'] };
+    if ((m = s.match(/^(その|この)ターン、このクリーチャーは「(.+?)」(と「(.+?)」)?を得る$/))) return { act: 'selfTempGrant', until: 'turn', names: [m[2], m[4]].filter(Boolean) };
+    if ((m = s.match(/^(その|この)ターンの終わりまで、このクリーチャーのパワーは\+(\d+)される$/))) return { act: 'powerUp', n: +m[2] };
+    if ((m = s.match(/^このクリーチャーは(、)?相手のシールドを(\d+)(つ|枚)ブレイクする$/))) return { act: 'breakShield', n: +m[2] };
+    if (/^自分の他のクリーチャーは(、)?(この|その)ターン(中)?、攻撃できない$/.test(s)) return { act: 'teamNoAttackOthers' };
+    if ((m = s.match(/^カードを(\d+)枚、自分のマナゾーンから(自分の)?墓地に置く$/))) return { act: 'manaToGrave', n: +m[1], optional: false };
+    if ((m = s.match(/^相手は(、)?(バトルゾーンにある)?自身のクリーチャーを(\d+)体選び、(持ち主の)?(墓地|手札|マナゾーン)に(置く|戻す)$/))) return { act: 'oppOwnTo', n: +m[3], to: { 墓地: 'grave', 手札: 'hand', マナゾーン: 'mana' }[m[5]] };
+    if ((m = s.match(/^相手のシールドが(\d+)枚でもあれば、そのうちの(\d+)枚をブレイクする$/))) return { act: 'breakShield', n: +m[2] };
+    if ((m = s.match(/^自分のシールドが(\d+)枚でもあれば、(裏向きのまま)?(\d+)枚選び、自分の墓地に置く$/))) return { act: 'ownShieldToGrave', n: +m[3] };
+    if (/^このクリーチャーとそのクリーチャーをバトルさせ(る|てもよい)$/.test(s)) return { act: 'fightEvent', optional: /もよい/.test(s) };
+    if ((m = s.match(/^自分のマナゾーンからカードを(\d+)枚選び、(持ち主の|自分の)?墓地に置く$/))) return { act: 'manaToGrave', n: +m[1], optional: false };
+    if ((m = s.match(/^自分のシールドを(\d+)(つ|枚)(選び、)?ブレイク(する|してもよい)$/))) return { act: 'breakOwn', n: +m[1], optional: m[4] !== 'する' };
+    if ((m = s.match(/^自分と相手のクリーチャーを(\d+)体ずつ選(び|んでもよい)[、。]その(\d+)体をバトルさせる$/))) return { act: 'pairFight', optional: m[2] !== 'び' };
+    if ((m = s.match(/^自分の他のクリーチャーを(\d+)体(まで)?アンタップ(する|してもよい)$/))) return { act: 'untapOwn', n: +m[1], optional: !!m[2] || m[3] !== 'する', others: true };
+    if ((m = s.match(/^(自分の)?クリーチャーを(\d+)体(まで)?選び、アンタップ(する|してもよい)$/))) return { act: 'untapOwn', n: +m[2], optional: !!m[3] || m[4] !== 'する' };
+    if ((m = s.match(/^(その|この)ターン、このクリーチャーのパワーを\+(\d+)し、「(.+?)」(と「(.+?)」)?を与える$/))) return { act: 'seq', acts: [{ act: 'powerUp', n: +m[2] }, { act: 'selfTempGrant', until: 'turn', names: [m[3], m[5]].filter(Boolean) }] };
+    if (/^各プレイヤーは(、)?自身の手札をすべて捨てる$/.test(s)) return { act: 'discardAllBoth' };
+    if (/^このターンの後に(もう一度|もう1度)自分のターンを行う$/.test(s)) return { act: 'extraTurn', notInExtra: false };
+    if (/^その攻撃の後、このクリーチャーをアンタップする$/.test(s)) return { act: 'untapAfterAttackSelf' };
+    if ((m = s.match(/^(自分の)?山札の上から(\d+)枚(目)?を(、)?(自分の)?マナゾーンに置く$/))) return { act: 'manaBoost', n: +m[2], optional: false };
     if ((m = s.match(/^自分のマナゾーンにある(光|水|闇|火|自然)?(の)?カードを(\d+)枚タップ(する|してもよい)$/))) return { act: 'tapManaCost', n: +m[3], civ: m[1] ? { 光: 'light', 水: 'water', 闇: 'darkness', 火: 'fire', 自然: 'nature' }[m[1]] : null, optional: m[4] !== 'する' };
     if ((m = s.match(/^(バトルゾーンにある)?自分のクリーチャー(\d+)体は(、)?(このターンの終わりまで|このターン)、?「(.+?)」を得る$/))) return { act: 'teamBuff', until: 'turn', all: false, n: +m[2], others: false, who: null, power: 0, names: [m[5]] };
     if (/^そのクリーチャーとこのクリーチャーを破壊する$/.test(s)) return { act: 'seq', acts: [{ act: 'destroyEvent' }, { act: 'selfDestroy', optional: false }] };
@@ -507,7 +545,8 @@
     if ((m = s.match(/^(バトルゾーンにある)?相手の(コスト(\d+)以下の)?(進化ではない)?(クリーチャー|エレメント)を(\d+)(体|つ)(まで)?選び、(持ち主の)?シールド化(する|してもよい)$/))) {
       return { act: 'toShield', side: 'opp', n: +m[6], optional: /てもよい/.test(s) || !!m[8], any: m[5] === 'エレメント', maxCost: m[3] ? +m[3] : null, notEvo: !!m[4] };
     }
-    if ((m = s.match(/^自分のシールドを(\d+)つ(まで)?、?(選び、)?手札に(加え|戻)(る|す|てもよい|してもよい)(。ただし、その「S・トリガー」は使えない)?$/))) {
+    if ((m = s.match(/^自分のシールドを(\d+)(つ|枚)(まで)?、?(選び、)?手札に(加え|戻)(る|す|てもよい|してもよい)(。ただし、その「S・トリガー」は使えない)?$/))) m = [m[0], m[1], m[3], m[4], m[5], m[6], m[7]];
+    if (m && /^自分のシールドを/.test(s) && /手札に/.test(s) && m[1]) {
       return { act: 'shieldToHand', n: +m[1], optional: !!m[2] || /てもよい/.test(s), noTrigger: true };
     }
     if (/^自分は(、)?ゲームに負ける$/.test(s)) return { act: 'loseGame' };
@@ -772,7 +811,7 @@
   const REVEAL_RE = /^自分の山札の上から1枚(目)?を表向きにする。それが(.+?)(なら|であれば)(、)?(バトルゾーンに)?出(す|してもよい)。(それ以外なら|こうして出さなければ)(、)?(自分の)?(山札の下|マナゾーン|墓地|手札)に(置く|加える)。?/;
   // 山札全体から探す：「自分の山札を見る。その中から○○を1枚手札に加えてもよい。その後、山札をシャッフルする」
   const SEARCH_CAST_RE = /^自分の山札を見る。その中から(?<cond>[^。]+?)を1枚(選び、)?(、)?(自分の)?山札をシャッフルした後、その呪文をコストを支払わずに唱え(てもよい|る)。?/;
-  const SEARCH_RE = /^(自分の山札を見る。その中から|自分の山札から)(、)?(?<cond>[^。]+?)を(?<n>\d+)(枚|体|つ)(?<upto>まで)?(、)?(選び、|さがして(相手に見せ、)?|表向きにし(て)?、|相手に見せ(て|、))?(自分の)?(タップして)?(?<dest>手札に加え|バトルゾーンに出し|出し|マナゾーンに置き|墓地に置き|シールド化し)(?<may>てもよい|る|す|く)?。?((その後、)?(自分の)?山札をシャッフルする。?)?/;
+  const SEARCH_RE = /^(自分の山札を見る。その中から|自分の山札から)(、)?(?<cond>[^。]+?)を(?<n>\d+)(枚|体|つ)(?<upto>まで)?(、)?(選び、|さがして(相手に見せ、)?|表向きにし(て)?、|相手に見せ(て|、))?(自分の)?(タップして)?(?<dest>手札に加え|バトルゾーンに出し|出し|マナゾーンに置き|墓地に置き|マナゾーンに置|墓地に置|シールド化し)(?<may>いてもよい|てもよい|る|す|く)?。?((その後、)?(自分の)?山札をシャッフルする。?)?/;
   // 山札の上を並べ替える
   const ARRANGE_RE = /^(自分の)?山札の上から(?<n>\d+)枚を見る。(その後、)?(それら|そのカード|見たカード)を(好きな順序で)?(自分の)?山札の(?<where>上または下|上か下|上|下|一番下|一番上)に(好きな順序で)?(置く|戻す)。?/;
   // 山札の上1枚をチェック：「それが○○なら手札に加える。それ以外なら山札の下に置く」など
@@ -943,6 +982,15 @@
   }
   function parseEffects(body) {
     body = lookNorm(String(body || '').replace(/パワーを\s*-∞\s*する/g, 'パワーを0にする'))
+      .replace(/を(、)?裏向きのまま(、)?(?=新しいシールドとして)/g, 'を')
+      .replace(/を(、)?表向きに(して|し)(、)?新しいシールドとして(自分の)?シールドゾーンに(置く|加える)/g, 'を表向きでシールド化する')
+      .replace(/(選び、|選んで)相手に見せ(てから|て|、)(自分の)?/g, '選び、')
+      .replace(/相手に見せてから(自分の)?/g, '')
+      .replace(/マナゾーンに加え(てもよい|る)/g, (x, y) => (y === 'る' ? 'マナゾーンに置く' : 'マナゾーンに置いてもよい'))
+      .replace(/相手は自分自身の/g, '相手は自身の')
+      .replace(/(手札を(\d+)枚選び)捨てる/g, '$1、捨てる')
+      .replace(/(バトルゾーンにある)?(相手|自分)のクリーチャーすべてのパワーは-(\d+)される/g, 'このターン、$2のクリーチャーすべてのパワーを-$3する')
+      .replace(/^そのターン、このターン、/, 'このターン、')
       .replace(/(を|を、)?新しいシールドとして(持ち主の|自分の|自身の)?シールドゾーンに(裏向きにして|裏向きのまま)?(加える|置く|加え、|加えてもよい|置いてもよい)/g, (x, a, b, c, d) => (a || '') + { 加える: 'シールド化する', 置く: 'シールド化する', '加え、': 'シールド化し、', 加えてもよい: 'シールド化してもよい', 置いてもよい: 'シールド化してもよい' }[d])
       .replace(/相手のクリーチャーを(\d+)体選んで破壊し、/g, '相手のクリーチャーを$1体選び、破壊する。')
       .replace(/。?これらのクリーチャーが出ることによって起こる効果やルールはすべて無視する。?/g, '。それらの出た時の効果は起こらない');
@@ -1016,7 +1064,7 @@
     if ((mm = body.match(SEARCH_CAST_RE))) return [{ act: 'searchDeck', cond: lookCond(mm.groups.cond), n: 1, upTo: true, dest: 'cast' }, ...afterActs(body.slice(mm[0].length))];
     if ((mm = body.match(SEARCH_RE))) {
       const g = mm.groups;
-      return [{ act: 'searchDeck', cond: lookCond(g.cond), n: +g.n, upTo: !!g.upto || g.may === 'てもよい', dest: DEST_OF(g.dest) }, ...(afterActs(body.slice(mm[0].length)) || [])];
+      return [{ act: 'searchDeck', cond: lookCond(g.cond), n: +g.n, upTo: !!g.upto || /てもよい/.test(g.may || ''), dest: DEST_OF(g.dest.replace(/置$/, '置き')) }, ...(afterActs(body.slice(mm[0].length)) || [])];
     }
     if ((mm = body.match(ARRANGE_RE))) {
       const w = mm.groups.where;
@@ -1676,6 +1724,18 @@
     putFromMana: (a) => `マナから${a.cond.text}を${a.n}体出す`,
     selfFromHand: () => 'このクリーチャーを手札から出す',
     selfDiscardFromHand: () => 'このカードを手札から捨てる',
+    discardDrawPlus: (a) => `手札を${a.n}枚まで捨て、捨てた数+${a.plus}枚引く`,
+    gearToGrave: (a) => `クロスギアを${a.n}枚墓地へ`,
+    oppManaToGrave: (a) => `相手のマナを${a.n}枚墓地へ`,
+    tempBreakExtra: (a) => `このターン、シールドをさらに${a.n}つブレイク`,
+    tempBreakExtraLast: (a) => `このターン、そのクリーチャーはシールドをさらに${a.n}つブレイク`,
+    selfFromHandOrGrave: () => '手札か墓地からこのクリーチャーを出す',
+    oppShieldTo: (a) => `相手のシールドを${a.n}つ${a.to === 'grave' ? '墓地' : 'マナ'}へ`,
+    teamNoAttackOthers: () => 'このターン、自分の他のクリーチャーは攻撃できない',
+    fightEvent: () => 'そのクリーチャーとバトル',
+    breakOwn: (a) => `自分のシールドを${a.n}つブレイク`,
+    discardAllBoth: () => '各プレイヤーは手札をすべて捨てる',
+    untapAfterAttackSelf: () => '攻撃の後アンタップ',
     repeatBuzz: () => 'バズレンダの能力（支払った回数＋1回）',
     graveAllToDeck: () => '墓地をすべて山札に戻してシャッフル',
     resetHands: (a) => `各プレイヤーは手札と墓地を山札に戻し${a.n}枚引く`,
