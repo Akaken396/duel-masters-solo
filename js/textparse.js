@@ -282,6 +282,7 @@
     if ((mm = rest.match(/^このG城が表向きで(、)?自分のシールドゾーンに置かれた(時|とき)または離れた(時|とき)、/))) return { whens: ['summon', 'selfShieldLeft'], rest: rest.slice(mm[0].length), cond };
     if ((mm = rest.match(/^(コスト(\d+)以下の)?(クリーチャー|カード)がどこからでも自分の墓地に置かれた(時|とき)、/))) return { whens: ['ownToGrave'], rest: rest.slice(mm[0].length), cond: { ...cond, ...(mm[2] ? { evMaxCost: +mm[2] } : {}), ...(mm[3] === 'クリーチャー' ? { evCreature: true } : {}) } };
     if ((mm = rest.match(/^墓地へ下から置かれた時〔〕、/))) return { whens: ['toGrave'], rest: rest.slice(mm[0].length), cond: { ...cond, selfWasUnder: true } };
+    if ((mm = rest.match(/^相手がジャンケンで「?(グー|チョキ|パー)」?を出した(時|とき)、/))) return { whens: ['oppJanken'], rest: rest.slice(mm[0].length), cond: { ...cond, jankenHand: mm[1] } };
     if ((mm = rest.match(/^ツインパクトカードを自分のマナゾーンに置いた(時|とき)、/))) return { whens: ['manaPut'], rest: rest.slice(mm[0].length), cond: { ...cond, evTwin: true } };
     if ((mm = rest.match(/^各ターンのはじめに、/))) return { whens: ['turnStart', 'oppTurnStart'], rest: rest.slice(mm[0].length), cond };
     if ((mm = rest.match(/^スペースチャージ〔([a-z/]+)(\|1)?〕、/))) return { whens: ['manaPut'], rest: rest.slice(mm[0].length), cond: { ...cond, evCivAny: mm[1].split('/'), askUse: true, ...(mm[2] ? { oncePerTurn: true } : {}) } };
@@ -476,6 +477,7 @@
       const lc = lookCond(w);
       if (!lc.unknown && !/^(カード|クリーチャー|呪文)$/.test(w)) return { act: 'graveToHand', n, cond: lc, optional: true };
     }
+    if ((m = s.match(/^(\d+)枚までカードを引(く|いてもよい)$/))) return { act: 'draw', n: +m[1], optional: true };
     if (/^シールドを1つ選び、ブレイクしてもよい$/.test(s)) return { act: 'breakAnyOne', optional: true };
     if (/^このクリーチャーに含まれるカードと同じ枚数の?カードを引く$/.test(s)) return { act: 'drawSelfCards' };
     if (/^このクリーチャーの「このクリーチャーが出た時」で始まる能力を1つ使(う|ってもよい)$/.test(s)) return { act: 'useTrigger', from: 'self', when: 'summon', optional: /もよい/.test(s) };
@@ -1488,6 +1490,12 @@
     if (/^次の自分のターンのはじめまで、相手は(、)?自身のマナゾーン(にある|の)カードの枚数よりコストが大きいクリーチャーを(バトルゾーンに)?出した(時|とき)、そのクリーチャーを(自身の)?山札の(一番)?下に置く。?$/.test(body)) return [{ act: 'tempBigBottom' }];
     if (/^プレイヤーを1人選んでもよい。そのプレイヤーは自身の墓地をシャッフルし、山札の下に置く。?$/.test(body)) return [{ act: 'graveToDeckBottomPlayer' }];
     if (/^相手の手札を見てクリーチャーを1体選ぶ。相手はそれを出してもよい。?$/.test(body)) return [{ act: 'oppHandPickPut' }];
+    const jk = body.match(/^(相手(プレイヤー)?と)ジャンケン(で|して)勝敗を決め(る|てもよい)。自分が勝った(場合|ら)、(.+?)(。(自分が|自分がジャンケンで)?負けた(場合|ら)、(.+?))?。?$/);
+    if (jk) {
+      const win = parseEffects(jk[6].replace(/。$/, ''));
+      const lose = jk[10] ? parseEffects(jk[10].replace(/。$/, '')) : [];
+      if (win && lose && ![...win, ...lose].some((x) => x.act === 'manualNote')) return [{ act: 'janken', optional: jk[4] !== 'る', win, lose }];
+    }
     const crc = body.match(/^種族を1つ選(ぶ|び)(。|、その後、|、)(.+)$/);
     if (crc) {
       const T = 'センタクシュゾク';
@@ -2025,6 +2033,21 @@
         let whens = [];
         if (/^このクリーチャーが(バトルゾーンに)?出た時(、)?(または|か|、)攻撃する時、/.test(head)) whens = ['summon', 'attack'];
         else for (const t of TRIGGERS) if (t.re.test(head)) whens = [t.when];
+        let mCond = null;
+        let mAlly = null;
+        if (!whens.length) {
+          const am = head.replace(/^各ターンに(1|一)度、/, '〔1〕').match(/^(〔1〕)?自分の(他の)?([^。]{1,30}?)が(バトルゾーンに)?(出た|攻撃する|破壊された|離れた)(時|とき)、/);
+          if (am && !/この|ターン|相手/.test(am[3])) {
+            whens = [{ 出た: 'allyEnter', 攻撃する: 'allyAttack', 破壊された: 'allyDestroyed', 離れた: 'allyLeft' }[am[5]]];
+            mAlly = { race: am[3].replace(/(・)?クリーチャー$/, '').replace(/^クリーチャー$/, '') || null, others: !!am[2] || am[5] === '出た', perTurn: am[1] ? 1 : 0 };
+          } else {
+            const th = parseTriggerHead(head);
+            if (th) {
+              whens = th.whens;
+              if (th.cond && Object.keys(th.cond).length) mCond = th.cond;
+            }
+          }
+        }
         if (!whens.length && def.type === 'spell') whens = ['cast'];
         if (!whens.length) {
           // いつ使うか分からない選択肢は手動扱い
@@ -2039,7 +2062,7 @@
         const bcnt = bothLine.match(/(バトルゾーンに)?自分の([^、。()（）]+?)があれば/);
         const bothCond = bothLine ? { civs: bc ? [CIVJ[bc[1]], CIVJ[bc[3]]] : [], count: !bc && bcnt ? { what: bcnt[2], n: 1 } : null, text: bothLine } : null;
         const options = optTexts.map((t) => ({ text: t.trim(), acts: parseEffects(stripReminder(t.trim()).replace(/。$/, '')) }));
-        for (const w of whens) A_PUSH(w, { when: w, acts: [], modal: { count, repeat, bothCond, options }, text: raw });
+        for (const w of whens) A_PUSH(w, { when: w, acts: [], modal: { count, repeat, bothCond, options }, ...(mCond ? { cond: mCond } : {}), ...(mAlly ? { ally: mAlly } : {}), text: raw });
         continue;
       }
       // ハイパーモードの区切り

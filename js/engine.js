@@ -69,7 +69,7 @@
     return t;
   }
 
-  const WHEN_J = { ownToGrave: 'カードが自分の墓地に置かれた時の能力', selfShieldLeft: '表向きでシールドゾーンを離れた時の能力', oppTapped: '相手のクリーチャーがタップした時の能力', allyBattleWinR: '自分の（指定の）クリーチャーがバトルに勝った時の能力', allyUnblocked: '自分のクリーチャーの攻撃が通った時の能力', oppToGrave: 'カードが相手の墓地に置かれた時の能力', manaPut: 'スペース・チャージ', allyTapped: '自分のクリーチャーがタップした時の能力', linked: 'リンクした時の能力', oppEnterNonSummon: '相手が召喚以外でクリーチャーを出した時の能力', enteredByChange: '革命チェンジ・侵略で出た時の能力', allyEvolved: '進化クリーチャーを置いた時の能力', oppDiscarded: '相手が手札を捨てた時の能力', graveLeft: '墓地からカードが離れた時の能力', allyEnterAny: '自分のクリーチャーが出た時の能力', selfPlay: '重いカードを使った時の能力', selfDiscarded: '手札を捨てた時の能力', selfDraw: 'カードを引いた時の能力', oppPlay: '相手がカードを使った時の能力', oppEnterFree: '相手のクリーチャーがコストなしで出た時の能力', oppEnterBig: '相手のマナより重いクリーチャーが出た時の能力', allyDestroyed: '自分の（指定の）クリーチャーが破壊された時の能力', toGrave: '墓地に置かれた時の能力', hostDestroyed: '付けたクリーチャーが破壊された時の能力', charged: 'マナに置いた時の能力', hostAttack: '付いているクリーチャーの攻撃時の能力', hostAttackEnd: '付いているクリーチャーの攻撃の終わりの能力', eachTurnEnd: 'ターンの終わりの能力', oppTurnEnd: '相手のターンの終わりの能力', oppEnter: '相手のクリーチャーが出た時の能力', anyEnter: 'クリーチャーが出た時の能力', anyDestroyed: 'クリーチャーが破壊された時の能力', selfOrAllyDestroyed: '破壊された時の能力', blocked: 'ブロックされた時の能力', oppUnblocked: '相手の攻撃が通った時の能力', battled: 'バトルした時の能力', targeted: '選ばれた時の能力', oppAttack: '相手の攻撃時の能力', allyCast: '呪文を唱えた時の能力', oppCast: '相手が呪文を唱えた時の能力', allyBattleWin: '自分の（指定の）クリーチャーがバトルに勝った時の能力', oppDestroyed: '相手のクリーチャーが破壊された時の能力', ownShieldLeft: 'シールドが離れた時の能力', attackEnd: '攻撃の終わりの能力', beforeBreak: 'ブレイクの前の能力', unblocked: 'ブロックされなかった時の能力', allyAttack: '自分の（指定の）クリーチャーの攻撃時の能力', allyLeft: '自分の（指定の）クリーチャーが離れた時の能力', tapped: 'タップした時の能力', untapped: 'アンタップした時の能力', evolveSource: 'シンカパワー', tapAbility: 'タップ能力', battleLose: 'バトルに負けた時の能力', left: '離れた時の能力', attacked: '攻撃された時の能力', summonOnly: '召喚で出た時の能力', battleWin: 'バトルに勝った時の能力', oppTurnStart: '相手のターンのはじめの能力', broke: 'ブレイクした時の能力', summon: '出た時の能力', attack: '攻撃する時の能力', destroyed: '破壊された時の能力', turnStart: 'ターンのはじめの能力', turnEnd: 'ターンの終わりの能力', shieldAdded: 'シールドが置かれた時の能力', exLifeLost: 'EXライフが離れた時の能力', block: 'ブロックした時の能力', sealsGone: '封印が外れた時の能力' };
+  const WHEN_J = { oppJanken: '相手のジャンケンの手で誘発する能力', ownToGrave: 'カードが自分の墓地に置かれた時の能力', selfShieldLeft: '表向きでシールドゾーンを離れた時の能力', oppTapped: '相手のクリーチャーがタップした時の能力', allyBattleWinR: '自分の（指定の）クリーチャーがバトルに勝った時の能力', allyUnblocked: '自分のクリーチャーの攻撃が通った時の能力', oppToGrave: 'カードが相手の墓地に置かれた時の能力', manaPut: 'スペース・チャージ', allyTapped: '自分のクリーチャーがタップした時の能力', linked: 'リンクした時の能力', oppEnterNonSummon: '相手が召喚以外でクリーチャーを出した時の能力', enteredByChange: '革命チェンジ・侵略で出た時の能力', allyEvolved: '進化クリーチャーを置いた時の能力', oppDiscarded: '相手が手札を捨てた時の能力', graveLeft: '墓地からカードが離れた時の能力', allyEnterAny: '自分のクリーチャーが出た時の能力', selfPlay: '重いカードを使った時の能力', selfDiscarded: '手札を捨てた時の能力', selfDraw: 'カードを引いた時の能力', oppPlay: '相手がカードを使った時の能力', oppEnterFree: '相手のクリーチャーがコストなしで出た時の能力', oppEnterBig: '相手のマナより重いクリーチャーが出た時の能力', allyDestroyed: '自分の（指定の）クリーチャーが破壊された時の能力', toGrave: '墓地に置かれた時の能力', hostDestroyed: '付けたクリーチャーが破壊された時の能力', charged: 'マナに置いた時の能力', hostAttack: '付いているクリーチャーの攻撃時の能力', hostAttackEnd: '付いているクリーチャーの攻撃の終わりの能力', eachTurnEnd: 'ターンの終わりの能力', oppTurnEnd: '相手のターンの終わりの能力', oppEnter: '相手のクリーチャーが出た時の能力', anyEnter: 'クリーチャーが出た時の能力', anyDestroyed: 'クリーチャーが破壊された時の能力', selfOrAllyDestroyed: '破壊された時の能力', blocked: 'ブロックされた時の能力', oppUnblocked: '相手の攻撃が通った時の能力', battled: 'バトルした時の能力', targeted: '選ばれた時の能力', oppAttack: '相手の攻撃時の能力', allyCast: '呪文を唱えた時の能力', oppCast: '相手が呪文を唱えた時の能力', allyBattleWin: '自分の（指定の）クリーチャーがバトルに勝った時の能力', oppDestroyed: '相手のクリーチャーが破壊された時の能力', ownShieldLeft: 'シールドが離れた時の能力', attackEnd: '攻撃の終わりの能力', beforeBreak: 'ブレイクの前の能力', unblocked: 'ブロックされなかった時の能力', allyAttack: '自分の（指定の）クリーチャーの攻撃時の能力', allyLeft: '自分の（指定の）クリーチャーが離れた時の能力', tapped: 'タップした時の能力', untapped: 'アンタップした時の能力', evolveSource: 'シンカパワー', tapAbility: 'タップ能力', battleLose: 'バトルに負けた時の能力', left: '離れた時の能力', attacked: '攻撃された時の能力', summonOnly: '召喚で出た時の能力', battleWin: 'バトルに勝った時の能力', oppTurnStart: '相手のターンのはじめの能力', broke: 'ブレイクした時の能力', summon: '出た時の能力', attack: '攻撃する時の能力', destroyed: '破壊された時の能力', turnStart: 'ターンのはじめの能力', turnEnd: 'ターンの終わりの能力', shieldAdded: 'シールドが置かれた時の能力', exLifeLost: 'EXライフが離れた時の能力', block: 'ブロックした時の能力', sealsGone: '封印が外れた時の能力' };
 
   class GameOver extends Error {
     constructor(winner, reason) {
@@ -502,6 +502,7 @@
         if (!(mx(me.battle) > mx(op.battle))) return false;
       }
       if (c.selfWasUnder && !(card && card._wasUnderOnGrave)) return false;
+      if (c.jankenHand && !(this._lastJanken && this._lastJanken.by !== pi && this._lastJanken.hand === c.jankenHand)) return false;
       if (c.evTwin && !(this._eventCard && this._eventCard.def.twin)) return false;
       if (c.evNotFromHand && !(this._eventCard && this._eventCard._enterFrom !== 'hand')) return false;
       if (c.spellsGE != null && (this.spellsThisTurn || [0, 0])[pi] < c.spellsGE) return false;
@@ -2433,7 +2434,8 @@
             }
             await this.queueFn(src, pi, `「${src.def.name}」の能力`, async () => {
               this._eventCard = card;
-              for (const a of ab.acts) await this.doAction(a, src, pi);
+              if (ab.modal) await this.runModal(ab.modal, src, pi, src.def);
+              else for (const a of ab.acts) await this.doAction(a, src, pi);
             });
           }
         }
@@ -2537,7 +2539,8 @@
           const who = src === card ? 'このクリーチャー自身' : `「${card.def.name}」`;
           await this.queueFn(src, pi, `${this.isOnField(src) ? '' : '（離れた）'}「${src.def.name}」の「自分の${ab.ally.race || 'クリーチャー'}が${evJ}時」の能力（${who}）`, async () => {
             this._eventCard = card;
-            for (const a of ab.acts) await this.doAction(a, src, pi);
+            if (ab.modal) await this.runModal(ab.modal, src, pi, src.def);
+            else for (const a of ab.acts) await this.doAction(a, src, pi);
           }, { defer: true });
         }
       }
@@ -2640,6 +2643,10 @@
         }
       }
       if (card.linkGroup && this.linkMembers(card).length > 1 && this.linkMembers(card).some((x) => x !== card && this.kw(x).linkNoLeave)) return false;
+      if (this.kw(card).stayIfUntapped && !card.tapped && toZone !== 'battle') {
+        this.log(`「${card.def.name}」はアンタップしているので離れない`);
+        return false;
+      }
       const sp = this.kw(card).stayIfPower;
       if (sp != null && this.power(card) > sp) {
         this.log(`「${card.def.name}」はパワーが${sp}より大きいので離れない`);
@@ -3815,6 +3822,24 @@
           this.log(`${me.name}は種族「${race}」を選んだ`);
           const acts = JSON.parse(JSON.stringify(a.acts).split('センタクシュゾク・').join(race).split('センタクシュゾク').join(race));
           for (const x of acts) await this.doAction(x, src, pi);
+          break;
+        }
+        case 'janken': {
+          if (a.optional && !(await this.yesNo(pi, `${nm}: 相手とジャンケンしますか？`, src))) break;
+          const HANDS = ['グー', 'チョキ', 'パー'];
+          const pickHand = async (q) => (this.p[q].isAI ? HANDS[Math.floor(Math.random() * 3)] : (await this.chooseModes(q, 'ジャンケン：手を選んでください', HANDS.map((h) => ({ id: h, label: h })), { min: 1, max: 1, aiPick: ['グー'] }))[0] || 'グー');
+          let res = 0;
+          for (let i = 0; i < 20 && !res; i++) {
+            const h1 = await pickHand(pi);
+            const h2 = await pickHand(1 - pi);
+            this.log(`ジャンケン：${me.name}は${h1}、${op.name}は${h2}`);
+            this._lastJanken = { by: 1 - pi, hand: h2 };
+            for (const s2 of this.permanents(pi)) if (this.isOnField(s2) && this.hasAbility(s2, 'oppJanken')) await this.trigger(s2, 'oppJanken', pi, s2.def, null, { defer: true });
+            if (h1 !== h2) res = (HANDS.indexOf(h1) + 1) % 3 === HANDS.indexOf(h2) ? 1 : -1;
+          }
+          await this.resolvePending();
+          this.log(`ジャンケン：${me.name}の${res > 0 ? '勝ち' : '負け'}`);
+          for (const x of res > 0 ? a.win : a.lose) await this.doAction(x, src, pi);
           break;
         }
         case 'useDyn': {
