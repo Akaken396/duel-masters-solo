@@ -503,6 +503,8 @@
       }
       if (c.selfWasUnder && !(card && card._wasUnderOnGrave)) return false;
       if (c.jankenHand && !(this._lastJanken && this._lastJanken.by !== pi && this._lastJanken.hand === c.jankenHand)) return false;
+      if (c.oppHas && !op.battle.some((x) => this.fitLook(x, G.TextParse.lookCond(c.oppHas)))) return false;
+      if (c.manaAllTapped && me.mana.some((x) => !x.tapped)) return false;
       if (c.evTwin && !(this._eventCard && this._eventCard.def.twin)) return false;
       if (c.evNotFromHand && !(this._eventCard && this._eventCard._enterFrom !== 'hand')) return false;
       if (c.spellsGE != null && (this.spellsThisTurn || [0, 0])[pi] < c.spellsGE) return false;
@@ -1274,6 +1276,7 @@
             if (q !== this.active && this.hasAbility(c, 'oppTurnEnd')) await this.trigger(c, 'oppTurnEnd', c.owner, c.def, null, { defer: true });
           }
           await this.resolvePending();
+          for (const q of [this.active, 1 - this.active]) await this.mugetsuCheck(q, 'end');
           await this.endTurnEffects();
           this.endTurnCleanup();
           const xt = this.p[this.active].extraTurns || 0;
@@ -2415,6 +2418,7 @@
         }
         await this.resolvePending();
       }
+      if (this.zoneOf(card) === 'battle' && ((card.def.races || []).join('/') + card.def.name).includes('魔導具') && !this._inMugetsu) await this.mugetsuCheck(pi, 'enter');
       if (this.zoneOf(card) === 'battle' && this.isCreature(card)) {
         await this.fireHand(pi, 'allyEnter', (ab) => ab.ally && this.allyMatch(card, ab.ally.race));
         await this.resolvePending();
@@ -2901,6 +2905,48 @@
       const sc = this.script(def);
       if (sc && sc[when]) return true;
       return this.abilities(card, def).some((ab) => ab.when === when);
+    }
+    // 無月の門：魔導具を重ねて、手札か墓地から召喚する
+    async mugetsuCheck(pi, when) {
+      const me = this.p[pi];
+      const isM = (c) => ((c.def.races || []).join('/') + c.def.name).includes('魔導具');
+      for (const c of [...me.hand, ...me.grave]) {
+        const mg = parsed(c.def).kw.mugetsu;
+        if (!mg || mg.when !== when) continue;
+        if (!['hand', 'grave'].includes(this.zoneOf(c))) continue;
+        const bpool = me.battle.filter((x) => isM(x) && !x.attachedTo);
+        const gpool = me.grave.filter((x) => x !== c && isM(x));
+        const ok = mg.total ? bpool.length + gpool.length >= mg.total : bpool.length >= mg.battle && gpool.length >= mg.grave;
+        if (!ok) continue;
+        if (!(await this.yesNo(pi, `無月の門：「${c.def.name}」を魔導具の上に召喚しますか？`, c))) continue;
+        let picked;
+        if (mg.total) picked = await this.pickCards(pi, [...bpool, ...gpool], mg.total, false, `無月の門：重ねる魔導具を${mg.total}つ選んでください`, 'recover');
+        else picked = [...(await this.pickCards(pi, bpool, mg.battle, false, `無月の門：重ねるバトルゾーンの魔導具を${mg.battle}つ`, 'recover')), ...(await this.pickCards(pi, gpool, mg.grave, false, `無月の門：重ねる墓地の魔導具を${mg.grave}つ`, 'recover'))];
+        if (picked.length < (mg.total || mg.battle + mg.grave)) continue;
+        this.log(`${me.name}は無月の門で「${c.def.name}」を召喚する`);
+        for (const x of picked) for (const u of (x.under || []).splice(0)) picked.push(u);
+        this._inMugetsu = true;
+        try {
+          await this.enterBattle(c, pi, 'summon', { underCards: picked, evoChosen: true });
+        } finally {
+          this._inMugetsu = false;
+        }
+        // 「無月の門」能力を使った時
+        for (const x of [...me.hand, ...me.grave].filter((y) => y !== c)) {
+          for (const ab of this.abilities(x)) {
+            if (ab.when !== 'mugetsuUsed') continue;
+            await this.queueFn(x, pi, `「${x.def.name}」の無月の門を使った時の能力`, async () => {
+              if (!['hand', 'grave'].includes(this.zoneOf(x)) || (this.zoneOf(x) === 'hand' && !ab.fromHand)) return;
+              if (!(await this.yesNo(pi, `「${x.def.name}」をバトルゾーンにタップして出しますか？`, x))) return;
+              x._enterTappedOnce = true;
+              await this.enterBattle(x, pi, 'other');
+            }, { defer: true });
+            break;
+          }
+        }
+        await this.resolvePending();
+        return;
+      }
     }
     // 待機中の能力を解決する。何かを解決している最中なら、終わってからまとめて解決
     async resolvePending() {

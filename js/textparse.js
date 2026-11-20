@@ -17,6 +17,7 @@
       .replace(/[．]/g, '。')
       .replace(/手札をすべて捨て、その後、/g, '手札をすべて捨てる。その後、')
       .replace(/各ターン(に)?(一|1)度、/g, '各ターンに1度、')
+      .replace(/^([^、。\n]+?)(も)?(ない|ある|いる|されている)時、(このクリーチャーのパワーは)/gm, (x, a1, mo, v, rest) => a1 + (mo || '') + ({ ない: 'なければ', ある: 'あれば', いる: 'いれば', されている: 'されていれば' }[v]) + '、' + rest)
       .replace(/^このカードが墓地に置かれた時、それが墓地に置かれる直前に進化クリーチャーの下にあった場合、/gm, '墓地へ下から置かれた時〔〕、')
       .replace(/相手のクリーチャーが、召喚以外の方法で/g, '相手のクリーチャーが召喚以外の方法で')
       .replace(/このターンの終わりにこのクリーチャーを破壊し、その後、カードを/g, 'このターンの終わりにこのクリーチャーを破壊し、カードを')
@@ -166,7 +167,7 @@
     [/^自分の手札を(\d+枚)?捨てた(時|とき)/, 'selfDiscarded'],
     [/^カードが相手のシールドゾーンに置かれた(時|とき)/, 'oppShieldAdded'],
     [/^相手のマナゾーン(にある|の)カードの枚数よりコストが大きい相手のクリーチャーが(バトルゾーンに)?出た(時|とき)/, 'oppEnterBig'],
-    [/^相手が(、)?自身のマナゾーン(にある|の)カードの枚数よりコストの?大きいクリーチャーを(バトルゾーンに)?出した(時|とき)/, 'oppEnterBig'],
+    [/^相手が(、)?自身のマナゾーン(にある|の)カードの枚数よりコスト(が|の)?大きいクリーチャーを(バトルゾーンに)?出した(時|とき)/, 'oppEnterBig'],
     [/^相手のマナゾーン(にある|の)カードの枚数よりコストが大きいクリーチャーを相手が(バトルゾーンに)?出した(時|とき)/, 'oppEnterBig'],
     [/^このカードを(自分の)?手札からマナゾーンに置いた(時|とき)/, 'charged'],
     [/^(相手の)?クリーチャーが(自分を)?攻撃する(時|とき)/, 'oppAttack'],
@@ -204,6 +205,8 @@
     [/^他のクリーチャーが(バトルゾーンを)?離れた(時|とき)/, 'anyLeft'],
     [/^自分のクリーチャーが(バトルゾーンに)?出た(時|とき)/, 'allyEnterAny'],
     [/^カードが(どこからでも)?相手の墓地に置かれた(時|とき)/, 'oppToGrave'],
+    [/^(自分の(カード|シールドゾーンにカード)を?(シールドゾーンに)?置いた|カードが自分のシールドゾーンに表向きで置かれた)(時|とき)/, 'shieldAdded'],
+    [/^自分のクリーチャーがバトルで勝った(時|とき)/, 'allyBattleWin'],
     [/^このG城が表向きで(、)?自分のシールドゾーンに置かれた(時|とき)/, 'summon'],
     [/^このG城が表向きで(、)?自分のシールドゾーンを離れた(時|とき)/, 'selfShieldLeft'],
     [/^相手のクリーチャーがタップ(し|され)た(時|とき)/, 'oppTapped'],
@@ -283,6 +286,7 @@
     if ((mm = rest.match(/^(コスト(\d+)以下の)?(クリーチャー|カード)がどこからでも自分の墓地に置かれた(時|とき)、/))) return { whens: ['ownToGrave'], rest: rest.slice(mm[0].length), cond: { ...cond, ...(mm[2] ? { evMaxCost: +mm[2] } : {}), ...(mm[3] === 'クリーチャー' ? { evCreature: true } : {}) } };
     if ((mm = rest.match(/^墓地へ下から置かれた時〔〕、/))) return { whens: ['toGrave'], rest: rest.slice(mm[0].length), cond: { ...cond, selfWasUnder: true } };
     if ((mm = rest.match(/^相手がジャンケンで「?(グー|チョキ|パー)」?を出した(時|とき)、/))) return { whens: ['oppJanken'], rest: rest.slice(mm[0].length), cond: { ...cond, jankenHand: mm[1] } };
+    if ((mm = rest.match(/^(各ターン、)?(自分が)?(はじめて)?(自分の)?コスト(\d+)以上のクリーチャーを(自分の手札から)?召喚した(時|とき)、/))) return { whens: ['selfPlay'], rest: rest.slice(mm[0].length), cond: { ...cond, evMinCost: +mm[5], evCreature: true, ...(mm[3] ? { firstPerTurn: true } : {}) } };
     if ((mm = rest.match(/^ツインパクトカードを自分のマナゾーンに置いた(時|とき)、/))) return { whens: ['manaPut'], rest: rest.slice(mm[0].length), cond: { ...cond, evTwin: true } };
     if ((mm = rest.match(/^各ターンのはじめに、/))) return { whens: ['turnStart', 'oppTurnStart'], rest: rest.slice(mm[0].length), cond };
     if ((mm = rest.match(/^スペースチャージ〔([a-z/]+)(\|1)?〕、/))) return { whens: ['manaPut'], rest: rest.slice(mm[0].length), cond: { ...cond, evCivAny: mm[1].split('/'), askUse: true, ...(mm[2] ? { oncePerTurn: true } : {}) } };
@@ -1146,6 +1150,9 @@
     if ((mm = ct.match(/^このクリーチャーが(カード(\d+)枚で)?リンクして(いれば|いる|いる時|い)?$/))) return { linked: mm[2] ? +mm[2] : 2 };
     if (/^自分のシールドの数が相手のより多ければ$/.test(ct)) return { shieldsMore: true };
     if (/^自分のクリーチャーのパワーが一番大きければ$/.test(ct)) return { myMaxPower: true };
+    if ((mm0 = ct.match(/^(バトルゾーンに)?相手の([^、。]+?)が(1枚|1体|1つ)?(も)?(なければ|あれば)$/)) && !/シールド|マナ|手札|墓地|山札/.test(mm0[2])) return mm0[5] === 'なければ' ? { not: { oppHas: mm0[2] } } : { oppHas: mm0[2] };
+    if ((mm0 = ct.match(/^自分の([^、。]+?)がバトルゾーンにあれば$/))) return { count: { what: mm0[1], n: 1 } };
+    if (/^自分のマナゾーンのカードがすべてタップされていれば$/.test(ct)) return { manaAllTapped: true };
     if (/^このクリーチャーがタップしていたら$/.test(ct)) return { selfTapped: true };
     if (/^自分のシールドが相手(のもの)?よりも?少なければ$/.test(ct)) return { shieldsLess: true };
     if (/^(この|その)ターン、自分のシールドゾーンにカードが置かれていれば$/.test(ct)) return { shieldAddedThisTurn: true };
@@ -1716,6 +1723,8 @@
       .flatMap((l) => {
         const both = l.match(/^このクリーチャー(、)?(または|か)(、)?自分の他の(.+?)を(バトルゾーンに)?出した(時|とき)、(.+)$/);
         if (both) return ['このクリーチャーが出た時、' + both[7], '自分の他の' + both[4] + 'が出た時、' + both[7]];
+        const both3 = l.match(/^このクリーチャー(、)?(または|か)(、)?自分の(?!他の)(.+?)を(バトルゾーンに)?出した(時|とき)、(.+)$/);
+        if (both3 && !/この|ターン/.test(both3[4])) return ['このクリーチャーが出た時、' + both3[7], '自分の他の' + both3[4] + 'が出た時、' + both3[7]];
         const both2 = l.match(/^このクリーチャー(、)?(または|か)(、)?自分の他の(.+?)を召喚して(バトルゾーンに)?出した(時|とき)、(.+)$/);
         if (both2) return ['このクリーチャーが召喚によって出た時、' + both2[7], '自分の他の' + both2[4] + 'を召喚した時、' + both2[7]];
         const t = stripReminder(l).trim();
@@ -2227,6 +2236,11 @@
       const aur = line.match(/^オーラが(\d+)枚以上付いた自分の(.+?)が攻撃する時、これを自分の手札からそのクリーチャーに付けてもよい。?$/);
       if (aur) {
         A.push({ when: 'allyAttack', fromHand: true, ally: { race: aur[2].replace(/(・)?クリーチャー$/, '') }, cond: { evAuraGE: +aur[1] }, acts: [{ act: 'attachSelfFromHand' }], text: raw });
+        continue;
+      }
+      const mgu = line.match(/^自分の「無月の門」能力を使った時、このクリーチャーを自分の(手札または)?墓地からバトルゾーンにタップして出してもよい。?$/);
+      if (mgu) {
+        A.push({ when: 'mugetsuUsed', fromGrave: true, fromHand: !!mgu[1], acts: [], text: raw });
         continue;
       }
       if (/^ブレイクボーナス〔〕、/.test(line)) {
