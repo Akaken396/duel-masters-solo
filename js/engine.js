@@ -1370,6 +1370,15 @@
     }
 
     async endTurnEffects() {
+      for (const pl of this.p) for (const c of pl.battle.slice()) {
+        if (c._joeTurn !== this.turn) continue;
+        delete c._joeTurn;
+        const jo = parsed(c.def).kw.joe;
+        if (await this.leave(c, 'deck', { byOpp: false, moveOpt: { top: false } })) {
+          this.log(`J・O・E：「${c.def.name}」を山札の下に置いた`);
+          this.draw(c.owner, jo ? jo.draw : 1);
+        }
+      }
       const me = this.p[this.active];
       for (const c of me.battle) if (c.tapped && this.kw(c).untapAtEnd) {
         c.tapped = false;
@@ -1781,6 +1790,14 @@
             await this.leave(fc, 'mana', { byOpp: false });
           }], cost: cst, opt: { text: `フシギバース（「${fc.def.name}」をマナに置いてコスト${cst}）` } });
         }
+      }
+      // J・O・E N：コストをN少なくして召喚。ターンの終わりに山札の下に置き、カードを引く
+      const joe = parsed(def).kw.joe;
+      if (joe && def === card.def && this.zoneOf(card) === 'hand') {
+        const base = this.costPlan(pi, card, def, null);
+        const cst = Math.max(1, base.cost - joe.n);
+        const mana = this.payWith(pi, def, cst);
+        if (mana && cst < base.cost) out.push({ mana, uses: [...base.uses, () => (card._joeTurn = this.turn)], cost: cst, opt: { text: `J・O・E（コスト${cst}。ターンの終わりに山札の下へ、${joe.draw}枚引く）` } });
       }
       // ギャラクシールド：代わりのコストを払って、表向きのシールドとして置く
       const gxs = parsed(def).kw.galaxy;
