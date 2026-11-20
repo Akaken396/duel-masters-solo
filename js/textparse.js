@@ -42,6 +42,7 @@
       .replace(/^メテオバーン\s*[：:\-－―]\s*/gm, '')
       .replace(/^アバレチェーン\s*[：:]\s*/gm, '')
       .replace(/^(レインボーナス|オシオキムーン)\s*[：:]\s*/gm, '')
+      .replace(/^水晶武装\s*[0-9]*\s*[：:]\s*/gm, '')
       .replace(/このクリーチャーの下にあるカードを1枚選び(、)?墓地に置いてもよい。そうした場合、/g, 'このクリーチャーの下にあるカードを1枚墓地に置いてもよい。そうしたら、')
       .replace(/^鬼タイム\s*[：:]\s*(?!.*真上の)/gm, '')
       .replace(/\[[a-z]{1,5}\d{0,3}\]/g, '') // マナ記号 [ll02] など
@@ -1787,6 +1788,11 @@
       const bb = rawLines[i].match(/^ブレイク・ボーナス\s*[(（][^)）]*[)）]\s*(.+)$/);
       if (bb) rawLines[i] = 'ブレイクボーナス〔〕、' + bb[1];
     }
+    // サイレントスキル：次の行は、ターンのはじめにアンタップするかわりに使う能力
+    for (let i = 0; i < rawLines.length - 1; i++) {
+      if (!/^サイレントスキル\s*[(（]/.test(rawLines[i])) continue;
+      rawLines[i + 1] = '〔サイレント〕' + rawLines[i + 1].replace(/^i\s+/, '');
+    }
     // ウェーブストライカー：次の行の能力は、他にウェーブストライカーが2体以上ある時だけ
     for (let i = 0; i < rawLines.length - 1; i++) {
       if (!/^ウェーブストライカー\s*[(（]/.test(rawLines[i])) continue;
@@ -2316,6 +2322,14 @@
       if (mgu) {
         A.push({ when: 'mugetsuUsed', fromGrave: true, fromHand: !!mgu[1], acts: [], text: raw });
         continue;
+      }
+      if (/^〔サイレント〕/.test(line)) {
+        const sa = parseEffects(line.replace(/^〔サイレント〕\s*/, '').replace(/。$/, ''));
+        if (sa && !sa.some((x) => x.act === 'manualNote')) {
+          A.push({ when: 'silentSkill', acts: sa, text: raw });
+          continue;
+        }
+        line = line.replace(/^〔サイレント〕\s*/, '');
       }
       if (/^〔P能力〕/.test(line)) {
         const pa = parseEffects(line.replace(/^〔P能力〕\s*/, '').replace(/。$/, ''));

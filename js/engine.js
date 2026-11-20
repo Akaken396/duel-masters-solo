@@ -1320,7 +1320,13 @@
         this.log(`「${c.def.name}」のハイパーモードが終わった`);
       }
       const untappedNow = [];
-      for (const c of me.battle) {
+      for (const c of me.battle.slice()) {
+        if (c.tapped && this.kw(c).silentSkill && this.isCreature(c) && this.abilities(c).some((ab) => ab.when === 'silentSkill') && !((c.frozenUntil || 0) >= this.turn) && (await this.yesNo(this.active, `サイレントスキル：「${c.def.name}」をアンタップするかわりに能力を使いますか？`, c))) {
+          c.sick = false;
+          this.log(`サイレントスキル：「${c.def.name}」はアンタップせずに能力を使う`);
+          for (const ab of this.abilities(c)) if (ab.when === 'silentSkill') for (const a2 of ab.acts) await this.doAction(a2, c, this.active);
+          continue;
+        }
         if (!this.kw(c).noUntap && !((c.frozenUntil || 0) >= this.turn)) {
           if (c.tapped) untappedNow.push(c), (c.untappedTurn = this.turn);
           c.tapped = false;
