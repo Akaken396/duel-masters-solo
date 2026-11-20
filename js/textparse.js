@@ -36,9 +36,11 @@
       .replace(/\s*\[([lwdfnc]{1,5})(\d{2})\]\s*支払って/g, '〔代替$1$2〕支払って') // 代わりに払うコスト
       .replace(/^D・D・D\s*\[([lwdfnc]{1,5})(\d{2})\]/gm, 'D・D・D 〔代替$1$2〕')
       .replace(/^キリフダッシュ\s*\[([lwdfnc]{1,5})(\d{2})\]/gm, 'キリフダッシュ 〔代替$1$2〕')
+      .replace(/^ギャラクシールド\s*\[([lwdfnc]{1,5})(\d{2})\]/gm, 'ギャラクシールド 〔代替$1$2〕')
       .replace(/^(マナドライブ|シビルカウント)\s*[0-9０-９]*\s*[：:]\s*(?=\S)/gm, '')
       .replace(/^メテオバーン\s*[：:\-－―]\s*/gm, '')
       .replace(/^アバレチェーン\s*[：:]\s*/gm, '')
+      .replace(/^(レインボーナス|オシオキムーン)\s*[：:]\s*/gm, '')
       .replace(/このクリーチャーの下にあるカードを1枚選び(、)?墓地に置いてもよい。そうした場合、/g, 'このクリーチャーの下にあるカードを1枚墓地に置いてもよい。そうしたら、')
       .replace(/^鬼タイム\s*[：:]\s*(?!.*真上の)/gm, '')
       .replace(/\[[a-z]{1,5}\d{0,3}\]/g, '') // マナ記号 [ll02] など
@@ -1163,6 +1165,7 @@
     if ((mm0 = ct.match(/^自分の([^、。]+?)がバトルゾーンにあれば$/))) return { count: { what: mm0[1], n: 1 } };
     if (/^自分のマナゾーンのカードがすべてタップされていれば$/.test(ct)) return { manaAllTapped: true };
     if (/^このクリーチャーにクロスギアがクロスされていれば$/.test(ct)) return { crossedGE: 1 };
+    if (/^他にウェーブストライカーが2体以上あれば$/.test(ct)) return { waveGE: 2 };
     if ((mm0 = ct.match(/^自分と相手のシールド(の数)?が合計(\d+)(つ|枚)以下(なら|であれば|ならば)$/))) return { shieldsTotalLE: +mm0[2] };
     if ((mm0 = ct.match(/^自分の(光|水|闇|火|自然)のクリーチャーまたは(光|水|闇|火|自然)のタマシードが合計(\d+)つ以上あれば$/))) return { civElemGE: { civ: { 光: 'light', 水: 'water', 闇: 'darkness', 火: 'fire', 自然: 'nature' }[mm0[1]], n: +mm0[3] } };
     if ((mm0 = ct.match(/^自分のマナゾーンのカードが(\d+)枚以上で(光|水|闇|火|自然)文明があれば$/))) return { and: [{ manaGE: +mm0[1] }, { manaCivAll: [{ 光: 'light', 水: 'water', 闇: 'darkness', 火: 'fire', 自然: 'nature' }[mm0[2]]] }] };
@@ -1783,6 +1786,12 @@
       const bb = rawLines[i].match(/^ブレイク・ボーナス\s*[(（][^)）]*[)）]\s*(.+)$/);
       if (bb) rawLines[i] = 'ブレイクボーナス〔〕、' + bb[1];
     }
+    // ウェーブストライカー：次の行の能力は、他にウェーブストライカーが2体以上ある時だけ
+    for (let i = 0; i < rawLines.length - 1; i++) {
+      if (!/^ウェーブストライカー\s*[(（]/.test(rawLines[i])) continue;
+      const nx = rawLines[i + 1].replace(/^w\s+/, '');
+      rawLines.splice(i, 2, '他にウェーブストライカーが2体以上あれば、' + nx);
+    }
     // キズナのP能力：「[P]」「P」「oP」で始まる行
     for (let i = 0; i < rawLines.length; i++) {
       const t = stripReminder(rawLines[i]).trim();
@@ -2313,11 +2322,6 @@
           A.push({ when: 'kizunaP', acts: pa, text: raw });
           continue;
         }
-      }
-      const mjb = line.match(/^マジボンバー\s*(\d+)\s*$/);
-      if (mjb) {
-        A.push({ when: 'attack', acts: [{ act: 'majiBomber', n: +mjb[1] }], text: raw });
-        continue;
       }
       if (/^ブレイクボーナス〔〕、/.test(line)) {
         const bba = parseEffects(line.replace(/^ブレイクボーナス〔〕、/, '').replace(/。$/, ''));

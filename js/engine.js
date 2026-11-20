@@ -508,6 +508,7 @@
       if (c.viaDDD && !(card && card._viaDDD === this.turn)) return false;
       if (c.shieldsTotalLE != null && me.shields.length + op.shields.length > c.shieldsTotalLE) return false;
       if (c.civElemGE && me.battle.filter((x) => (this.isCreature(x) || x.def.type === 'tamaseed') && (x.def.civs || []).includes(c.civElemGE.civ)).length < c.civElemGE.n) return false;
+      if (c.waveGE != null && [...me.battle, ...op.battle].filter((x) => x !== card && this.isCreature(x) && /ウェーブストライカー/.test(x.def.text || '')).length < c.waveGE) return false;
       if (c.evTwin && !(this._eventCard && this._eventCard.def.twin)) return false;
       if (c.evNotFromHand && !(this._eventCard && this._eventCard._enterFrom !== 'hand')) return false;
       if (c.spellsGE != null && (this.spellsThisTurn || [0, 0])[pi] < c.spellsGE) return false;
@@ -1735,6 +1736,20 @@
         const tappers = this.p[pi].battle.filter((c) => this.isCreature(c) && !c.tapped && (!atc.civ || (c.def.civs || []).includes(atc.civ)));
         if (tappers.length >= atc.n) out.push({ mana: [], uses: [() => { for (const c of tappers.slice(0, atc.n)) c.tapped = true; this.log(`クリーチャー${atc.n}体をタップして唱える`); }], cost: 0, tapAlt: atc.n });
       }
+      // ギャラクシールド：代わりのコストを払って、表向きのシールドとして置く
+      const gxs = parsed(def).kw.galaxy;
+      if (gxs && def === card.def && this.zoneOf(card) === 'hand') {
+        const mana = this.payWith(pi, { civs: gxs.civs }, gxs.cost);
+        if (mana) out.push({ mana, uses: [() => (card._galaxy = true)], cost: gxs.cost, opt: { text: `ギャラクシールド（コスト${gxs.cost}で表向きのシールドに）` } });
+      }
+      // 無月の大罪N：コストをN少なくしてもよい。そうしたら、このターンの終わりに自分のクリーチャーを1体破壊する
+      const tsn = parsed(def).kw.mugetsuSin;
+      if (tsn && def === card.def) {
+        const base = this.costPlan(pi, card, def, null);
+        const cst = Math.max(1, base.cost - tsn);
+        const mana = this.payWith(pi, def, cst);
+        if (mana && cst < base.cost) out.push({ mana, uses: [...base.uses, async () => this.doAction({ act: 'atEndOfTurn', acts: [{ act: 'destroyOwn', who: null, others: false, n: 1, optional: false }] }, card, pi)], cost: cst, opt: { text: `無月の大罪（ターンの終わりに自分のクリーチャーを1体破壊）` } });
+      }
       // ハイパーエナジー：自分のクリーチャーを1体タップするごとに召喚コストを2少なくする（1より少なくならない）
       if (parsed(def).kw.hyperEnergy && def === card.def && !NON_CREATURE.includes(def.type)) {
         const tappers = this.p[pi].battle.filter((c) => this.isCreature(c) && !c.tapped);
@@ -2010,6 +2025,14 @@
       }
       await this.pay(pi, card, card.def);
       this.pendingEvoBase = null;
+      if (card._galaxy) {
+        delete card._galaxy;
+        this.moveTo(card, 'shields');
+        card.faceUp = true;
+        this.log(`${this.p[pi].name}はギャラクシールドで「${card.def.name}」を表向きのシールドとして置いた`);
+        await this.shieldAdded(pi);
+        return true;
+      }
       await this.putIntoPlay(pi, card, false, card.def, { evolveFrom, evoChosen: true });
       return true;
     }
@@ -3985,6 +4008,17 @@
           if (r[0]) await this.enterBattle(r[0], pi, 'other');
           break;
         }
+        case 'jChange': {
+          if (this.zoneOf(src) !== 'battle') break;
+          const pool = me.mana.filter((c) => this.isCreatureDef(c) && ((c.def.races || []).join('/')).includes('ジョーカーズ') && (+c.def.cost || 0) <= a.n);
+          if (!pool.length) break;
+          const r = await this.pickCards(pi, pool, 1, true, `Jチェンジ：このクリーチャーと入れ替えるマナのジョーカーズ（コスト${a.n}以下）`, 'recover');
+          if (!r[0]) break;
+          this.log(`Jチェンジ：「${src.def.name}」と「${r[0].def.name}」を入れ替えた`);
+          await this.leave(src, 'mana', { byOpp: false });
+          await this.enterBattle(r[0], pi, 'other');
+          break;
+        }
         case 'useDyn': {
           const lim = me[a.cmp].filter((c) => c !== src).length;
           const pool = me.hand.filter((c) => c !== src && (+c.def.cost || 0) <= lim && (!a.nonCreature || NON_CREATURE.includes(c.def.type)) && !this.locked(pi, c.def));
@@ -5793,6 +5827,8 @@
       }
       for (const x of me.battle.filter((y) => y.attachedTo === card.uid)) if (this.hasAbility(x, 'hostAttack')) await this.trigger(x, 'hostAttack', pi, x.def, null, { defer: true });
       if (this.hasAbility(card, 'attack')) await this.trigger(card, 'attack', pi, card.def, null, { defer: true });
+      if (this.kw(card).majiBomber) await this.queueFn(card, pi, `「${card.def.name}」のマジボンバー`, () => this.doAction({ act: 'majiBomber', n: this.kw(card).majiBomber }, card, pi), { defer: true });
+      if (this.kw(card).jChange) await this.queueFn(card, pi, `「${card.def.name}」のJチェンジ`, () => this.doAction({ act: 'jChange', n: this.kw(card).jChange }, card, pi), { defer: true });
       // 侵略・革命チェンジも、攻撃する時に待機する処理の1つ
       const attacker0 = card;
       this._attackSwap = null;
