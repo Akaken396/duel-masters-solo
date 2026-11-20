@@ -1114,7 +1114,7 @@
           line = line.replace(mm[0], '');
         }
       }
-      const cc = line.match(/(バトルゾーンに)?自分の(.+?)が(\d+)(体|枚|つ)以上あれば、/);
+      const cc = line.match(/(バトルゾーンに)?自分の([^、。]+?)が(\d+)(体|枚|つ)以上あれば、/);
       if (cc && !/マナゾーンに/.test(cc[0])) {
         cond = { ...(cond || {}), count: { what: cc[2], n: +cc[3] } };
         line = line.replace(cc[0], '');
@@ -1146,11 +1146,27 @@
         }
       }
       if (cond) {
-        const pg2 = line.match(/^このクリーチャー(は|の)(、)?(パワーは\+(\d+)され(、|る)|パワーを\+(\d+)(する|し、))?(「(.+?)」(と「(.+?)」)?を(得る|与える))?。?$/);
+        const ppc = line.match(/^このクリーチャーのパワー(を|は)(、)?(自分の)?(墓地|マナゾーン)にある([^、。]*?)(\d+)(枚|体|つ)につき\+(\d+)(する|される)。?$/);
+        if (ppc) {
+          (K.condPowerPers = K.condPowerPers || []).push({ cond, zone: ppc[4] === '墓地' ? 'grave' : 'mana', what: ppc[5].replace(/の$/, ''), per: +ppc[6], n: +ppc[8] });
+          continue;
+        }
+        const pg2 = line.match(/^このクリーチャー(は|の|に)(、)?(パワーは\+(\d+)され(、|る)|パワーを\+(\d+)(する|し、))?(「(.+?)」(と「(.+?)」)?を(得る|与える))?。?$/);
         if (pg2 && (pg2[4] || pg2[6] || pg2[9])) {
           (K.condGrants = K.condGrants || []).push({ cond, power: +(pg2[4] || pg2[6] || 0), names: [pg2[9], pg2[11]].filter(Boolean) });
           continue;
         }
+      }
+      const upp = line.match(/^このクリーチャーのパワー(を|は)(、)?(自分の)?(墓地|マナゾーン)にある([^、。]*?)(\d+)(枚|体|つ)につき\+(\d+)(する|される)。?$/);
+      if (upp) {
+        (K.condPowerPers = K.condPowerPers || []).push({ cond: {}, zone: upp[4] === '墓地' ? 'grave' : 'mana', what: upp[5].replace(/の$/, ''), per: +upp[6], n: +upp[8] });
+        continue;
+      }
+      // 「条件、このクリーチャーのパワーは、墓地の○○1枚につき+N」
+      const gpp = line.match(/^([^。]+?(あれば|なら|いれば|中|間))、このクリーチャーのパワー(を|は)(、)?(自分の)?(墓地|マナゾーン)にある([^、。]*?)(\d+)(枚|体|つ)につき\+(\d+)(する|される)。?$/);
+      if (gpp && parseCondText(gpp[1])) {
+        (K.condPowerPers = K.condPowerPers || []).push({ cond: parseCondText(gpp[1]), zone: gpp[6] === '墓地' ? 'grave' : 'mana', what: gpp[7].replace(/の$/, ''), per: +gpp[8], n: +gpp[10] });
+        continue;
       }
       // 「条件、（キーワードの文）」
       const gk = line.match(/^([^。]+?(あれば|なければ|なら|ならば|いれば|である間|ある間|の間|中|間))、([^、。][^。]*?)。?$/);

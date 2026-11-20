@@ -187,7 +187,7 @@
     { name: 'タップされていないクリーチャーを攻撃', re: /^このクリーチャーは(、)?(タップされていない|アンタップしている)クリーチャーを攻撃できる。?$/, auto: true, set: (k) => (k.attackUntapped = true), desc: 'アンタップしているクリーチャーも攻撃できる' },
     { name: 'クリーチャーを攻撃できない', re: /^このクリーチャーは(、)?(相手の)?クリーチャーを攻撃できない。?$/, auto: true, set: (k) => (k.cantAttackCreature = true), desc: 'クリーチャーを攻撃できない' },
     { name: '可能ならこのクリーチャーを攻撃（別表記）', re: /^(各ターン、)?相手のクリーチャーが(はじめて)?攻撃する(時|なら)、可能ならこのクリーチャーを攻撃する。?$/, auto: true, set: (k) => (k.forceAttack = true), desc: '相手のクリーチャーはできればこのクリーチャーを攻撃する' },
-    { name: '可能なら毎ターン攻撃', re: /^(?<who>このクリーチャーは|すべてのクリーチャーは|相手のクリーチャーはすべて)(、)?可能(であれば|なら)毎ターン攻撃する。?$/, auto: true,
+    { name: '可能なら毎ターン攻撃', re: /^(?<who>このクリーチャーは|すべてのクリーチャーは|相手のクリーチャーはすべて)(、)?可能(であれば|なら)(毎ターン)?攻撃する。?$/, auto: true,
       set: (k, m) => (k.mustAttack = /この/.test(m.groups.who) ? 'self' : /相手/.test(m.groups.who) ? 'opp' : 'all'), desc: 'できれば毎ターン攻撃する' },
     { name: '解除', re: /^解除$/, auto: true, set: (k) => (k.release = true), desc: '離れる時、かわりに表（コストの小さいほう）に戻る' },
     { name: '付いているクリーチャーの強化', re: /^これを(装備|クロス|付け)(した|た)クリーチャー(のパワー(は|を)\+(?<p>\d+)(される|する|され、|し、))?(は|に)?(、)?(「(?<g1>.+?)」(と「(?<g2>.+?)」)?を(得る|与える))?(?<ub>はブロックされない)?。?$/, auto: true,
@@ -207,6 +207,18 @@
       set: (k, m) => (k.allyDestroyTo = (k.allyDestroyTo || []).concat({ who: m.groups.who, others: !!m[1], to: m.groups.to === '手札' ? 'hand' : 'mana', optional: /もよい/.test(m[0]) })), desc: '自分のクリーチャーが破壊される時、墓地のかわりに別の場所へ' },
     { name: '相手は手札と山札以外から使えない', re: /^相手は(、)?自身の手札(または|か)山札以外からカードを使えない。?$/, auto: true, set: (k) => (k.oppUseOnlyHandDeck = true), desc: '相手は手札と山札以外からカードを使えない' },
     { name: '相手は手札と山札以外から出せない', re: /^相手の(エレメント|クリーチャー)は(、)?(相手の|自身の)手札(または|か)山札以外から出ない。?$/, auto: true, set: (k) => (k.oppEnterOnlyHandDeck = true), desc: '相手のカードは手札と山札以外からバトルゾーンに出ない' },
+    { name: '自分のクリーチャーすべてに能力', re: /^(バトルゾーンにある)?自分の(他の)?(、)?(?<who>[^、。「」]*?)(クリーチャー)?(は|に)?すべて(に)?(、)?「(?<g1>.+?)」(と「(?<g2>.+?)」)?を(得る|与える)。?$/, auto: true,
+      set: (k, m) => {
+        let who = (m.groups.who || '').replace(/(・)?クリーチャー$/, '').replace(/の$/, '');
+        const cm = who.match(/^(光|水|闇|火|自然)(の)?/);
+        const civ = cm ? CIVJ[cm[1]] : null;
+        if (cm) who = who.slice(cm[0].length).replace(/(・)?クリーチャー$/, '');
+        k.grant = { others: !!m[2], who: who || null, civ, names: [m.groups.g1, m.groups.g2].filter(Boolean) };
+      }, desc: '自分のクリーチャーすべてに能力を与える' },
+    { name: '相手はキーワードを使えない', re: /^(?<who>相手は|誰も)(、)?((?<civ>光|水|闇|火|自然)のカードの)?「(?<kw>S・トリガー|G・ストライク|ニンジャ・ストライク|革命チェンジ|侵略)」(能力)?を使えない。?$/, auto: true,
+      set: (k, m) => (k.kwBan = { side: m.groups.who === '相手は' ? 'opp' : 'all', kw: m.groups.kw, civ: m.groups.civ ? CIVJ[m.groups.civ] : null }), desc: '相手（全員）は指定の能力を使えない' },
+    { name: '負けない（常時）', re: /^自分は(、)?ゲームに負けない。?$/, auto: true, set: (k) => (k.noLoseStatic = true), desc: '自分はゲームに負けない' },
+    { name: '勝つ（常時）', re: /^自分は(、)?ゲームに(勝つ|勝利する)。?$/, auto: true, set: (k) => (k.winStatic = true), desc: '条件を満たすとゲームに勝つ' },
     { name: '破壊されない', re: /^このクリーチャーは(、)?破壊されない。?$/, auto: true, set: (k) => (k.noDestroy = true), desc: '破壊されない' },
     { name: '離れない', re: /^このクリーチャーは(、)?(バトルゾーンを)?離れない。?$/, auto: true, set: (k) => (k.noLeave = true), desc: 'バトルゾーンを離れない' },
     { name: '超次元ゾーンから召喚', re: /^このクリーチャーを(、)?(自分の)?超次元ゾーンから召喚してもよい。?$/, auto: true, set: (k) => (k.hyperSummon = true), desc: '超次元ゾーンから召喚できる' },

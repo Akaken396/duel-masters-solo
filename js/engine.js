@@ -659,6 +659,12 @@
       if (kb.aloneBuff && meP.battle.filter((c) => this.isCreature(c)).length === 1) extra += kb.aloneBuff;
       if (kb.selfBuff) extra += kb.selfBuff.n;
       for (const cgr of kb.condGrants || []) if (cgr.power && this.condOk2(card.owner, cgr.cond, card)) extra += cgr.power;
+      for (const cp of kb.condPowerPers || []) {
+        if (!this.condOk2(card.owner, cp.cond, card)) continue;
+        const zone = this.p[card.owner][cp.zone];
+        const cd = cp.what && !/^カード$/.test(cp.what) ? G.TextParse.lookCond(cp.what.replace(/(・)?カード$/, '')) : null;
+        extra += Math.floor(zone.filter((x) => !cd || this.fitLook(x, cd)).length / cp.per) * cp.n;
+      }
       for (const src of this.p[card.owner].battle) {
         const tp = this.kwSelf(src).teamPower;
         if (!tp || (tp.others && src === card)) continue;
@@ -813,6 +819,14 @@
 
     checkState() {
       if (this.winner != null) return;
+      // 「条件を満たせば自分はゲームに勝つ」
+      if (this.started) for (const pl of this.p) {
+        const w = this.permanents(pl.idx).find((s) => this.kw(s).winStatic);
+        if (w && !this.cantLose(1 - pl.idx)) {
+          this.winner = pl.idx;
+          this.endReason = `「${w.def.name}」の効果`;
+        }
+      }
       for (const pl of this.p) {
         if (this.started && pl.deck.length === 0 && !this.cantLose(pl.idx)) {
           this.winner = 1 - pl.idx;
@@ -828,6 +842,7 @@
     }
 
     cantLose(pi) {
+      if (this.permanents(pi).some((s) => this.kw(s).noLoseStatic)) return true;
       return (this.p[pi].noLoseUntil || 0) >= this.turn;
     }
 
@@ -3785,6 +3800,11 @@
       for (const sh of picked) {
         if (this.zoneOf(sh) !== 'hand') continue;
         const ssc = this.sc(sh);
+        const banned = (kwName) => [0, 1].some((q) => this.permanents(q).some((s) => { const b = this.kw(s).kwBan; return b && b.kw === kwName && (b.side === 'all' || q !== sh.owner) && (!b.civ || (sh.def.civs || []).includes(b.civ)); }));
+        if (banned('S・トリガー') && (this.kw(sh).shieldTrigger || (this.twin(sh) && parsed(this.twin(sh)).kw.shieldTrigger))) {
+          this.log(`「${sh.def.name}」のS・トリガーは使えない`);
+          continue;
+        }
         if (this.kw(sh).shieldTrigger || (ssc && ssc.dynamicTrigger && ssc.dynamicTrigger(this, sh))) cands.push({ id: 'st' + sh.uid, label: `S・トリガー「${sh.def.name}」`, card: sh, def: sh.def, kind: 'st' });
         const t = this.twin(sh);
         if (t && parsed(t).kw.shieldTrigger) cands.push({ id: 'tw' + sh.uid, label: `S・トリガー「${t.name}」（ツインパクトの呪文側）`, card: sh, def: t, kind: 'st' });
