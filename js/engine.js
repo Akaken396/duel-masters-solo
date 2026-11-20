@@ -138,6 +138,16 @@
     }
 
     kw(card) {
+      // 条件の判定でまた能力を調べる時の、深い入れ子を防ぐ
+      if ((this._kwDepth || 0) > 2) return this.kwBase(card);
+      this._kwDepth = (this._kwDepth || 0) + 1;
+      try {
+        return this.kwInner(card);
+      } finally {
+        this._kwDepth--;
+      }
+    }
+    kwInner(card) {
       const base = this.kwBase(card);
       if (!this.isCreature(card) || this._granting) return base;
       // 自分の場のカードが与える能力
@@ -160,7 +170,7 @@
           }
         }
         for (const src of this.permanents(card.owner)) {
-          const g = this.kwBase(src).grant;
+          const g = this.kwSelf(src).grant;
           if (!g || (g.others && src === card)) continue;
           if (g.who && !((card.def.races || []).join('/') + card.def.name).includes(g.who.replace(/(クリーチャー|カード)$/, ''))) continue;
           if (g.civ && !(card.def.civs || []).includes(g.civ)) continue;
@@ -228,6 +238,28 @@
             hit.e.set(out, hit.m, pg.name);
           }
         }
+      }
+      return out;
+    }
+    // そのカード自身の能力＋条件つきで得る能力（他のカードから与えられる能力は含まない）
+    kwSelf(card) {
+      const base = this.kwBase(card);
+      if (!base.condGrants || this._kwSelfDepth > 1) return base;
+      this._kwSelfDepth = (this._kwSelfDepth || 0) + 1;
+      let out = base;
+      try {
+        for (const cgr of base.condGrants) {
+          if (!cgr.names.length || !this.condOk2(card.owner, cgr.cond, card)) continue;
+          for (const nm of cgr.names) {
+            const hit = G.Keywords && G.Keywords.match(nm, nm);
+            if (hit && hit.e.set) {
+              if (out === base) out = { ...base };
+              hit.e.set(out, hit.m, nm);
+            }
+          }
+        }
+      } finally {
+        this._kwSelfDepth--;
       }
       return out;
     }
@@ -409,6 +441,45 @@
     // 常在の条件（マナ武装・数・シールドなど）
     condOk2(pi, c, card) {
       const me = this.p[pi];
+      const op = this.p[1 - pi];
+      if (!c) return true;
+      if (c.not) return !this.condOk2(pi, c.not, card);
+      if (c.firstAttack && (this.attacksThisTurn || [0, 0])[pi] !== 1) return false;
+      if (c.notFirstAttack && (this.attacksThisTurn || [0, 0])[pi] <= 1) return false;
+      if (c.underGE != null && !(card && (card.under || []).length >= Math.max(1, c.underGE))) return false;
+      if (c.oppHandLE != null && op.hand.length > c.oppHandLE) return false;
+      if (c.selfPowerGE != null && !(card && this.power(card) >= c.selfPowerGE)) return false;
+      if (c.oppManaMulti && !op.mana.some((m) => (m.def.civs || []).filter((x) => x !== 'zero').length > 1)) return false;
+      if (c.hasField && !me.battle.some((x) => x.def.type === 'field')) return false;
+      const manaCivs = (m) => (m.faceDown ? [] : m.def.civs || []);
+      if (c.manaCivGE && me.mana.filter((m) => manaCivs(m).some((x) => c.manaCivGE.civs.includes(x))).length < c.manaCivGE.n) return false;
+      if (c.manaCivAll && !c.manaCivAll.every((cv) => me.mana.some((m) => manaCivs(m).includes(cv)))) return false;
+      if (c.manaMultiGE != null && me.mana.filter((m) => manaCivs(m).filter((x) => x !== 'zero').length > 1).length < c.manaMultiGE) return false;
+      if (c.manaOnlyCivs && !me.mana.every((m) => { const cs = manaCivs(m).filter((x) => x !== 'zero'); return cs.length ? cs.every((x) => c.manaOnlyCivs.includes(x)) : c.manaOnlyCivs.includes('zero'); })) return false;
+      if (c.manaRaceGE && me.mana.filter((m) => ((m.def.races || []).join('/') + m.def.name).includes(c.manaRaceGE.what.replace(/(・)?(カード|クリーチャー)$/, ''))).length < c.manaRaceGE.n) return false;
+      if (c.oppShieldsLE != null && op.shields.length > c.oppShieldsLE) return false;
+      if (c.oppShieldsGE != null && op.shields.length < c.oppShieldsGE) return false;
+      if (c.handGE != null && me.hand.length < c.handGE) return false;
+      if (c.graveTypeGE && me.grave.filter((x) => (c.graveTypeGE.type === 'spell' ? x.def.type === 'spell' : x.def.type === 'creature')).length < c.graveTypeGE.n) return false;
+      if (c.graveWhatGE && me.grave.filter((x) => this.fitLook(x, G.TextParse.lookCond(c.graveWhatGE.what))).length < c.graveWhatGE.n) return false;
+      if (c.faceUpShieldHas && !me.shields.some((x) => x.faceUp && (x.def.text || '').includes(c.faceUpShieldHas))) return false;
+      if (c.selfFaceUpShield && !(card && ((this.zoneOf(card) === 'shields' && card.faceUp) || (c.orBattle && this.zoneOf(card) === 'battle')))) return false;
+      if (c.namesPresent && !c.namesPresent.every((n) => me.battle.some((x) => x.def.name === n || x.def.name.includes(n)))) return false;
+      if (c.nameAbsent && me.battle.some((x) => x.def.name.includes(c.nameAbsent))) return false;
+      if (c.oppCount && op.battle.filter((x) => this.allyMatch(x, c.oppCount.what.replace(/(・)?クリーチャー$/, ''))).length < c.oppCount.n) return false;
+      if (c.selfTapped && !(card && card.tapped)) return false;
+      if (c.selfUntapped && !(card && !card.tapped)) return false;
+      if (c.selfEvo && !(card && (this.evoKind(card.def) || (card.under || []).length))) return false;
+      if (c.selfInGrave && !(card && this.zoneOf(card) === 'grave')) return false;
+      if (c.alone && me.battle.filter((x) => this.isCreature(x) && x !== card).length) return false;
+      if (c.creaturesGEShields && me.battle.filter((x) => this.isCreature(x)).length < me.shields.length) return false;
+      if (c.battleManaGE) {
+        const w = c.battleManaGE.what;
+        const hit = (x) => ((x.def.races || []).join('/') + x.def.name).includes(w);
+        if (me.battle.filter(hit).length + me.mana.filter(hit).length < c.battleManaGE.n) return false;
+      }
+      if (c.selfAttacking && !(card && card.attacking)) return false;
+      if (c.selfBlocking && !(card && card.blocking)) return false;
       if (c.equippedTapped) {
         const h = card && card.attachedTo && me.battle.find((x) => x.uid === card.attachedTo);
         if (!h || !h.tapped) return false;
@@ -510,6 +581,8 @@
         }
       }
       if (/^進化(クリーチャー)?$/.test(w)) return pool.filter((c) => this.evoKind(c.def)).length;
+      if (/^GR(クリーチャー)?$/.test(w)) return pool.filter((c) => homeZone(c.frontDef || c.def) === 'gr').length;
+      if (/^サイキック(・クリーチャー)?$/.test(w)) return pool.filter((c) => homeZone(c.frontDef || c.def) === 'hyper').length;
       if (/^多色(クリーチャー)?$/.test(w)) return pool.filter((c) => (c.def.civs || []).filter((x) => x !== 'zero').length > 1).length;
       const civ = w.match(/^(光|水|闇|火|自然)の/);
       if (civ) pool = pool.filter((c) => (c.def.civs || []).includes({ 光: 'light', 水: 'water', 闇: 'darkness', 火: 'fire', 自然: 'nature' }[civ[1]]));
@@ -587,14 +660,14 @@
       if (kb.selfBuff) extra += kb.selfBuff.n;
       for (const cgr of kb.condGrants || []) if (cgr.power && this.condOk2(card.owner, cgr.cond, card)) extra += cgr.power;
       for (const src of this.p[card.owner].battle) {
-        const tp = this.kwBase(src).teamPower;
+        const tp = this.kwSelf(src).teamPower;
         if (!tp || (tp.others && src === card)) continue;
         if (tp.oppTurnOnly && this.active === card.owner) continue;
         if (tp.who && !((card.def.races || []).join('/') + card.def.name).includes(tp.who.replace(/(・)?クリーチャー$/, ''))) continue;
         extra += tp.n;
       }
       for (const src of this.p[card.owner].battle) {
-        for (const tp of this.kwBase(src).teamPowers || []) {
+        for (const tp of this.kwSelf(src).teamPowers || []) {
           if (tp.others && src === card) continue;
           if (tp.civ && !(card.def.civs || []).includes(tp.civ)) continue;
           if (tp.who && !((card.def.races || []).join('/') + card.def.name).includes(tp.who)) continue;
@@ -1122,6 +1195,7 @@
         }
       }
       if (k.costIfCount && this.countOwn(pi, k.costIfCount.what) >= k.costIfCount.n) cost -= k.costIfCount.minus;
+      for (const sc2 of k.selfCostIf || []) if (this.condOk2(pi, sc2.cond, card)) cost -= sc2.n;
       if (k.costPerShield) cost += Math.floor(me.shields.length / k.costPerShield.per) * k.costPerShield.n;
       if (def.type === 'spell') {
         for (const q of [0, 1]) for (const src of this.permanents(q)) {
@@ -1789,7 +1863,7 @@
     // 離れられない状態か（封印・シールド・フォース・極限ファイナル革命など）
     cannotLeave(card) {
       if (card.seals > 0) return '封印';
-      if ((card.noLeaveUntil || 0) >= this.turn) return '離れない';
+      if ((card.noLeaveUntil || 0) >= this.turn || (this.zoneOf(card) === 'battle' && this.kw(card).noLeave)) return '離れない';
       const pl = this.p[card.owner];
       if (this.isCreature(card) && (pl.noLeaveUntil || 0) >= this.turn) return '離れない';
       if (this.isCreature(card)) {
@@ -3309,7 +3383,7 @@
       const gone = [];
       for (const c of cards) {
         if (this.zoneOf(c) !== 'battle') continue;
-        if ((c.noDestroyUntil || 0) >= this.turn) {
+        if ((c.noDestroyUntil || 0) >= this.turn || this.kw(c).noDestroy) {
           this.log(`「${c.def.name}」は破壊されない`);
           continue;
         }
@@ -3403,6 +3477,11 @@
       card.tapped = true;
       card.attacking = true;
       if (this.hasAbility(card, 'tapped')) await this.trigger(card, 'tapped', pi, card.def, null, { defer: true });
+      if (this.attackTurnMark !== this.turn) {
+        this.attackTurnMark = this.turn;
+        this.attacksThisTurn = [0, 0];
+      }
+      this.attacksThisTurn[pi]++;
       await this.allyEvent(card, pi, 'allyAttack');
       for (const x of me.battle.filter((y) => y.attachedTo === card.uid)) if (this.hasAbility(x, 'hostAttack')) await this.trigger(x, 'hostAttack', pi, x.def, null, { defer: true });
       await this.resolvePending();

@@ -207,6 +207,8 @@
       set: (k, m) => (k.allyDestroyTo = (k.allyDestroyTo || []).concat({ who: m.groups.who, others: !!m[1], to: m.groups.to === '手札' ? 'hand' : 'mana', optional: /もよい/.test(m[0]) })), desc: '自分のクリーチャーが破壊される時、墓地のかわりに別の場所へ' },
     { name: '相手は手札と山札以外から使えない', re: /^相手は(、)?自身の手札(または|か)山札以外からカードを使えない。?$/, auto: true, set: (k) => (k.oppUseOnlyHandDeck = true), desc: '相手は手札と山札以外からカードを使えない' },
     { name: '相手は手札と山札以外から出せない', re: /^相手の(エレメント|クリーチャー)は(、)?(相手の|自身の)手札(または|か)山札以外から出ない。?$/, auto: true, set: (k) => (k.oppEnterOnlyHandDeck = true), desc: '相手のカードは手札と山札以外からバトルゾーンに出ない' },
+    { name: '破壊されない', re: /^このクリーチャーは(、)?破壊されない。?$/, auto: true, set: (k) => (k.noDestroy = true), desc: '破壊されない' },
+    { name: '離れない', re: /^このクリーチャーは(、)?(バトルゾーンを)?離れない。?$/, auto: true, set: (k) => (k.noLeave = true), desc: 'バトルゾーンを離れない' },
     { name: '超次元ゾーンから召喚', re: /^このクリーチャーを(、)?(自分の)?超次元ゾーンから召喚してもよい。?$/, auto: true, set: (k) => (k.hyperSummon = true), desc: '超次元ゾーンから召喚できる' },
     { name: 'マナゾーンから召喚', re: /^このクリーチャーを(、)?自分のマナゾーンから召喚してもよい。?$/, auto: true, set: (k) => (k.manaSummon = true), desc: 'マナゾーンから召喚できる' },
     { name: 'アビスラッシュ', re: /^アビスラッシュ([：:]このクリーチャーを自分の墓地から召喚してもよい。そうしたら、このターン、このクリーチャーはプレイヤーを攻撃でき、ターンの終わりに山札の下に置かれる。?)?$/, auto: true, set: (k) => ((k.graveSummon = true), (k.abyssRush = true)), desc: '墓地から召喚でき、そのターンはプレイヤーを攻撃できる。ターンの終わりに山札の下へ' },

@@ -703,12 +703,70 @@
   }
   // 「〜なら」「〜あれば」「〜場合」の条件文を読む。読めなければ null
   function parseCondText(ct) {
+    ct = String(ct || '').replace(/^(G・G・G|マナ武装\s*\d+|ラビリンス|シビルカウント\s*\d+)\s*[：:\-－―]\s*/, '').replace(/^バトルゾーンにある間$/, 'バトルゾーンに');
+    // 「〜がなければ」は肯定の条件を読んで反転する
+    let neg = ct.match(/^(.+?)(が)(\d+(体|枚|つ)以上)?(なければ)$/);
+    if (neg && !/もなければ$/.test(ct)) {
+      const pos = parseCondText(neg[1] + neg[2] + (neg[3] || '') + 'あれば');
+      if (pos) return { not: pos };
+    }
     const c = {};
     let mm;
-    ct = ct.replace(/(であれば|ならば|なら|あれば|場合|の場合)$/, '').replace(/ければ$/, 'い');
-    if (/^これを装備したクリーチャーがタップ(されて|して)い(れば)?$/.test(ct)) return { equippedTapped: true };
+    ct = ct.replace(/(である間|ある間|の間|いる間)$/, '');
+    if ((mm = ct.match(/^それが(その|この)ターン(はじめて|最初)の攻撃(であれば|なら)$/))) return { firstAttack: true };
+    if ((mm = ct.match(/^それが(その|この)ターン(はじめて|最初)の攻撃でなければ$/))) return { notFirstAttack: true };
+    if ((mm = ct.match(/^(カードがこれの下に|このクリーチャーの下に(\d+)枚以上カードが|このクリーチャーにカードが(\d+)枚以上含まれて)(あれば|いれば)$/))) return { underGE: mm[2] ? +mm[2] : mm[3] ? +mm[3] - 1 : 1 };
+    if ((mm = ct.match(/^相手の手札が(\d+)枚もなければ$/))) return { oppHandLE: +mm[1] - 1 };
+    if ((mm = ct.match(/^このクリーチャーのパワーが(\d+)以上(なら|であれば)$/))) return { selfPowerGE: +mm[1] };
+    if (/^相手のマナゾーンに多色カードがあれば$/.test(ct)) return { oppManaMulti: 1 };
+    if (/^(自分の)?(DN|D2|DG)フィールドがバトルゾーンにあれば$|^バトルゾーンに自分の(DN|D2|DG)フィールドがあれば$/.test(ct)) return { hasField: true };
+    if (/^相手のターンにこのクリーチャーがタップ(されて|して)いれば$/.test(ct)) return { oppTurn: true, selfTapped: true };
+    if ((mm = ct.match(/^(このカード|この呪文|このクリーチャー)が(バトルゾーンまたは)?(表向きで)?自分のシールドゾーンに(表向きで)?(あれば|であれば)$/))) return { selfFaceUpShield: true, orBattle: !!mm[2] };
+    ct = ct.replace(/^マナ武装\s*\d+\s*[：:\-－―]\s*/, '').replace(/(であれば|ならば|なら|あれば|場合|の場合|いれば)$/, '').replace(/ければ$/, 'い').replace(/^バトルゾーンにある、?/, 'バトルゾーンに');
+    if (/^これを装備したクリーチャーがタップ(されて|して)(い)?(れば)?$/.test(ct)) return { equippedTapped: true };
+    const CV = { 光: 'light', 水: 'water', 闇: 'darkness', 火: 'fire', 自然: 'nature' };
+    const civList = (t) => (t.match(/光|水|闇|火|自然/g) || []).map((x) => CV[x]);
+    // マナ武装・マナの条件
+    if ((mm = ct.match(/^自分のマナゾーンに((光|水|闇|火|自然)(、|または|か)?)+の?カードが(\d+)枚以上$/))) return { manaCivGE: { civs: civList(ct), n: +mm[4] } };
+    if ((mm = ct.match(/^自分のマナゾーンに((光|水|闇|火|自然)(、|または|か)?)+(の)?(カード|文明)が$/))) return { manaCivGE: { civs: civList(ct), n: 1 } };
+    if ((mm = ct.match(/^自分のマナゾーンに((光|水|闇|火|自然)(と|、)?)+(の)?(カード|文明)が(すべて|両方)?$/))) return { manaCivAll: civList(ct) };
+    if ((mm = ct.match(/^自分のマナゾーンに多色カードが(\d+)枚以上$/))) return { manaMultiGE: +mm[1] };
+    if ((mm = ct.match(/^自分のマナゾーン(にある|の)カードがすべて((光|水|闇|火|自然|無色)(または|か|、)?)+((の)?カード)?(で(ある|あれ)?)?$/))) return { manaOnlyCivs: civList(ct).concat(/無色/.test(ct) ? ['zero'] : []) };
+    if ((mm = ct.match(/^自分のマナゾーンに([^、。]+?)(・カード)?が(\d+)枚以上$/)) && !/カード$/.test(mm[1])) return { manaRaceGE: { what: mm[1], n: +mm[3] } };
+    // シールド・手札・墓地
+    if ((mm = ct.match(/^相手のシールドが(\d+)(つ|枚)以下(で)?$/))) return { oppShieldsLE: +mm[1] };
+    if ((mm = ct.match(/^相手のシールドが(\d+)(つ|枚)以上$/))) return { oppShieldsGE: +mm[1] };
+    if ((mm = ct.match(/^相手のシールドが(\d+)(つ|枚)でも$/))) return { oppShieldsGE: +mm[1] };
+    if ((mm = ct.match(/^自分のシールドが(\d+)(つ|枚)でも$/))) return { shieldsGE: +mm[1] };
+    if (/^相手のシールドが1(つ|枚)もない$|^相手のシールドがない$/.test(ct)) return { oppShieldsLE: 0 };
+    if ((mm = ct.match(/^自分の手札が(\d+)枚以上$/))) return { handGE: +mm[1] };
+    if (/^自分の手札が1枚もない$|^自分の手札がない$/.test(ct)) return { handLE: 0 };
+    if ((mm = ct.match(/^自分の墓地に(クリーチャー|呪文)が(\d+)(体|枚)以上$/))) return { graveTypeGE: { type: mm[1] === '呪文' ? 'spell' : 'creature', n: +mm[2] } };
+    if ((mm = ct.match(/^自分の墓地に([^、。]+?)が(\d+)(体|枚|つ)(以上|でも)$/))) return { graveWhatGE: { what: mm[1], n: +mm[2] } };
+    if (/^(自分の)?シールドゾーンに表向きのカードが$/.test(ct)) return { faceUpShieldsGE: 1 };
+    if ((mm = ct.match(/^「(.+?)」を持つカードが自分のシールドゾーンに表向き(で)?$/))) return { faceUpShieldHas: mm[1] };
+    if (/^このカードが自分のシールドゾーンに表向き(で)?$/.test(ct)) return { selfFaceUpShield: true };
+    // 場の状態
+    if ((mm = ct.match(/^(バトルゾーンに)?自分の((《[^》]+》)(と|、)?)+が$/))) return { namesPresent: [...ct.matchAll(/《([^》]+)》/g)].map((x) => x[1]) };
+    if ((mm = ct.match(/^(バトルゾーンに)?自分の《([^》]+)》がない$/))) return { nameAbsent: mm[2] };
+    if ((mm = ct.match(/^(バトルゾーンに)?相手の([^、。]+?)が$/)) && !/シールド|マナ|手札|墓地/.test(mm[2])) return { oppCount: { what: mm[2], n: 1 } };
+    if (/^このクリーチャーがタップ(して|されて)(い)?$/.test(ct)) return { selfTapped: true };
+    if (/^このクリーチャーがアンタップして(い)?$/.test(ct)) return { selfUntapped: true };
+    if (/^これが(NEO)?進化クリーチャー$/.test(ct)) return { selfEvo: true };
+    if (/^このクリーチャーが自分の墓地に$/.test(ct)) return { selfInGrave: true };
+    if (/^(バトルゾーンにある)?自分のクリーチャーがこのクリーチャーだけ(で)?$|^バトルゾーンに自分のクリーチャーがこのクリーチャーだけ(で)?$|^(バトルゾーンに)?自分の他のクリーチャーが(1体も)?ない$/.test(ct)) return { alone: true };
+    if (/^自分のクリーチャーの数が自分のシールドの数以上$/.test(ct)) return { creaturesGEShields: true };
+    if ((mm = ct.match(/^(バトルゾーンまたはマナゾーンに)?自分の(、)?([^、。]+?)(と|、)?(マナゾーンにある[^、。]+?)?が(合計)?(\d+)(枚|つ|体)以上$/)) && (mm[1] || mm[5] || mm[6])) return { battleManaGE: { what: mm[3].replace(/(・カード|・クリーチャー)$/, ''), n: +mm[7] } };
+    if (/^相手のターン中$/.test(ct)) return { oppTurn: true };
+    if (/^自分のターン中$/.test(ct)) return { myTurn: true };
+    if (/^(このクリーチャーが)?(バトルゾーンにある間|バトルゾーンに)$/.test(ct)) return {};
+    if (/^(このクリーチャーの)?攻撃中$/.test(ct)) return { selfAttacking: true };
+    if (/^(このクリーチャーが)?ブロック中$/.test(ct)) return { selfBlocking: true };
+    if (/^(このクリーチャーが)?バトル中$/.test(ct)) return { inBattle: true };
     if ((mm = ct.match(/^自分のシールドが(\d+)(つ|枚)以下(で)?$/))) c.shieldsLE = +mm[1];
-    else if ((mm = ct.match(/^自分のシールドが(\d+)(つ|枚)以上$/))) c.shieldsGE = +mm[1];
+    else if ((mm = ct.match(/^自分のシールドが(\d+)(つ|枚)?以上$/))) c.shieldsGE = +mm[1];
+    else if ((mm = ct.match(/^自分のシールドゾーンに表向きのカードが(\d+)枚以上$/))) c.faceUpShieldsGE = +mm[1];
+    else if ((mm = ct.match(/^(バトルゾーンに)?(ある)?自分の(他の)?([^、。]+?)が(\d+)(体|つ|枚)以下$/)) && !/シールド|マナ|手札|墓地/.test(mm[4])) c.countLE = { what: mm[4], n: +mm[5], others: !!mm[3] };
     else if (/^自分のシールドが1(つ|枚)もない$|^自分のシールドがない$/.test(ct)) c.shieldsLE = 0;
     else if (/^(自分の手札が相手より少ない|相手の手札が自分(のもの|の)?より多い|相手の手札の枚数が自分より多い)(い)?$/.test(ct)) c.handLess = true;
     else if (/^(自分のマナゾーンのカードが相手より少ない|相手のマナゾーンのカードが自分(のマナゾーンのカード|の)?より多い)$/.test(ct)) c.oppManaMore = true;
@@ -1073,10 +1131,39 @@
         continue;
       }
       // 条件を外した後の「このクリーチャーのパワーは+Nされ、「○○」を得る」
-      if (cond && !cond.manaCiv && cond.n == null) {
+      // 条件つきの召喚コスト軽減（マナ武装以外も）
+      const scm = cond && line.match(/^このクリーチャー(の召喚コスト|を召喚するコスト)(を(\d+)少なくする|は(\d+)少なくなる)。?$/);
+      if (scm) {
+        (K.selfCostIf = K.selfCostIf || []).push({ cond, n: +(scm[3] || scm[4]) });
+        continue;
+      }
+      // 条件つきで、キーワードの文（「このクリーチャーは破壊されない」「相手は呪文を唱えられない」など）を得る
+      if (cond && Kd) {
+        const kh = Kd.match(line.replace(/。$/, ''), raw);
+        if (kh && kh.e.auto) {
+          (K.condGrants = K.condGrants || []).push({ cond, power: 0, names: [line.replace(/。$/, '')] });
+          continue;
+        }
+      }
+      if (cond) {
         const pg2 = line.match(/^このクリーチャー(は|の)(、)?(パワーは\+(\d+)され(、|る)|パワーを\+(\d+)(する|し、))?(「(.+?)」(と「(.+?)」)?を(得る|与える))?。?$/);
         if (pg2 && (pg2[4] || pg2[6] || pg2[9])) {
           (K.condGrants = K.condGrants || []).push({ cond, power: +(pg2[4] || pg2[6] || 0), names: [pg2[9], pg2[11]].filter(Boolean) });
+          continue;
+        }
+      }
+      // 「条件、（キーワードの文）」
+      const gk = line.match(/^([^。]+?(あれば|なければ|なら|ならば|いれば|である間|ある間|の間|中|間))、([^、。][^。]*?)。?$/);
+      if (gk && Kd) {
+        const pc = parseCondText(gk[1]);
+        const kh = pc && Kd.match(gk[3], raw);
+        if (kh && kh.e.auto) {
+          (K.condGrants = K.condGrants || []).push({ cond: pc, power: 0, names: [gk[3]] });
+          continue;
+        }
+        const scm2 = pc && gk[3].match(/^このクリーチャー(の召喚コスト|を召喚するコスト)(を(\d+)少なくする|は(\d+)少なくなる)$/);
+        if (scm2) {
+          (K.selfCostIf = K.selfCostIf || []).push({ cond: pc, n: +(scm2[3] || scm2[4]) });
           continue;
         }
       }
@@ -1113,7 +1200,11 @@
         else if ((mm = ct.match(/自分のシールドゾーンに表向きのカードが(\d+)枚以上あれば/))) c2.faceUpShieldsGE = +mm[1];
         else if (/自分のシールドの数が相手より多ければ/.test(ct)) c2.shieldsMore = true;
         else if (/バトルゾーンにある自分のクリーチャーの数が相手より多ければ/.test(ct)) c2.creaturesMore = true;
-        else c2.unknown = true;
+        else {
+          const pc = parseCondText(ct);
+          if (pc) Object.assign(c2, pc);
+          else c2.unknown = true;
+        }
         if (!c2.unknown) {
           (K.condGrants = K.condGrants || []).push({ cond: c2, power: +(cg[6] || cg[7] || 0), names: [cg[8], cg[10]].filter(Boolean) });
           continue;
@@ -1380,6 +1471,6 @@
     return out;
   }
 
-  G.TextParse = { parseCard, describe, normalize, parseEffects, parseTriggerHead, lookCond };
+  G.TextParse = { parseCard, describe, normalize, parseEffects, parseTriggerHead, lookCond, parseCondText };
   if (typeof module !== 'undefined') module.exports = G.TextParse;
 })(typeof globalThis !== 'undefined' ? globalThis : window);
