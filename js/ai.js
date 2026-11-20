@@ -103,6 +103,7 @@
     const me = g.p[pi];
     const op = g.opp(pi);
     for (let guard = 0; guard < 40; guard++) {
+      if (me.skipRestTurn === g.turn) return;
       const attackers = me.battle.filter((c) => g.attackTargets(c).length);
       if (!attackers.length) return;
       attackers.sort((a, b) => g.power(b) - g.power(a));
@@ -172,6 +173,7 @@
       await g.pause();
     }
     await playCards(g, pi);
+    if (g.p[pi].skipRestTurn === g.turn) return g.log(`${g.p[pi].name}はターンを終了した`);
     await crossPhase(g, pi);
     // ハイパー化：攻撃できない（召喚酔いなど）他のクリーチャーをタップしてハイパーモードにする
     for (const c of g.p[pi].battle.slice()) {
@@ -180,7 +182,7 @@
       const idle = g.p[pi].battle.filter((x) => x !== c && g.isCreature(x) && !x.tapped && !g.attackTargets(x).length);
       if (idle.length >= n) await g.hyperize(pi, c.uid, idle.slice(0, n).map((x) => x.uid));
     }
-    await attackPhase(g, pi);
+    if (g.p[pi].skipRestTurn !== g.turn) await attackPhase(g, pi);
     g.log(`${g.p[pi].name}はターンを終了した`);
   }
 
