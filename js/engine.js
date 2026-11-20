@@ -521,6 +521,7 @@
       if (c.civElemGE && me.battle.filter((x) => (this.isCreature(x) || x.def.type === 'tamaseed') && (x.def.civs || []).includes(c.civElemGE.civ)).length < c.civElemGE.n) return false;
       if (c.waveGE != null && [...me.battle, ...op.battle].filter((x) => x !== card && this.isCreature(x) && /ウェーブストライカー/.test(x.def.text || '')).length < c.waveGE) return false;
       if (c.sfShield && !(card && card._sfShield && this.p[card.owner].shields.some((x) => x.uid === card._sfShield))) return false;
+      if (c.stPlus && !(card && card._viaSTTurn === this.turn && this.active !== pi && me._brkTurn === this.turn && me._brkN >= 2)) return false;
       if (c.evTwin && !(this._eventCard && this._eventCard.def.twin)) return false;
       if (c.evNotFromHand && !(this._eventCard && this._eventCard._enterFrom !== 'hand')) return false;
       if (c.spellsGE != null && (this.spellsThisTurn || [0, 0])[pi] < c.spellsGE) return false;
@@ -6350,6 +6351,8 @@
       picked = [...new Set(picked)];
       this.log(`${op.name}のシールドを${picked.length}つブレイクした（残り${op.shields.length}）`);
       if (src && src.attacking) src._brokeN = (src._brokeN || 0) + picked.length;
+      if (op._brkTurn !== this.turn) (op._brkTurn = this.turn), (op._brkN = 0);
+      op._brkN += picked.length;
       for (const s2 of this.permanents(op.idx)) if (this.isOnField(s2) && this.hasAbility(s2, 'ownShieldBroken')) await this.trigger(s2, 'ownShieldBroken', op.idx, s2.def, null, { defer: true });
       await this.pause();
       // ブレイクした時の効果（ニガ=アブシュームなど）
@@ -6392,6 +6395,7 @@
             }
           } else {
             this.log(`${op.name}: S・トリガー発動！`);
+            c.card._viaSTTurn = this.turn;
             await this.putIntoPlay(op.idx, c.card, true, c.def);
           }
         }

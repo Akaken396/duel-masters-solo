@@ -31,6 +31,7 @@
       .replace(/そのクリーチャーは「([^」]+)」を得る。/g, 'そのクリーチャーに「$1」を与える。')
       .replace(/\r/g, '')
       .replace(/^(\{O[A-Z]?\}|\[O[A-Z]?\])\s*/gm, '〔バズ〕') // バズレンダで使う能力の印
+      .replace(/^\{x\+\}\s*/gm, 'S・トリガー・プラスの条件を満たしていれば、')
       .replace(/\{[^}]{1,6}\}\s*/g, '') // 公式ページのアイコン記号 {GS} {x+} など
       .replace(/^[a-z]{1,2}[A-Z]?(?=この|自分|相手|各ターン)/gm, '') // 行頭に残ったアイコンの文字
       .replace(/\s*\[([lwdfnc]{1,5})(\d{2})\]\s*支払って/g, '〔代替$1$2〕支払って') // 代わりに払うコスト
@@ -1172,6 +1173,7 @@
     if (/^このクリーチャーにクロスギアがクロスされていれば$/.test(ct)) return { crossedGE: 1 };
     if (/^他にウェーブストライカーが2体以上あれば$/.test(ct)) return { waveGE: 2 };
     if (/^シールド・フォースのシールドがあれば$/.test(ct)) return { sfShield: true };
+    if (/^S・トリガー・プラスの条件を満たしていれば$/.test(ct)) return { stPlus: true };
     if ((mm0 = ct.match(/^自分と相手のシールド(の数)?が合計(\d+)(つ|枚)以下(なら|であれば|ならば)$/))) return { shieldsTotalLE: +mm0[2] };
     if ((mm0 = ct.match(/^自分の(光|水|闇|火|自然)のクリーチャーまたは(光|水|闇|火|自然)のタマシードが合計(\d+)つ以上あれば$/))) return { civElemGE: { civ: { 光: 'light', 水: 'water', 闇: 'darkness', 火: 'fire', 自然: 'nature' }[mm0[1]], n: +mm0[3] } };
     if ((mm0 = ct.match(/^自分のマナゾーンのカードが(\d+)枚以上で(光|水|闇|火|自然)文明があれば$/))) return { and: [{ manaGE: +mm0[1] }, { manaCivAll: [{ 光: 'light', 水: 'water', 闇: 'darkness', 火: 'fire', 自然: 'nature' }[mm0[2]]] }] };

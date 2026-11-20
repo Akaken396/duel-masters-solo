@@ -595,7 +595,7 @@
       set: (k, m) => (k.costAura = (k.costAura || []).concat({ side: 'self', subj: m.groups.subj, n: -m.groups.n })), desc: '条件に合うカードのコストを下げる' },
     { name: '各ターン1度のコスト軽減', re: /^各ターンに(1|一)度、自分の(?<subj>[^。]+?)(を(実行|使う|唱える|召喚)する|を(使う|唱える)|の(召喚|実行))コストを(?<n>\d+)少なくしてもよい。?$/, auto: true,
       set: (k, m) => (k.costAura = (k.costAura || []).concat({ side: 'self', subj: m.groups.subj, n: -m.groups.n, once: true })), desc: '各ターンに1度、条件に合うカードのコストを下げる' },
-    { name: 'シールド・トリガー・プラス', re: /^S・トリガー・プラス/, desc: 'S・トリガーで使った時に追加の効果' },
+    { name: 'シールド・トリガー・プラス', re: /^S・トリガー・プラス\s*$/, auto: true, set: (k) => (k.shieldTrigger = true), desc: 'S・トリガー。相手のターンにそのターン中シールドが2つ以上ブレイクされていれば、追加の能力を得る' },
   ];
 
   function match(line, raw) {
