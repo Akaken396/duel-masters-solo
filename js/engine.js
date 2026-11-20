@@ -2828,6 +2828,19 @@
           const sc = this.sc(src);
           if (sc && sc.protectDestroy && (await sc.protectDestroy(this, src, card))) return false;
         }
+        for (const sv of this.p[card.owner].battle) {
+          const sf = sv !== card && !this._saving && this.isCreature(sv) && this.kw(sv).saverFor;
+          if (!sf || !this.allyMatch(card, sf.replace(/(・)?クリーチャー$/, ''))) continue;
+          if (!(await this.yesNo(card.owner, `セイバー：「${card.def.name}」のかわりに「${sv.def.name}」を破壊しますか？`, sv))) continue;
+          this.log(`セイバー：「${sv.def.name}」が「${card.def.name}」の身代わりになった`);
+          this._saving = true;
+          try {
+            await this.destroyMany([sv], { byOpp: false });
+          } finally {
+            this._saving = false;
+          }
+          return false;
+        }
       }
       // 進化元も一緒に移す（シールドへ行く場合、進化元は墓地へ）
       const under = card.under || [];
@@ -6133,6 +6146,16 @@
           this.log(`表向きのカードを含むシールドは、ブレイクされるかわりに裏返った`);
         }
         picked = picked.filter((s) => !keep.includes(s));
+      }
+      // シールド・セイバー：シールドがブレイクされる時、かわりにこのクリーチャーを破壊してもよい
+      for (const s of picked.slice()) {
+        const savers = op.battle.filter((c) => this.isCreature(c) && this.kw(c).shieldSaver && this.zoneOf(c) === 'battle');
+        if (!savers.length) break;
+        const sv = savers[0];
+        if (!(await this.yesNo(op.idx, `シールド・セイバー：シールドのかわりに「${sv.def.name}」を破壊しますか？`, sv))) break;
+        picked = picked.filter((x) => x !== s);
+        this.log(`シールド・セイバー：「${sv.def.name}」がシールドの身代わりになった`);
+        await this.destroyMany([sv], { byOpp: false });
       }
       const toGrave = src && this.kw(src).breakToGrave;
       for (const s of picked) {
