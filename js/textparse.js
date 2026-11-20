@@ -165,6 +165,8 @@
     [/^自分の手札を(\d+枚)?捨てた(時|とき)/, 'selfDiscarded'],
     [/^カードが相手のシールドゾーンに置かれた(時|とき)/, 'oppShieldAdded'],
     [/^相手のマナゾーン(にある|の)カードの枚数よりコストが大きい相手のクリーチャーが(バトルゾーンに)?出た(時|とき)/, 'oppEnterBig'],
+    [/^相手が(、)?自身のマナゾーン(にある|の)カードの枚数よりコストの?大きいクリーチャーを(バトルゾーンに)?出した(時|とき)/, 'oppEnterBig'],
+    [/^相手のマナゾーン(にある|の)カードの枚数よりコストが大きいクリーチャーを相手が(バトルゾーンに)?出した(時|とき)/, 'oppEnterBig'],
     [/^このカードを(自分の)?手札からマナゾーンに置いた(時|とき)/, 'charged'],
     [/^(相手の)?クリーチャーが(自分を)?攻撃する(時|とき)/, 'oppAttack'],
     [/^これを(装備|クロス|付け)(した|た)クリーチャーが攻撃する(時|とき)/, 'hostAttack'],
@@ -199,6 +201,9 @@
     [/^他のクリーチャーが(バトルゾーンを)?離れた(時|とき)/, 'anyLeft'],
     [/^自分のクリーチャーが(バトルゾーンに)?出た(時|とき)/, 'allyEnterAny'],
     [/^カードが(どこからでも)?相手の墓地に置かれた(時|とき)/, 'oppToGrave'],
+    [/^このG城が表向きで(、)?自分のシールドゾーンに置かれた(時|とき)/, 'summon'],
+    [/^このG城が表向きで(、)?自分のシールドゾーンを離れた(時|とき)/, 'selfShieldLeft'],
+    [/^相手のクリーチャーがタップ(し|され)た(時|とき)/, 'oppTapped'],
     [/^(自分のマナゾーンにカードを置いた|自分のマナゾーンにカードが置かれた|カードを自分のマナゾーンに置いた)(時|とき)/, 'manaPut'],
     [/^このクリーチャーが攻撃した(時|とき)/, 'attack'],
     [/^(このクリーチャーが)?バトルで勝った(時|とき)/, 'battleWin'],
@@ -265,7 +270,8 @@
     if ((mm = rest.match(/^このクリーチャーが攻撃またはブロックする(時|とき)、/))) return { whens: ['attack', 'block'], rest: rest.slice(mm[0].length), cond };
     if ((mm = rest.match(/^このクリーチャーが攻撃した(時|とき)または(バトルゾーンを)?離れた(時|とき)、/))) return { whens: ['attack', 'left'], rest: rest.slice(mm[0].length), cond };
     if ((mm = rest.match(/^このクリーチャーが(、)?各ターン(、)?はじめてタップ(し|され)た(時|とき)、/))) return { whens: ['tapped'], rest: rest.slice(mm[0].length), cond: { ...cond, firstPerTurn: true } };
-    if ((mm = rest.match(/^このクリーチャーは(、)?各ターン(、)?はじめて攻撃する(時|とき)、/))) return { whens: ['attack'], rest: rest.slice(mm[0].length), cond: { ...cond, firstPerTurn: true } };
+    if ((mm = rest.match(/^このクリーチャー(は|が)(、)?各ターン(、)?はじめて攻撃する(時|とき)、/))) return { whens: ['attack'], rest: rest.slice(mm[0].length), cond: { ...cond, firstPerTurn: true } };
+    if ((mm = rest.match(/^このG城が表向きで(、)?自分のシールドゾーンに置かれた(時|とき)または離れた(時|とき)、/))) return { whens: ['summon', 'selfShieldLeft'], rest: rest.slice(mm[0].length), cond };
     if ((mm = rest.match(/^ツインパクトカードを自分のマナゾーンに置いた(時|とき)、/))) return { whens: ['manaPut'], rest: rest.slice(mm[0].length), cond: { ...cond, evTwin: true } };
     if ((mm = rest.match(/^各ターンのはじめに、/))) return { whens: ['turnStart', 'oppTurnStart'], rest: rest.slice(mm[0].length), cond };
     if ((mm = rest.match(/^スペースチャージ〔([a-z/]+)(\|1)?〕、/))) return { whens: ['manaPut'], rest: rest.slice(mm[0].length), cond: { ...cond, evCivAny: mm[1].split('/'), askUse: true, ...(mm[2] ? { oncePerTurn: true } : {}) } };
@@ -433,6 +439,11 @@
     if ((m = s.match(/^(この|その)ターン、このクリーチャーはブロックされない$/))) return { act: 'selfTempGrant', until: 'turn', names: ['このクリーチャーはブロックされない'] };
     if ((m = s.match(/^各プレイヤーは(、)?カードを(\d+)枚引く$/))) return { act: 'drawBoth', n: +m[2] };
     if ((m = s.match(/^相手は(、)?バトルゾーンにある自(分自)?身のクリーチャーを(\d+)体選び、(持ち主の)?墓地に置く$/))) return { act: 'oppSacToGrave', n: +m[3] };
+    if ((m = s.match(/^自分の山札の上から(\d+)枚を裏向きでこのシールドの下に置く$/))) return { act: 'deckUnderSelfShield', n: +m[1] };
+    if (/^そのクリーチャーを自分の墓地から裏向きでこのシールドの下に置(く|いてもよい)$/.test(s)) return { act: 'eventUnderSelfShield', optional: /もよい/.test(s) };
+    if ((m = s.match(/^(相手のクリーチャーを、)?パワーの合計が(このクリーチャーのパワー|(\d+))以下になるように(、)?(相手のクリーチャーを)?好きな数選び、破壊(する|してもよい)$/))) return { act: 'destroyPowerSum', max: m[3] ? +m[3] : 'self' };
+    if (/^他のクリーチャーを1体選び、タップまたはアンタップする$/.test(s)) return { act: 'tapOrUntap' };
+    if (/^相手の手札を見てクリーチャーを1体選ぶ。相手はそれを出してもよい$/.test(s)) return { act: 'oppHandPickPut' };
     if (/^シールドを1つ選び、ブレイクしてもよい$/.test(s)) return { act: 'breakAnyOne', optional: true };
     if (/^このクリーチャーに含まれるカードと同じ枚数の?カードを引く$/.test(s)) return { act: 'drawSelfCards' };
     if (/^このクリーチャーの「このクリーチャーが出た時」で始まる能力を1つ使(う|ってもよい)$/.test(s)) return { act: 'useTrigger', from: 'self', when: 'summon', optional: /もよい/.test(s) };
@@ -1443,6 +1454,12 @@
       .replace(/。?これらのクリーチャーが出ることによって起こる効果やルールはすべて無視する。?/g, '。それらの出た時の効果は起こらない');
     if (/^次の自分のターンのはじめまで、相手は(、)?自身のマナゾーン(にある|の)カードの枚数よりコストが大きいクリーチャーを(バトルゾーンに)?出した(時|とき)、そのクリーチャーを(自身の)?山札の(一番)?下に置く。?$/.test(body)) return [{ act: 'tempBigBottom' }];
     if (/^プレイヤーを1人選んでもよい。そのプレイヤーは自身の墓地をシャッフルし、山札の下に置く。?$/.test(body)) return [{ act: 'graveToDeckBottomPlayer' }];
+    if (/^相手の手札を見てクリーチャーを1体選ぶ。相手はそれを出してもよい。?$/.test(body)) return [{ act: 'oppHandPickPut' }];
+    const dst = body.match(/^自分の山札の上から(\d+)枚を見る。それらを1枚ずつ、(.+?)に置く。?$/);
+    if (dst) {
+      const ds = dst[2].split(/、|と/).map((x) => ({ 手札: 'hand', マナゾーン: 'mana', 墓地: 'grave', 山札の下: 'bottom' }[x.trim()]));
+      if (ds.every(Boolean)) return [{ act: 'distribute', n: +dst[1], dests: ds }];
+    }
     const chg = body.match(/^(((光|水|闇|火|自然)(または|か)?)+の、)?コスト(\d+)以下の呪文を(\d+)枚、自分の手札または墓地からコストを支払わずに唱えてもよい。(そうしたら、)?(それを)?唱えた後、(それを)?墓地(に置く)?のかわりに山札の下に置く。?$/);
     if (chg) return [{ act: 'castFromHandOrGrave', civs: (chg[1] || '').match(/光|水|闇|火|自然/g)?.map((x) => ({ 光: 'light', 水: 'water', 闇: 'darkness', 火: 'fire', 自然: 'nature' }[x])) || [], maxCost: +chg[5], n: +chg[6], bottomAfter: true }];
     const c1 = body.match(/^このクリーチャーよりコストが小さい呪文を(\d+)枚(、)?自分の手札または墓地からコストを支払わずに唱えてもよい。そうしたら、それを唱えた後、墓地のかわりに山札の下に置く。?$/);
@@ -1642,6 +1659,8 @@
       .flatMap((l) => {
         const both = l.match(/^このクリーチャー(、)?(または|か)(、)?自分の他の(.+?)を(バトルゾーンに)?出した(時|とき)、(.+)$/);
         if (both) return ['このクリーチャーが出た時、' + both[7], '自分の他の' + both[4] + 'が出た時、' + both[7]];
+        const both2 = l.match(/^このクリーチャー(、)?(または|か)(、)?自分の他の(.+?)を召喚して(バトルゾーンに)?出した(時|とき)、(.+)$/);
+        if (both2) return ['このクリーチャーが召喚によって出た時、' + both2[7], '自分の他の' + both2[4] + 'を召喚した時、' + both2[7]];
         const t = stripReminder(l).trim();
         if (/^[^、。]{2,24}((\s{2,}|　)[^、。]{2,24})+$/.test(t)) return t.split(/\s{2,}|　/);
         {
@@ -2165,7 +2184,7 @@
           line = line.slice(tp[0].length);
         }
       }
-      const allyEv = line.replace(/^各ターンに(1|一)度、/, '各ターン、はじめて').replace(/^(各ターン、はじめて)?自分の(他の)?、/, '$1自分の$2').replace(/が相手(プレイヤー)?を攻撃する(時|とき)、/, 'が攻撃する時、〔対プレイヤー〕').replace(/^このクリーチャーまたは自分の他の([^、。]{1,20}?)が(破壊された|離れた)(時|とき)、/, '自分の$1が$2時、').replace(/が(、)?バトルゾーンを離れた(時|とき)、/, 'が離れた時、').match(/^(各ターン、はじめて)?自分の(他の)?([^。]{1,40}?)が(攻撃する|離れた|破壊された|相手プレイヤーを攻撃してブロックされなかった)(時|とき)、/);
+      const allyEv = line.replace(/^各ターンに(1|一)度、/, '各ターン、はじめて').replace(/^(各ターン、はじめて)?自分の(他の)?、/, '$1自分の$2').replace(/が相手(プレイヤー)?を攻撃する(時|とき)、/, 'が攻撃する時、〔対プレイヤー〕').replace(/^このクリーチャーまたは自分の他の([^、。]{1,20}?)が(破壊された|離れた)(時|とき)、/, '自分の$1が$2時、').replace(/が(、)?バトルゾーンを離れた(時|とき)、/, 'が離れた時、').match(/^(各ターン、はじめて)?自分の(他の)?([^。]{1,40}?)が(攻撃する|離れた|破壊された|相手プレイヤーを攻撃してブロックされなかった|バトルに勝った)(時|とき)、/);
       if (allyEv && !/^このクリーチャー/.test(line) && !/この|ターン|相手|時|とき|、$/.test(allyEv[3])) {
         const what = allyEv[3].replace(/(・)?クリーチャー$/, '').replace(/^クリーチャー$/, '');
         let restE = allyEv.input.slice(allyEv[0].length);
@@ -2175,12 +2194,13 @@
         }
         const actsE = parseEffects(restE);
         if (actsE) {
-          A.push({ when: allyEv[4] === '攻撃する' ? 'allyAttack' : allyEv[4] === '破壊された' ? 'allyDestroyed' : allyEv[4] === '離れた' ? 'allyLeft' : 'allyUnblocked', acts: actsE, ally: { race: what || null, others: !!allyEv[2], perTurn: allyEv[1] ? 1 : 0 }, ...(allyCond ? { cond: allyCond } : {}), text: raw });
+          A.push({ when: allyEv[4] === '攻撃する' ? 'allyAttack' : allyEv[4] === '破壊された' ? 'allyDestroyed' : allyEv[4] === '離れた' ? 'allyLeft' : allyEv[4] === 'バトルに勝った' ? 'allyBattleWinR' : 'allyUnblocked', acts: actsE, ally: { race: what || null, others: !!allyEv[2], perTurn: allyEv[1] ? 1 : 0 }, ...(allyCond ? { cond: allyCond } : {}), text: raw });
           continue;
         }
       }
-      const ally = line.replace(/^各ターンに一度、/, '各ターンに1度、').replace(/^各ターン、はじめて自分の/, '各ターンに1度、自分の').replace(/^(各ターンに(\d+)度、)?自分の(他の)?、/, '$1自分の$3').match(/^(各ターンに(\d+)度、)?自分の(他の)?([^。]{1,40}?)が(召喚によって)?(バトルゾーンに)?出た(時|とき)、/);
-      if (ally && !/^このクリーチャー/.test(line) && !/この|ターン|相手|時|とき|、$/.test(ally[4]) && !ally[5]) {
+      const ally = line.replace(/^(各ターンに(\d+)度、)?自分の(他の)?([^。]{1,30}?)を召喚した(時|とき)、/, '$1自分の$3$4が召喚によって出た時、').replace(/^各ターンに一度、/, '各ターンに1度、').replace(/^各ターン、はじめて自分の/, '各ターンに1度、自分の').replace(/^(各ターンに(\d+)度、)?自分の(他の)?、/, '$1自分の$3').match(/^(各ターンに(\d+)度、)?自分の(他の)?([^。]{1,40}?)が(召喚によって)?(バトルゾーンに)?出た(時|とき)、/);
+      if (ally && !/^このクリーチャー/.test(line) && !/この|ターン|相手|時|とき|、$/.test(ally[4])) {
+        if (ally[5]) allyCond = { ...(allyCond || {}), evSummoned: true };
         const what = ally[4].replace(/(・)?クリーチャー$/, '').replace(/^クリーチャー$/, '');
         const actsA = parseEffects(ally.input.slice(ally[0].length));
         if (actsA) {
