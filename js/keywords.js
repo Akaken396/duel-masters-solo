@@ -553,7 +553,7 @@
     { name: 'セイバー', re: /セイバー/, desc: '指定のクリーチャーが離れる時、かわりにこのクリーチャーを破壊できる' },
     { name: '鬼タイム', re: /^鬼タイム/, desc: '相手のシールドが自分より多いなどの時に効果が働く' },
     { name: '鬼エンド', re: /^鬼エンド/, desc: 'ターンの終わりに条件を満たすと追加ターンなどの効果' },
-    { name: 'フシギバース', re: /^フシギバース/, desc: 'マナのカードを墓地に置いて、その分コストを下げて出す' },
+    { name: 'フシギバース', re: /^フシギバース/, auto: true, set: (k, m, raw) => { const xs = [...String(raw || '').matchAll(/\[([lwdfnc]+)(\d{2})\]|〔代替([lwdfnc]+)(\d{2})〕/g)]; const CV = { l: 'light', w: 'water', d: 'darkness', f: 'fire', n: 'nature' }; if (!xs.length) return; const code = xs[0][1] || xs[0][3]; k.fushigi = { n: +(xs[0][2] || xs[0][4]), min: xs.length > 2 ? +(xs[xs.length - 1][2] || xs[xs.length - 1][4]) : 1, civs: [...new Set(code.split(''))].map((y) => CV[y]).filter(Boolean) }; }, desc: '自分のクリーチャーを1体タップしてマナに置き、そのコストぶん安く墓地から召喚できる' },
     { name: 'ミクセル', re: /^ミクセル/, desc: '相手がコストの大きいクリーチャーを出す時、かわりにマナや山札に送る' },
     { name: 'シールド・フォース', re: /^シールド・フォース/, desc: '選んだシールドがある間、効果が働く' },
     { name: 'サバイバー', re: /^サバイバー/, desc: '同じサバイバーのクリーチャーが能力を共有する' },

@@ -1749,6 +1749,22 @@
           this.log(`ムゲンクライム：クリーチャー${r.length}体をタップした`);
         }], cost: mgc.cost, opt: { text: `ムゲンクライム（${mgc.n}体タップ＋コスト${mgc.cost}）` } });
       }
+      // フシギバース：自分のクリーチャーを1体タップしてマナに置き、そのコストを引いた数を払って墓地から召喚
+      const fsg = parsed(def).kw.fushigi;
+      if (fsg && def === card.def && this.zoneOf(card) === 'grave') {
+        const seen = new Set();
+        for (const fc of this.p[pi].battle.filter((c) => this.isCreature(c)).sort((x, y) => (+y.def.cost || 0) - (+x.def.cost || 0))) {
+          const cst = Math.max(fsg.min, fsg.n - (+fc.def.cost || 0));
+          if (seen.has(cst)) continue;
+          seen.add(cst);
+          const mana = this.payWith(pi, { civs: fsg.civs }, cst);
+          if (mana) out.push({ mana, mugen: true, uses: [async () => {
+            this.log(`フシギバース：「${fc.def.name}」をタップしてマナゾーンに置いた`);
+            fc.tapped = true;
+            await this.leave(fc, 'mana', { byOpp: false });
+          }], cost: cst, opt: { text: `フシギバース（「${fc.def.name}」をマナに置いてコスト${cst}）` } });
+        }
+      }
       // ギャラクシールド：代わりのコストを払って、表向きのシールドとして置く
       const gxs = parsed(def).kw.galaxy;
       if (gxs && def === card.def && this.zoneOf(card) === 'hand') {
@@ -1805,7 +1821,7 @@
         const mana = this.payWith(pi, { civs: alp.civs }, alp.cost);
         if (mana) out.push({ mana, uses: [async () => { this.log(`「${def.name}」: 代わりのコスト${alp.cost}を支払った`); for (const x of alp.then) await this.doAction(x, card, pi); }], cost: alp.cost, alt: alp });
       }
-      if (this.zoneOf(card) === 'grave' && mgc && !parsed(def).kw.graveSummon) return out.filter((x) => x.mugen);
+      if (this.zoneOf(card) === 'grave' && (mgc || fsg) && !parsed(def).kw.graveSummon) return out.filter((x) => x.mugen);
       if (parsed(def).kw.bad) {
         const plan = this.costPlan(pi, card, def, null, true);
         const mana = this.payWith(pi, def, plan.cost);
@@ -2079,6 +2095,7 @@
       if (z !== 'grave') return null;
       if (parsed(card.def).kw.graveSummon) return card;
       if (parsed(card.def).kw.mugenClimb) return card;
+      if (parsed(card.def).kw.fushigi) return card;
       if (parsed(card.def).kw.graveSummonIf && this.condOk2(pi, parsed(card.def).kw.graveSummonIf, card)) return card;
       if (card.def.type === 'spell' && parsed(card.def).kw.recycle) return card;
       for (const src of this.permanents(pi)) {
