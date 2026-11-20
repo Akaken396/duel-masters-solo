@@ -2110,12 +2110,14 @@
       if (when === 'cast') return this.runAbility(card, when, controller, def, extra);
       if (!this.hasAbility(card, when, def)) return;
       this.pending = this.pending || [];
-      this.pending.push({ card, when, controller, def, extra, label: `「${def.name}」の${WHEN_J[when] || when}` });
+      const zj = { hand: '手札の', grave: '墓地の', mana: 'マナの', shields: 'シールドの', hyper: '超次元の' }[this.zoneOf(card)] || '';
+      this.pending.push({ card, when, controller, def, extra, label: `【${this.p[controller].name}】${zj}「${def.name}」の${WHEN_J[when] || when}` });
       if (!o.defer) await this.resolvePending();
     }
     // 任意の処理を待機させる（場のカードの「〜した時」能力など）
     async queueFn(src, controller, label, fn, o = {}) {
       this.pending = this.pending || [];
+      if (!/^【/.test(label)) label = `【${this.p[controller].name}】${label}`;
       this.pending.push({ card: src, controller, fn, label });
       if (!o.defer) await this.resolvePending();
     }
@@ -2135,10 +2137,11 @@
           if (!mine.length) mine = this.pending.filter((x) => x.controller !== ap);
           let item = mine[0];
           if (mine.length > 1) {
-            const opts = mine.map((x, i) => ({ id: String(i), label: x.label }));
+            const opts = mine.map((x, i) => ({ id: String(i), label: x.label, card: x.card }));
+            const others = this.pending.filter((x) => !mine.includes(x));
             const r = await this.choose(item.controller, {
               kind: 'mode',
-              prompt: `待機中の能力が${mine.length}つあります。先に解決するものを選んでください`,
+              prompt: `待機中の能力が${mine.length}つあります。次に解決するものを選んでください（残りはその後、また選べます）` + (others.length ? `\n相手側で待機中：${others.map((x) => x.label).join(' / ')}` : ''),
               options: opts,
               min: 1,
               max: 1,
@@ -2146,6 +2149,7 @@
             item = mine[+r[0]] || mine[0];
           }
           this.pending.splice(this.pending.indexOf(item), 1);
+          this.log(`▶ 解決：${item.label}`);
           this.resolving = (this.resolving || 0) + 1;
           try {
             if (item.fn) await item.fn();
@@ -3497,15 +3501,67 @@
         this.attacksThisTurn = [0, 0];
       }
       this.attacksThisTurn[pi]++;
-      await this.allyEvent(card, pi, 'allyAttack');
-      for (const x of me.battle.filter((y) => y.attachedTo === card.uid)) if (this.hasAbility(x, 'hostAttack')) await this.trigger(x, 'hostAttack', pi, x.def, null, { defer: true });
-      await this.resolvePending();
-      await this.fireHand(1 - pi, 'oppAttack');
-      await this.fireAll(1 - pi, 'oppAttack');
       this.log(`${me.name}の「${card.def.name}」が${tgtCard === 'player' ? op.name : '「' + tgtCard.def.name + '」'}を攻撃！`);
       await this.pause();
+      // 攻撃する時の誘発をすべて待機に入れ、ターンプレイヤー→相手の順に、それぞれ好きな順番で解決する
+      await this.allyEvent(card, pi, 'allyAttack');
+      for (const x of me.battle.filter((y) => y.attachedTo === card.uid)) if (this.hasAbility(x, 'hostAttack')) await this.trigger(x, 'hostAttack', pi, x.def, null, { defer: true });
+      if (this.hasAbility(card, 'attack')) await this.trigger(card, 'attack', pi, card.def, null, { defer: true });
+      // 侵略・革命チェンジも、攻撃する時に待機する処理の1つ
+      const attacker0 = card;
+      this._attackSwap = null;
+      const swapList = () => {
+        const out = [];
+        for (const h of me.hand) {
+          const sc = this.sc(h);
+          const hk = parsed(h.def).kw;
+          if ((sc && sc.revChange && sc.revChange(this, h, attacker0)) || (hk.revChange && h !== attacker0 && this.matchCond(attacker0, hk.revChange))) out.push({ id: 'rc' + h.uid, label: `革命チェンジ：「${h.def.name}」と入れ替える`, card: h, how: 'rc' });
+          if (hk.invasion && this.matchCond(attacker0, hk.invasion)) out.push({ id: 'iv' + h.uid, label: `侵略：「${h.def.name}」を上に重ねる`, card: h, how: 'iv' });
+        }
+        return out;
+      };
+      if (swapList().length) {
+        this.pending = this.pending || [];
+        this.pending.push({
+          card: attacker0,
+          controller: pi,
+          label: `【${me.name}】「${attacker0.def.name}」の攻撃時：侵略・革命チェンジ（手札から）`,
+          fn: async () => {
+            if (this.zoneOf(attacker0) !== 'battle' || !attacker0.attacking) {
+              this.log('攻撃しているクリーチャーがいないので、侵略・革命チェンジは使えない');
+              return;
+            }
+            const swaps = swapList();
+            if (!swaps.length) return;
+            const opts = [{ id: 'none', label: '使わない' }, ...swaps.map((x) => ({ id: x.id, label: x.label }))];
+            const best = swaps.slice().sort((a, b) => (+b.card.def.cost || 0) - (+a.card.def.cost || 0))[0];
+            const r = await this.choose(pi, { kind: 'mode', prompt: `「${attacker0.def.name}」の攻撃時に使いますか？`, options: opts, min: 1, max: 1, aiPick: [best.id] });
+            const sw = swaps.find((x) => x.id === r[0]);
+            if (!sw) return;
+            const nc = sw.card;
+            attacker0.attacking = false;
+            if (sw.how === 'rc') {
+              this.moveTo(attacker0, 'hand');
+              this.log(`革命チェンジ！「${attacker0.def.name}」→「${nc.def.name}」`);
+              await this.enterBattle(nc, pi, 'other');
+            } else {
+              this.log(`侵略！「${attacker0.def.name}」の上に「${nc.def.name}」`);
+              await this.enterBattle(nc, pi, 'other', { evolveFrom: attacker0 });
+            }
+            if (this.zoneOf(nc) === 'battle') {
+              nc.tapped = true;
+              nc.attacking = true;
+              this._attackSwap = nc; // 攻撃の途中で出たクリーチャーは、その攻撃を引き継ぐ（「攻撃する時」は使えない）
+            }
+          },
+        });
+      }
+      await this.fireHand(1 - pi, 'oppAttack');
+      await this.fireAll(1 - pi, 'oppAttack');
       try {
-        await this.trigger(card, 'attack', pi);
+        await this.resolvePending();
+        if (this._attackSwap && this.zoneOf(this._attackSwap) === 'battle') card = this._attackSwap;
+        this._attackSwap = null;
         if (this.zoneOf(card) !== 'battle') return true;
         // スマッシュ・バースト
         if (this.kw(card).smashBurst && this.twin(card) && this.zoneOf(card) === 'battle') {
@@ -3519,40 +3575,6 @@
               this.resolving--;
             }
             await this.resolvePending();
-            if (this.zoneOf(card) !== 'battle') return true;
-          }
-        }
-        // 攻撃時に手札から使えるもの：侵略・革命チェンジ
-        const swaps = [];
-        for (const h of me.hand) {
-          const sc = this.sc(h);
-          const hk = parsed(h.def).kw;
-          if ((sc && sc.revChange && sc.revChange(this, h, card)) || (hk.revChange && h !== card && this.matchCond(card, hk.revChange)))
-            swaps.push({ id: 'rc' + h.uid, label: `革命チェンジ：「${h.def.name}」と入れ替える`, card: h, how: 'rc' });
-          if (hk.invasion && this.matchCond(card, hk.invasion))
-            swaps.push({ id: 'iv' + h.uid, label: `侵略：「${h.def.name}」を上に重ねる`, card: h, how: 'iv' });
-        }
-        if (swaps.length) {
-          const opts = [{ id: 'none', label: '使わない' }, ...swaps.map((x) => ({ id: x.id, label: x.label }))];
-          const best = swaps.slice().sort((a, b) => (+b.card.def.cost || 0) - (+a.card.def.cost || 0))[0];
-          const r = await this.choose(pi, { kind: 'mode', prompt: `「${card.def.name}」の攻撃時に使いますか？`, options: opts, min: 1, max: 1, aiPick: [best.id] });
-          const sw = swaps.find((x) => x.id === r[0]);
-          if (sw) {
-            const nc = sw.card;
-            card.attacking = false;
-            if (sw.how === 'rc') {
-              this.moveTo(card, 'hand');
-              this.log(`革命チェンジ！「${card.def.name}」→「${nc.def.name}」`);
-              await this.enterBattle(nc, pi, 'other');
-            } else {
-              this.log(`侵略！「${card.def.name}」の上に「${nc.def.name}」`);
-              await this.enterBattle(nc, pi, 'other', { evolveFrom: card });
-            }
-            if (this.zoneOf(nc) !== 'battle') return true;
-            card = nc;
-            card.tapped = true;
-            card.attacking = true;
-            await this.trigger(card, 'attack', pi);
             if (this.zoneOf(card) !== 'battle') return true;
           }
         }

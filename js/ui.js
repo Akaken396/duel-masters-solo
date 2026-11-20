@@ -349,6 +349,10 @@
       ' の番',
       g.active === g.active && isHuman(g.active) ? `　マナ: ${g.manaCharged ? '置いた' : 'まだ置ける'}` : ''
     );
+    // 待機中の能力（処理の順番待ち）
+    if (g.pending && g.pending.length) {
+      $('#turninfo').append(el('div', { class: 'pending-list', text: '待機中：' + g.pending.map((x, i) => `${i + 1}. ${x.label}`).join('　') }));
+    }
     $('#btn-end').disabled = !(isHuman(g.active) && g.winner == null);
     $('#btn-undo').disabled = !g.canUndo() || g.p[g.history[g.history.length - 1].active].isAI;
     for (const pi of [0, 1]) renderSide(pi);
