@@ -778,7 +778,7 @@
       const from = f ? f.zone : null;
       const owner = this.p[card.owner];
       if (from === 'mana' && zone !== 'mana') delete card.faceDown;
-      if (zone === 'mana' && tapped && this.p[card.owner].battle.some((s) => { const w = this.kwBase(s).manaUntapWho; return w && ((card.def.races || []).join('/') + card.def.name).includes(w); })) tapped = false;
+      if (zone === 'mana' && tapped && this.p[card.owner].battle.some((s) => { const w = this.kwBase(s).manaUntapWho; return w && w.split(/・カードまたは|カードまたは|または/).some((x) => ((card.def.races || []).join('/') + card.def.name).includes(x)); })) tapped = false;
       if (zone !== 'battle' || from !== 'battle') {
         card.tapped = tapped;
         card.tempPower = 0;
@@ -1727,6 +1727,10 @@
         }
       }
       const fromZone = this.zoneOf(card);
+      if (this.isCreature(card) && this.p[1 - pi].battle.some((s) => s.attacking && this.kw(s).noEnterWhileAttack)) {
+        this.log(`攻撃中の効果で「${card.def.name}」は出せない`);
+        return false;
+      }
       if (how !== 'summon' && parsed(card.def).kw.summonOnlyEntry) {
         this.log(`「${card.def.name}」は召喚以外の方法では出ない`);
         return false;
@@ -1935,8 +1939,8 @@
     // 離れられない状態か（封印・シールド・フォース・極限ファイナル革命など）
     cannotLeave(card) {
       if (card.seals > 0) return '封印';
-      if ((card.noLeaveUntil || 0) >= this.turn || (this.zoneOf(card) === 'battle' && this.kw(card).noLeave)) return '離れない';
-      if (!this._leavingByDestroy && this.isCreature(card) && this.zoneOf(card) === 'battle' && this.permanents(card.owner).some((s) => this.kw(s).teamOnlyDestroy)) return '破壊以外では離れない';
+      if ((card.noLeaveUntil || 0) >= this.turn || (this.zoneOf(card) === 'battle' && (this.kw(card).noLeave || (this.kw(card).zeroNoLeave && this.power(card) <= 0)))) return '離れない';
+      if (!this._leavingByDestroy && this.isCreature(card) && this.zoneOf(card) === 'battle' && (this.permanents(card.owner).some((s) => this.kw(s).teamOnlyDestroy) || this.kw(card).selfOnlyDestroy)) return '破壊以外では離れない';
       const pl = this.p[card.owner];
       if (this.isCreature(card) && (pl.noLeaveUntil || 0) >= this.turn) return '離れない';
       if (this.isCreature(card)) {
@@ -2135,6 +2139,7 @@
         }
       }
       for (const c of this.permanents(pi)) if (this.isOnField(c)) await this.trigger(c, 'shieldAdded', pi, c.def, null, { defer: true });
+      for (const c of this.permanents(1 - pi)) if (this.isOnField(c) && this.hasAbility(c, 'oppShieldAdded')) await this.trigger(c, 'oppShieldAdded', 1 - pi, c.def, null, { defer: true });
       await this.resolvePending();
     }
     // 自分のシールドが離れた時（獄鬼夜城など）
@@ -2813,7 +2818,7 @@
           break;
         }
         case 'putFromMana': {
-          const pool = me.mana.filter((c) => this.fitLook(c, a.cond) && (this.isCreature(c) || c.def.type === 'tamaseed' || c.def.type === 'field'));
+          const pool = me.mana.filter((c) => this.fitLook(c, a.cond) && (!a.maxCostMana || (+c.def.cost || 0) <= me.mana.length) && (this.isCreature(c) || c.def.type === 'tamaseed' || c.def.type === 'field'));
           const r = await this.pickCards(pi, pool, a.n, a.optional, `${nm}: マナゾーンから出すカード`, 'recover');
           for (const c of r) await this.enterBattle(c, pi, 'other');
           break;
@@ -2832,6 +2837,34 @@
           break;
         case 'noop':
           break;
+        case 'moveEvent': {
+          const ev = this._eventCard;
+          if (!ev || this.zoneOf(ev) !== 'battle') break;
+          if (a.optional && !(await this.yesNo(pi, `${nm}: 「${ev.def.name}」を${ZONE_LABEL[a.to === 'deckBottom' ? 'deck' : a.to]}に置きますか？`, src))) break;
+          const ok = a.to === 'deckBottom' ? await this.leave(ev, 'deck', { byOpp: ev.owner !== pi, moveOpt: { top: false } }) : await this.leave(ev, a.to, { byOpp: ev.owner !== pi });
+          if (ok) {
+            this.log(`「${ev.def.name}」は${a.to === 'deckBottom' ? '山札の下' : ZONE_LABEL[a.to]}に置かれた`);
+            if (a.to === 'shields') await this.shieldAdded(ev.owner);
+          }
+          break;
+        }
+        case 'putSumCost': {
+          let budget = a.max;
+          const zoneArr = a.from === 'grave' ? me.grave : me.hand;
+          const chosen = [];
+          for (let g = 0; g < 40; g++) {
+            const pool = zoneArr.filter((c) => c !== src && !chosen.includes(c) && this.isCreature(c) && (+c.def.cost || 0) <= budget && (!a.cond || this.fitLook(c, a.cond)));
+            if (!pool.length) break;
+            let c;
+            if (me.isAI) c = pool.sort((x, y) => (+y.def.cost || 0) - (+x.def.cost || 0))[0];
+            else c = (await this.pickCards(pi, pool, 1, true, `${nm}: 出すクリーチャー（残りコスト${budget}）`, 'recover'))[0];
+            if (!c) break;
+            chosen.push(c);
+            budget -= +c.def.cost || 0;
+          }
+          for (const c of chosen) await this.enterBattle(c, pi, 'other');
+          break;
+        }
         case 'lastAtEnd':
           for (const c of (this.lastChosen || []).filter((x) => this.zoneOf(x) === 'battle')) {
             me.endTurnActs = me.endTurnActs || [];
@@ -2909,12 +2942,14 @@
           break;
         }
         case 'oppManaShieldToGrave': {
-          const pool = [...op.mana, ...op.shields];
-          const r = op.isAI ? [...op.mana.slice(0, a.n)].concat(op.shields).slice(0, a.n) : await this.pickCards(op.idx, pool, Math.min(a.n, pool.length), false, `${nm}: 墓地に置く自分のマナかシールド（合計${a.n}枚）`, 'discard');
+          const zs = a.zones || ['mana', 'shields'];
+          const pool = zs.flatMap((z) => op[z]).filter((c) => (z0 => !a.faceUp || (z0 === 'battle' || z0 === 'mana' ? !c.faceDown : c.faceUp))(this.zoneOf(c)) && (this.zoneOf(c) !== 'battle' || !c.attachedTo || true));
+          const r = op.isAI ? pool.slice().sort((x, y) => (this.zoneOf(x) === 'battle') - (this.zoneOf(y) === 'battle')).slice(0, a.n) : await this.pickCards(op.idx, pool, Math.min(a.n, pool.length), false, `${nm}: 墓地に置く自分のマナかシールド（合計${a.n}枚）`, 'discard');
           let sh = 0;
           for (const c of r) {
             if (this.zoneOf(c) === 'shields') sh++;
-            this.moveTo(c, 'grave');
+            if (this.zoneOf(c) === 'battle') await this.leave(c, 'grave', { byOpp: true });
+            else this.moveTo(c, 'grave');
           }
           this.log(`${op.name}はマナ・シールドから${r.length}枚を墓地に置いた`);
           if (sh) await this.shieldsLeft(op.idx);
@@ -3023,7 +3058,15 @@
           if (a.optional && !(await this.yesNo(pi, `墓地の${nm}を出しますか？`, src))) break;
           this.log(`${me.name}は墓地から${nm}を出した`);
           await this.enterBattle(src, pi, 'other');
+          if (a.tapped && this.zoneOf(src) === 'battle') src.tapped = true;
           break;
+        case 'graveAnyToMana': {
+          const pool = me.grave.filter((c) => this.fitLook(c, a.cond));
+          const r = me.isAI ? pool.slice() : await this.pickCards(pi, pool, pool.length, true, `${nm}: 墓地からマナゾーンに置くカード（好きな数）`, 'recover');
+          for (const c of r) this.moveTo(c, 'mana');
+          if (r.length) this.log(`${me.name}は墓地から${r.length}枚をマナゾーンに置いた`);
+          break;
+        }
         case 'reviveAtEnd':
           if (!src) break;
           me.endTurnActs = me.endTurnActs || [];
@@ -3288,7 +3331,11 @@
         }
         case 'moveLast':
           for (const c of (this.lastChosen || []).filter((x) => this.zoneOf(x) === 'battle')) {
-            if (a.to === 'deckShuffle') {
+            if (a.to === 'deckTopOrBottom') {
+              const own = this.p[c.owner];
+              const top = own.isAI ? false : (await this.choose(c.owner, { kind: 'mode', prompt: `「${c.def.name}」を山札の上と下のどちらに置きますか？`, options: [{ id: 'top', label: '山札の上' }, { id: 'bottom', label: '山札の下' }], min: 1, max: 1 }))[0] === 'top';
+              if (await this.leave(c, 'deck', { byOpp: c.owner !== pi, moveOpt: { top } })) this.log(`「${c.def.name}」は山札の${top ? '上' : '下'}に置かれた`);
+            } else if (a.to === 'deckShuffle') {
               if (await this.leave(c, 'deck', { byOpp: c.owner !== pi, shuffleAfter: true })) this.log(`「${c.def.name}」は山札に加えられた`);
             } else if (a.to === 'deckBottom') {
               if (await this.leave(c, 'deck', { byOpp: c.owner !== pi, moveOpt: { top: false } })) this.log(`「${c.def.name}」は山札の下に置かれた`);
@@ -3784,6 +3831,7 @@
       const lackCreatures = k.attackNeedCreatures && this.p[pi].battle.filter((c) => this.isCreature(c)).length < k.attackNeedCreatures.n;
       if (lackCreatures && !k.attackNeedCreatures.playerOnly) return [];
       if (card.enteredTurn === this.turn && this.permanents(1 - pi).some((s) => this.kw(s).oppNoAttackOnEntry)) return [];
+      if (card.enteredTurn === this.turn && [0, 1].some((q) => this.permanents(q).some((s) => { const w = this.kw(s).globalSickExcept; return w && !((card.def.races || []).join('/') + card.def.name).includes(w.replace(/・?クリーチャー$/, '')); }))) return [];
       for (const src of this.permanents(1 - pi)) {
         const sc = this.sc(src);
         if (sc && sc.forbidAttack && sc.forbidAttack(this, src, card)) return [];
@@ -4058,7 +4106,7 @@
       this.log(`バトル: 「${a.def.name}」${pa} vs 「${d.def.name}」${pd}`);
       const lose = [];
       const teamWin = (c) => this.permanents(c.owner).some((s) => this.kw(s).teamWinAll) || (this.p[c.owner].teamWinTurn || 0) === this.turn;
-      const zg = (x) => this.kw(x).zeroGuard && this.power(x) <= 0;
+      const zg = (x) => (this.kw(x).zeroGuard && this.power(x) <= 0) || this.p[x.owner].battle.some((s) => { const w = this.kw(s).teamWinAll; return w && ((x.def.races || []).join('/') + x.def.name).includes(w); });
       const wa = zg(a) || this.kw(a).winAllBattles || (a.winAllUntil || 0) >= this.turn || teamWin(a);
       const wd = zg(d) || this.kw(d).winAllBattles || (d.winAllUntil || 0) >= this.turn || teamWin(d);
       if ((pa >= pd || wa) && !wd) lose.push(d);
