@@ -342,6 +342,12 @@
     if (/^次の自分のターンのはじめまで、相手は(、)?自身のマナゾーンにあるカードの枚数よりコストが大きいクリーチャーを(バトルゾーンに)?出した(時|とき)、そのクリーチャーを自身の山札の一番下に置く$/.test(s)) return { act: 'tempBigBottom' };
     if ((m = s.match(/^(この|その)ターン、次に使う(光|水|闇|火|自然)?(の)?カードのコストを(、)?(最大)?(\d+)少なくしてもよい$/))) return { act: 'nextCostDiscount', civ: m[2] ? { 光: 'light', 水: 'water', 闇: 'darkness', 火: 'fire', 自然: 'nature' }[m[2]] : null, n: +m[6] };
     if ((m = s.match(/^([^、。]+?)(・カード)?を(\d+)枚、自分の墓地から手札に戻(す|してもよい)$/)) && !lookCond(m[1]).unknown && !/^(カード|クリーチャー|呪文)$/.test(m[1])) return { act: 'graveToHand', n: +m[3], cond: lookCond(m[1]), optional: m[4] !== 'す' };
+    if ((m = s.match(/^自分の山札の上から(もう)?(\d+)枚(、)?(タップして)?(自分の)?マナゾーンに置く$/))) return { act: 'manaBoost', n: +m[2], optional: false, tapped: !!m[4] };
+    if ((m = s.match(/^(自分の)?墓地にあるカードの枚数よりコストが小さい相手のクリーチャーを(\d+)体選び、破壊する$/))) return { act: 'destroyCostLtGrave', n: +m[2] };
+    if ((m = s.match(/^カードを(\d+)枚(まで)?自分の墓地からマナゾーンに置(く|いてもよい)$/))) return { act: 'graveAnyToMana', cond: lookCond('カード'), n: +m[1], optional: !!m[2] || m[3] !== 'く' };
+    if ((m = s.match(/^このクリーチャーよりコストが小さい呪文を(\d+)枚(、)?自分の手札または墓地からコストを支払わずに唱えてもよい。そうしたら、それを唱えた後、墓地のかわりに山札の下に置く$/))) return { act: 'castLtSelfHandGrave', n: +m[1], bottomAfter: true };
+    if ((m = s.match(/^相手の、シールド1つとクリーチャー1体を選ぶ。その後、相手の手札を1枚見ないで選ぶ。相手はそれらをすべて墓地に置く$/))) return { act: 'mowjakinga' };
+    if ((m = s.match(/^コスト(\d+)以下の、タマシードと([^、。]+?)を最大1つずつ、自分のマナゾーンまたは墓地から出す$/))) return { act: 'putEachFromManaGrave', maxCost: +m[1], race: m[2] };
     if ((m = s.match(/^自分の手札を(\d+)枚、好きな順序で山札の(上|下)に置く$/))) return { act: 'handToDeck', n: +m[1], top: m[2] === '上' };
     if ((m = s.match(/^攻撃しているクリーチャーよりコストが小さい([^、。]*?)クリーチャーを(\d+)体、自分の手札から(バトルゾーンに)?出(す|してもよい)$/))) return { act: 'putFromHand', cond: lookCond((m[1] || '') + 'クリーチャー'), kinds: ['creature'], n: +m[2], optional: m[4] !== 'す', costLtEvent: true };
     if (/^(その|この)ターン、相手のクリーチャーは攻撃もブロックもできない$/.test(s)) return { act: 'oppTeamLockTurn' };
@@ -933,6 +939,7 @@
     if ((mm = ct.match(/^自分のマナゾーンに多色カードが(\d+)枚以上$/))) return { manaMultiGE: +mm[1] };
     if ((mm = ct.match(/^自分のマナゾーン(にある|の)カードがすべて((光|水|闇|火|自然|無色)(または|か|、)?)+((の)?カード)?(で(ある|あれ)?)?$/))) return { manaOnlyCivs: civList(ct).concat(/無色/.test(ct) ? ['zero'] : []) };
     if ((mm = ct.match(/^自分のマナゾーンに([^、。]+?)(・カード)?が(\d+)枚以上$/)) && !/カード$/.test(mm[1])) return { manaRaceGE: { what: mm[1], n: +mm[3] } };
+    if ((mm = ct.match(/^自分のマナゾーンに([^、。]+?)カードが(\d+)枚以上$/)) && /^[A-Za-z]/.test(mm[1])) return { manaRaceGE: { what: mm[1], n: +mm[2] } };
     // シールド・手札・墓地
     if ((mm = ct.match(/^相手のシールドが(\d+)(つ|枚)以下(で)?$/))) return { oppShieldsLE: +mm[1] };
     if ((mm = ct.match(/^相手のシールドが(\d+)(つ|枚)以上$/))) return { oppShieldsGE: +mm[1] };
@@ -1053,6 +1060,11 @@
       .replace(/。?これらのクリーチャーが出ることによって起こる効果やルールはすべて無視する。?/g, '。それらの出た時の効果は起こらない');
     if (/^次の自分のターンのはじめまで、相手は(、)?自身のマナゾーン(にある|の)カードの枚数よりコストが大きいクリーチャーを(バトルゾーンに)?出した(時|とき)、そのクリーチャーを(自身の)?山札の(一番)?下に置く。?$/.test(body)) return [{ act: 'tempBigBottom' }];
     if (/^プレイヤーを1人選んでもよい。そのプレイヤーは自身の墓地をシャッフルし、山札の下に置く。?$/.test(body)) return [{ act: 'graveToDeckBottomPlayer' }];
+    const c1 = body.match(/^このクリーチャーよりコストが小さい呪文を(\d+)枚(、)?自分の手札または墓地からコストを支払わずに唱えてもよい。そうしたら、それを唱えた後、墓地のかわりに山札の下に置く。?$/);
+    if (c1) return [{ act: 'castLtSelfHandGrave', n: +c1[1], bottomAfter: true }];
+    if (/^相手の、シールド1つとクリーチャー1体を選ぶ。その後、相手の手札を1枚見ないで選ぶ。相手はそれらをすべて墓地に置く。?$/.test(body)) return [{ act: 'mowjakinga' }];
+    const sdt = body.match(/^自分のマナゾーンにあるカードの枚数よりコストが小さい、進化ではないクリーチャーを1体、自分のマナゾーンから出す。それが(光|水|闇|火|自然)または(光|水|闇|火|自然)のクリーチャーなら、相手のクリーチャーを1体選んでもよい。その2体をバトルさせる。?$/);
+    if (sdt) return [{ act: 'manaPutThenFight', civs: [sdt[1], sdt[2]].map((x) => ({ 光: 'light', 水: 'water', 闇: 'darkness', 火: 'fire', 自然: 'nature' }[x])) }];
     const dad = body.match(/^自分の手札を好きな数捨ててもよい。こうして捨てたカード1枚につき、相手のパワー(\d+)以下のクリーチャーを1体選び、破壊する。?$/);
     if (dad) return [{ act: 'discardAnyDestroy', maxPower: +dad[1] }];
     const brp = body.match(/^自分の山札の下から(\d+)枚を表向きにする。その中からコスト(\d+)以下の([^、。]+?)を(\d+)体(、)?出してもよい。残りを好きな順序で山札の上に置く。?$/);
@@ -1805,6 +1817,11 @@
     putFromMana: (a) => `マナから${a.cond.text}を${a.n}体出す`,
     selfFromHand: () => 'このクリーチャーを手札から出す',
     selfDiscardFromHand: () => 'このカードを手札から捨てる',
+    destroyCostLtGrave: () => '墓地の枚数より小さいコストの相手を破壊',
+    castLtSelfHandGrave: () => 'このクリーチャーより小さいコストの呪文を手札か墓地から唱える',
+    mowjakinga: () => '相手のシールド・クリーチャー・手札を1つずつ墓地へ',
+    putEachFromManaGrave: () => 'マナか墓地から1つずつ出す',
+    manaPutThenFight: () => 'マナから出してバトルさせる',
     handToDeck: (a) => `手札${a.n}枚を山札の${a.top ? '上' : '下'}へ`,
     oppTeamLockTurn: () => 'このターン、相手のクリーチャーは攻撃もブロックもできない',
     graveToDeckBottomPlayer: () => 'プレイヤーを選び、その墓地を山札の下へ',

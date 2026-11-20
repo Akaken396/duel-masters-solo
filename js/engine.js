@@ -1468,6 +1468,7 @@
         for (const au of this.kw(src).costAura || []) {
           if ((au.side === 'self') !== (q === pi)) continue;
           if (au.once && src.discUsed === this.turn) continue;
+          if (au.needFaceUp && !this.faceUpInShields(q)) continue;
           if (this.sc(src) && this.sc(src).costMod) continue; // カード個別の処理を優先
           if (this.costAuraFits(au, def)) {
             cost += au.n;
@@ -1974,6 +1975,7 @@
     async putIntoPlay(pi, card, free, def = card.def, po = {}) {
       const name = this.p[pi].name;
       card._free = !!free;
+      if (NON_CREATURE.includes(def.type)) this.p[pi].nonCreaturePlayed = this.turn;
       const fr = free ? 'コストを払わずに' : '';
       if (def.type === 'spell') {
         this.log(`${name}は呪文「${def.name}」を${fr}唱えた`);
@@ -2393,6 +2395,18 @@
       if (toZone !== 'grave' && toZone !== 'battle' && this.isCreature(card) && this.permanents(card.owner).some((s) => this.kw(s).teamStayNonGrave)) {
         this.log(`「${card.def.name}」は墓地以外へは離れず、バトルゾーンにとどまった`);
         return false;
+      }
+      if (toZone !== 'battle' && this.isCreature(card)) {
+        const lf = this.permanents(card.owner).find((s2) => { const f2 = this.kw(s2).leaveSubFlip; return f2 && this.allyMatch(card, f2.who); });
+        const fus = [...this.p[card.owner].shields.filter((x) => x.faceUp), ...this.p[card.owner].shields.flatMap((x) => (x.under || []).filter((u) => u.faceUp))];
+        if (lf && fus.length && (await this.yesNo(card.owner, `「${card.def.name}」が離れるかわりに、表向きのカードを1枚裏向きにしますか？`, card))) {
+          const pick = this.p[card.owner].isAI ? [fus[0]] : await this.pickCards(card.owner, fus, 1, false, '裏向きにする表向きのカード', 'recover');
+          if (pick[0]) {
+            pick[0].faceUp = false;
+            this.log(`「${card.def.name}」は離れるかわりに、表向きの「${pick[0].def.name}」を裏向きにした`);
+            return false;
+          }
+        }
       }
       if (toZone !== 'battle' && this.isCreature(card) && this.permanents(card.owner).some((s2) => this.kw(s2).leaveSubFaceUp)) {
         const fu = [0, 1].flatMap((q) => [...this.p[q].shields.filter((x) => x.faceUp), ...this.p[q].shields.flatMap((x) => (x.under || []).filter((u) => u.faceUp))]);
@@ -3405,6 +3419,65 @@
           if (!(await this.yesNo(pi, `${nm}: 次に使う${a.civ ? '' : ''}カードのコストを最大${a.n}下げますか？`, src))) break;
           me.nextSummonDiscount = { turn: this.turn, n: a.n, civ: a.civ, anyType: true };
           break;
+        case 'destroyCostLtGrave': {
+          const lim = me.grave.length;
+          const pool = op.battle.filter((c) => this.isCreature(c) && (+c.def.cost || 0) < lim);
+          const r = await this.pickCards(pi, pool, a.n, false, `${nm}: 破壊する相手のクリーチャー（コスト${lim}未満）`, 'target', 'destroy');
+          await this.destroyMany(r, { byOpp: true });
+          break;
+        }
+        case 'castLtSelfHandGrave': {
+          const lim = +src.def.cost || 0;
+          const pool = [...me.hand, ...me.grave].filter((c) => c !== src && c.def.type === 'spell' && (+c.def.cost || 0) < lim && !this.locked(pi, c.def));
+          const r = await this.pickCards(pi, pool, a.n, true, `${nm}: 手札か墓地からコストなしで唱える呪文（コスト${lim}未満）`, 'recover');
+          for (const c of r) {
+            this._castDepth = (this._castDepth || 0) + 1;
+            try {
+              await this.putIntoPlay(pi, c, true);
+            } finally {
+              this._castDepth--;
+            }
+            if (a.bottomAfter && this.zoneOf(c) === 'grave') {
+              this.moveTo(c, 'deck', { top: false });
+              this.log(`「${c.def.name}」は唱えた後、山札の下に置かれた`);
+            }
+          }
+          break;
+        }
+        case 'mowjakinga': {
+          const sh = op.shields.length ? (await this.pickCards(pi, op.shields, 1, false, `${nm}: 墓地に置く相手のシールド`, 'shield'))[0] : null;
+          const cr = (await this.pickCards(pi, op.battle.filter((c) => this.isCreature(c)), 1, false, `${nm}: 墓地に置く相手のクリーチャー`, 'target', 'destroy'))[0];
+          const hd = op.hand.length ? op.hand[Math.floor(this.rng() * op.hand.length)] : null;
+          if (sh) this.moveTo(sh, 'grave');
+          if (cr) await this.leave(cr, 'grave', { byOpp: true });
+          if (hd) await this.discardCard(hd, pi);
+          this.log(`${op.name}はシールド・クリーチャー・手札を墓地に置いた`);
+          if (sh) await this.shieldsLeft(op.idx);
+          break;
+        }
+        case 'putEachFromManaGrave': {
+          const zonePool = [...me.mana, ...me.grave];
+          const t = zonePool.filter((c) => c.def.type === 'tamaseed' && (+c.def.cost || 0) <= a.maxCost);
+          const r1 = await this.pickCards(pi, t, 1, true, `${nm}: 出すタマシード（コスト${a.maxCost}以下）`, 'recover');
+          for (const c of r1) await this.enterBattle(c, pi, 'other');
+          const cr = zonePool.filter((c) => !r1.includes(c) && this.zoneOf(c) !== 'battle' && ((c.def.races || []).join('/') + c.def.name).includes(a.race) && (+c.def.cost || 0) <= a.maxCost);
+          const r2 = await this.pickCards(pi, cr, 1, true, `${nm}: 出す${a.race}（コスト${a.maxCost}以下）`, 'recover');
+          for (const c of r2) await this.enterBattle(c, pi, 'other');
+          break;
+        }
+        case 'manaPutThenFight': {
+          const lim = me.mana.length;
+          const pool = me.mana.filter((c) => this.isCreatureDef(c) && (+c.def.cost || 0) < lim && !this.evoKind(c.def));
+          const r = await this.pickCards(pi, pool, 1, false, `${nm}: マナゾーンから出すクリーチャー`, 'recover');
+          const c = r[0];
+          if (!c) break;
+          await this.enterBattle(c, pi, 'other');
+          if (this.zoneOf(c) === 'battle' && (c.def.civs || []).some((x) => a.civs.includes(x))) {
+            const t = await this.pickCards(pi, op.battle.filter((x) => this.isCreature(x)), 1, true, `${nm}: 「${c.def.name}」とバトルさせる相手のクリーチャー`, 'target', 'destroy');
+            if (t[0]) await this.battle(c, t[0]);
+          }
+          break;
+        }
         case 'handToDeck': {
           const r = me.isAI ? me.hand.filter((c) => c !== src).slice(0, a.n) : await this.pickCards(pi, me.hand.filter((c) => c !== src), Math.min(a.n, me.hand.length), false, `${nm}: 山札の${a.top ? '上' : '下'}に置く手札（${a.n}枚・選んだ順に上から）`, 'discard');
           for (const c of r.slice().reverse()) this.moveTo(c, 'deck', { top: a.top });
@@ -4643,6 +4716,12 @@
       if (this.active !== pi || this.zoneOf(card) !== 'battle' || card.tapped || !this.isCreature(card)) return [];
       if (card.linkGroup && this.linkMembers(card).some((x) => x.tapped)) return [];
       if (this.kw(card).attackNeedLink && this.linkMembers(card).length < 2) return [];
+      const anc = this.kw(card).attackNeedCount;
+      if (anc) {
+        const has = (c) => ((c.def.races || []).join('/') + c.def.name).includes(anc.race);
+        if (this.p[pi].battle.filter(has).length + (anc.withMana ? this.p[pi].mana.filter(has).length : 0) < anc.n) return [];
+      }
+      if (this.kw(card).attackNeedNonCreature && this.p[pi].nonCreaturePlayed !== this.turn) return [];
       const k0 = this.kw(card);
       // 「攻撃できない」を無視する能力
       const ign = this.permanents(pi).map((s) => this.kw(s).ignoreCantAttack).filter(Boolean).find((ig) => !ig.who || ((card.def.races || []).join('/') + card.def.name + (card.def.text || '')).includes(ig.who.replace(/^「(.+?)」を持つ$/, '$1').replace(/(・)?クリーチャー$/, '')));
@@ -4736,6 +4815,11 @@
           const hk = parsed(h.def).kw;
           if ((sc && sc.revChange && sc.revChange(this, h, attacker0)) || (hk.revChange && h !== attacker0 && this.matchCond(attacker0, hk.revChange))) out.push({ id: 'rc' + h.uid, label: `革命チェンジ：「${h.def.name}」と入れ替える`, card: h, how: 'rc' });
           if (hk.invasion && this.matchCond(attacker0, hk.invasion)) out.push({ id: 'iv' + h.uid, label: `侵略：「${h.def.name}」を上に重ねる`, card: h, how: 'iv' });
+        }
+        // S革命チェンジ：表向きでシールドゾーンにあるものも使える
+        for (const h of [...me.shields.filter((x) => x.faceUp), ...me.shields.flatMap((x) => (x.under || []).filter((u) => u.faceUp))]) {
+          const hk = parsed(h.def).kw;
+          if (hk.sRevChange && hk.revChange && this.matchCond(attacker0, hk.revChange)) out.push({ id: 'rc' + h.uid, label: `S革命チェンジ：シールドゾーンの「${h.def.name}」と入れ替える`, card: h, how: 'rc' });
         }
         return out;
       };
