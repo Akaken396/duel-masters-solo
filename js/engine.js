@@ -69,7 +69,7 @@
     return t;
   }
 
-  const WHEN_J = { selfDiscarded: '手札を捨てた時の能力', selfDraw: 'カードを引いた時の能力', oppPlay: '相手がカードを使った時の能力', oppEnterFree: '相手のクリーチャーがコストなしで出た時の能力', oppEnterBig: '相手のマナより重いクリーチャーが出た時の能力', allyDestroyed: '味方が破壊された時の能力', toGrave: '墓地に置かれた時の能力', hostDestroyed: '付けたクリーチャーが破壊された時の能力', charged: 'マナに置いた時の能力', hostAttack: '付いているクリーチャーの攻撃時の能力', hostAttackEnd: '付いているクリーチャーの攻撃の終わりの能力', eachTurnEnd: 'ターンの終わりの能力', oppTurnEnd: '相手のターンの終わりの能力', oppEnter: '相手のクリーチャーが出た時の能力', anyEnter: 'クリーチャーが出た時の能力', anyDestroyed: 'クリーチャーが破壊された時の能力', selfOrAllyDestroyed: '破壊された時の能力', blocked: 'ブロックされた時の能力', oppUnblocked: '相手の攻撃が通った時の能力', battled: 'バトルした時の能力', targeted: '選ばれた時の能力', oppAttack: '相手の攻撃時の能力', allyCast: '呪文を唱えた時の能力', oppCast: '相手が呪文を唱えた時の能力', allyBattleWin: '味方がバトルに勝った時の能力', oppDestroyed: '相手のクリーチャーが破壊された時の能力', ownShieldLeft: 'シールドが離れた時の能力', attackEnd: '攻撃の終わりの能力', beforeBreak: 'ブレイクの前の能力', unblocked: 'ブロックされなかった時の能力', allyAttack: '味方の攻撃時の能力', allyLeft: '味方が離れた時の能力', tapped: 'タップした時の能力', untapped: 'アンタップした時の能力', evolveSource: 'シンカパワー', tapAbility: 'タップ能力', battleLose: 'バトルに負けた時の能力', left: '離れた時の能力', attacked: '攻撃された時の能力', summonOnly: '召喚で出た時の能力', battleWin: 'バトルに勝った時の能力', oppTurnStart: '相手のターンのはじめの能力', broke: 'ブレイクした時の能力', summon: '出た時の能力', attack: '攻撃する時の能力', destroyed: '破壊された時の能力', turnStart: 'ターンのはじめの能力', turnEnd: 'ターンの終わりの能力', shieldAdded: 'シールドが置かれた時の能力', exLifeLost: 'EXライフが離れた時の能力', block: 'ブロックした時の能力', sealsGone: '封印が外れた時の能力' };
+  const WHEN_J = { selfDiscarded: '手札を捨てた時の能力', selfDraw: 'カードを引いた時の能力', oppPlay: '相手がカードを使った時の能力', oppEnterFree: '相手のクリーチャーがコストなしで出た時の能力', oppEnterBig: '相手のマナより重いクリーチャーが出た時の能力', allyDestroyed: '自分の（指定の）クリーチャーが破壊された時の能力', toGrave: '墓地に置かれた時の能力', hostDestroyed: '付けたクリーチャーが破壊された時の能力', charged: 'マナに置いた時の能力', hostAttack: '付いているクリーチャーの攻撃時の能力', hostAttackEnd: '付いているクリーチャーの攻撃の終わりの能力', eachTurnEnd: 'ターンの終わりの能力', oppTurnEnd: '相手のターンの終わりの能力', oppEnter: '相手のクリーチャーが出た時の能力', anyEnter: 'クリーチャーが出た時の能力', anyDestroyed: 'クリーチャーが破壊された時の能力', selfOrAllyDestroyed: '破壊された時の能力', blocked: 'ブロックされた時の能力', oppUnblocked: '相手の攻撃が通った時の能力', battled: 'バトルした時の能力', targeted: '選ばれた時の能力', oppAttack: '相手の攻撃時の能力', allyCast: '呪文を唱えた時の能力', oppCast: '相手が呪文を唱えた時の能力', allyBattleWin: '自分の（指定の）クリーチャーがバトルに勝った時の能力', oppDestroyed: '相手のクリーチャーが破壊された時の能力', ownShieldLeft: 'シールドが離れた時の能力', attackEnd: '攻撃の終わりの能力', beforeBreak: 'ブレイクの前の能力', unblocked: 'ブロックされなかった時の能力', allyAttack: '自分の（指定の）クリーチャーの攻撃時の能力', allyLeft: '自分の（指定の）クリーチャーが離れた時の能力', tapped: 'タップした時の能力', untapped: 'アンタップした時の能力', evolveSource: 'シンカパワー', tapAbility: 'タップ能力', battleLose: 'バトルに負けた時の能力', left: '離れた時の能力', attacked: '攻撃された時の能力', summonOnly: '召喚で出た時の能力', battleWin: 'バトルに勝った時の能力', oppTurnStart: '相手のターンのはじめの能力', broke: 'ブレイクした時の能力', summon: '出た時の能力', attack: '攻撃する時の能力', destroyed: '破壊された時の能力', turnStart: 'ターンのはじめの能力', turnEnd: 'ターンの終わりの能力', shieldAdded: 'シールドが置かれた時の能力', exLifeLost: 'EXライフが離れた時の能力', block: 'ブロックした時の能力', sealsGone: '封印が外れた時の能力' };
 
   class GameOver extends Error {
     constructor(winner, reason) {
@@ -1916,8 +1916,12 @@
     }
     async allyEvent(card, pi, when) {
       await this.fireHand(pi, when, (ab, c) => ab.ally && this.allyMatch(card, ab.ally.race));
-      for (const src of this.permanents(pi)) {
-        if (!this.isOnField(src)) continue;
+      // 離れた・破壊された時は「場を離れる直前」を見る：離れたカード自身や、同時に離れたカードの能力も誘発する
+      const lookback = when === 'allyLeft' || when === 'allyDestroyed';
+      const srcs = this.permanents(pi).filter((x) => this.isOnField(x));
+      if (lookback) for (const x of [card, ...(this._goneBatch || [])]) if (x.owner === pi && !srcs.includes(x) && !this.isOnField(x)) srcs.push(x);
+      const evJ = { allyLeft: '離れた', allyDestroyed: '破壊された', allyAttack: '攻撃する' }[when] || '';
+      for (const src of srcs) {
         for (const ab of this.abilities(src)) {
           if (ab.when !== when || !ab.ally) continue;
           if (ab.ally.others && src === card) continue;
@@ -1927,7 +1931,8 @@
             if (src.allyUsed[ab.text + when] === this.turn) continue;
             src.allyUsed[ab.text + when] = this.turn;
           }
-          await this.queueFn(src, pi, `「${src.def.name}」の能力`, async () => {
+          const who = src === card ? 'このクリーチャー自身' : `「${card.def.name}」`;
+          await this.queueFn(src, pi, `${this.isOnField(src) ? '' : '（離れた）'}「${src.def.name}」の「自分の${ab.ally.race || 'クリーチャー'}が${evJ}時」の能力（${who}）`, async () => {
             this._eventCard = card;
             for (const a of ab.acts) await this.doAction(a, src, pi);
           }, { defer: true });
@@ -3780,6 +3785,15 @@
 
     async destroyMany(cards, o = {}) {
       const gone = [];
+      const prevBatch = this._goneBatch;
+      this._goneBatch = gone;
+      try {
+        return await this.destroyManyInner(cards, o, gone);
+      } finally {
+        this._goneBatch = prevBatch;
+      }
+    }
+    async destroyManyInner(cards, o, gone) {
       for (const c of cards) {
         if (this.zoneOf(c) !== 'battle') continue;
         if ((c.noDestroyUntil || 0) >= this.turn || this.kw(c).noDestroy || (this.kw(c).zeroGuard && this.power(c) <= 0)) {
@@ -3802,9 +3816,10 @@
       for (const c of gone) if (c.def.type === 'creature') await this.allyEvent(c, c.owner, 'allyDestroyed');
       for (const c of gone) if (this.isCreature(c) || c.def.type === 'creature') {
         if (this.hasAbility(c, 'selfOrAllyDestroyed')) await this.trigger(c, 'selfOrAllyDestroyed', c.owner, c.def, null, { defer: true });
-        for (const q of [0, 1]) for (const src of this.permanents(q)) {
-          if (gone.includes(src) || !this.isOnField(src)) continue;
+        for (const q of [0, 1]) for (const src of [...this.permanents(q).filter((x) => !gone.includes(x)), ...gone.filter((x) => x.owner === q)]) {
+          if (!gone.includes(src) && !this.isOnField(src)) continue;
           if (this.hasAbility(src, 'anyDestroyed')) await this.trigger(src, 'anyDestroyed', q, src.def, null, { defer: true });
+          if (src === c) continue;
           if (q === c.owner && this.hasAbility(src, 'selfOrAllyDestroyed')) await this.trigger(src, 'selfOrAllyDestroyed', q, src.def, null, { defer: true });
         }
       }

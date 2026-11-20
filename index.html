@@ -112,6 +112,12 @@
               <option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option>
               <option value="5">5</option><option value="6">6</option><option value="7">7+</option>
             </select>
+            <select id="pick-auto" title="自動処理の状態で絞り込み・並べ替え">
+              <option value="">自動/手動：すべて</option>
+              <option value="manual">手動の処理があるカードだけ</option>
+              <option value="manualSort">手動の処理が多い順</option>
+              <option value="auto">全部自動のカードだけ</option>
+            </select>
           </div>
           <div class="muted">左クリックで＋1、右クリックで−1</div>
           <div id="pick-grid" class="grid pick"></div>
@@ -125,6 +131,12 @@
         <div class="listpane panel">
           <div class="row"><button id="card-new" class="primary">新しいカード</button></div>
           <div class="row"><input id="card-search" type="search" placeholder="名前・テキストで検索" /></div>
+          <div class="row"><select id="card-auto" title="自動処理の状態で絞り込み・並べ替え">
+              <option value="">自動/手動：すべて</option>
+              <option value="manual">手動の処理があるカードだけ</option>
+              <option value="manualSort">手動の処理が多い順</option>
+              <option value="auto">全部自動のカードだけ</option>
+            </select><span id="card-auto-n" class="muted"></span></div>
           <ul id="card-list" class="list"></ul>
           <hr />
           <div class="col official">

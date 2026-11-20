@@ -851,6 +851,27 @@
     });
     pickCivBox.append(b);
   }
+  // 手動で処理する文の数（カード専用の処理があるものは0）
+  function manualCount(def) {
+    if (window.CardScripts && CardScripts.get(def.name)) return 0;
+    try {
+      const p = parsed(def);
+      let n = p.manual.length;
+      const td = twinDef && twinDef(def);
+      if (td) n += parsed(td).manual.length;
+      return n;
+    } catch (e) {
+      return 0;
+    }
+  }
+  // 「自動/手動」の絞り込みと並べ替え
+  function autoFilter(list, mode) {
+    if (!mode) return list;
+    if (mode === 'auto') return list.filter((c) => manualCount(c) === 0);
+    const out = list.filter((c) => manualCount(c) > 0);
+    if (mode === 'manualSort') out.sort((a, b) => manualCount(b) - manualCount(a));
+    return out;
+  }
   function renderPick() {
     const grid = $('#pick-grid');
     if (!grid) return;
@@ -859,12 +880,13 @@
     const cost = $('#pick-cost').value;
     const inDeck = new Map();
     for (const e of parseDeckList($('#deck-text').value).entries) inDeck.set(e.def, (inDeck.get(e.def) || 0) + e.n);
-    const list = Store.cards
+    let list = Store.cards
       .filter((c) => !q || (c.name + ' ' + (c.text || '') + ' ' + (c.races || []).join(' ')).normalize('NFKC').toLowerCase().includes(q))
       .filter((c) => !pickCivs.size || (c.civs || []).some((x) => pickCivs.has(x)))
       .filter((c) => !type || c.type === type)
       .filter((c) => !cost || (cost === '7' ? (c.cost ?? 0) >= 7 : (c.cost ?? 0) === +cost))
       .sort((a, b) => (a.cost ?? 0) - (b.cost ?? 0) || a.name.localeCompare(b.name, 'ja'));
+    list = autoFilter(list, $('#pick-auto').value);
     grid.innerHTML = '';
     const LIMIT = 150;
     if (list.length > LIMIT) grid.append(el('div', { class: 'muted', style: { width: '100%' }, text: `${list.length}枚中 ${LIMIT}枚を表示中。検索や文明・コストで絞り込んでください` }));
@@ -877,11 +899,12 @@
         deckAdd(def, -1);
       });
       const n = inDeck.get(def) || 0;
-      grid.append(el('div', { class: 'gi' }, e, n ? el('span', { class: 'n', text: '×' + n }) : null));
+      const mc = $('#pick-auto').value ? manualCount(def) : 0;
+      grid.append(el('div', { class: 'gi' }, e, n ? el('span', { class: 'n', text: '×' + n }) : null, mc ? el('span', { class: 'mc', title: '手動で処理する文の数', text: '手動' + mc }) : null));
     }
     if (!list.length) grid.append(el('div', { class: 'muted', text: '該当するカードがありません' }));
   }
-  ['#pick-search', '#pick-type', '#pick-cost'].forEach((sel) => $(sel).addEventListener('input', renderPick));
+  ['#pick-search', '#pick-type', '#pick-cost', '#pick-auto'].forEach((sel) => $(sel).addEventListener('input', renderPick));
   $('#deck-new').addEventListener('click', () => {
     const d = { id: 'd-' + Date.now().toString(36), name: '新しいデッキ', list: '' };
     Store.decks.push(d);
@@ -938,10 +961,15 @@
     const q = $('#card-search').value.trim().normalize('NFKC').toLowerCase();
     const ul = $('#card-list');
     ul.innerHTML = '';
-    const list = Store.cards
-      .filter((c) => !q || (c.name + ' ' + (c.text || '') + ' ' + (c.races || []).join(' ')).normalize('NFKC').toLowerCase().includes(q))
-      .slice()
-      .sort((a, b) => (a.cost ?? 0) - (b.cost ?? 0) || a.name.localeCompare(b.name, 'ja'));
+    const amode = $('#card-auto').value;
+    const list = autoFilter(
+      Store.cards
+        .filter((c) => !q || (c.name + ' ' + (c.text || '') + ' ' + (c.races || []).join(' ')).normalize('NFKC').toLowerCase().includes(q))
+        .slice()
+        .sort((a, b) => (a.cost ?? 0) - (b.cost ?? 0) || a.name.localeCompare(b.name, 'ja')),
+      amode
+    );
+    $('#card-auto-n').textContent = amode ? ` ${list.length}枚` : '';
     const LIMIT = 400;
     if (list.length > LIMIT) ul.append(el('li', { class: 'muted', text: `${list.length}枚中 ${LIMIT}枚を表示中。上の検索で絞り込んでください` }));
     for (const c of list.slice(0, LIMIT)) {
@@ -951,6 +979,7 @@
           { class: c.id === cardSel ? 'on' : '', onclick: () => selectCard(c.id) },
           el('span', { class: 'dot', style: { background: civBg(c.civs) } }),
           el('span', { text: c.name }),
+          amode && manualCount(c) ? el('span', { class: 'mc', title: '手動で処理する文の数', text: '手動' + manualCount(c) }) : null,
           el('span', { class: 'c', text: `${c.cost}${Store.imageUrls[c.id] || c.imageUrl ? ' 🖼' : ''}` })
         )
       );
@@ -958,6 +987,7 @@
     if (!cardSel && !draft && Store.cards[0]) selectCard(list[0]?.id || Store.cards[0].id);
   }
   $('#card-search').addEventListener('input', renderCardList);
+  $('#card-auto').addEventListener('input', renderCardList);
 
   function selectCard(id) {
     cardSel = id;
