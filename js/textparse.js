@@ -274,6 +274,7 @@
     const optional = /てもよい|まで/.test(s);
     let m;
     if ((m = s.match(/^自分の山札の上から(\d+)枚(目)?を(、)?シールド化(する|してもよい)$/))) return { act: 'shieldAdd', n: +m[1], optional: m[4] !== 'する' };
+    if ((m = s.match(/^自分の山札の上から(\d+)枚(目)?を(、)?表向き(で|にして)シールド化(する|してもよい)$/))) return { act: 'shieldAdd', n: +m[1], optional: m[5] !== 'する', faceUp: true };
     if ((m = s.match(/^自分と相手のクリーチャーを1体ずつ選(ぶ|んでもよい)。その2体をバトルさせる$/))) return { act: 'pairFight', optional: m[1] !== 'ぶ' };
     if ((m = s.match(/^(バトルゾーンにある)?相手の(タップされている|タップしている)?クリーチャーはすべて、次の相手のターンのはじめにアンタップ(されない|しない)$/))) return { act: 'freezeAll', tappedOnly: !!m[2] };
     if ((m = s.match(/^(バトルゾーンにある)?相手の(コスト(\d+)以下の)?クリーチャーを(\d+)体選び、(表向きに|裏向きにして)?(、)?シールド化する$/))) return { act: 'toShield', side: 'opp', n: +m[4], optional: false, maxCost: m[3] ? +m[3] : null };
@@ -487,7 +488,7 @@
     if ((m = s.match(/^相手の手札を見て(、)?(その中から)?(([^、。]*?)を)?(\d+)(枚|体)(まで)?選び、捨てさせる$/))) return { act: 'discard', n: +m[5], random: false, byMe: true, optional: !!m[7], cond: m[4] ? lookCond(m[4]) : null };
     if ((m = s.match(/^自分のマナゾーンのカードを(\d+)枚(、)?裏向きに(する|してもよい)$/))) return { act: 'manaFaceDown', n: +m[1], optional: m[3] !== 'する' };
     if ((m = s.match(/^自分のシールドゾーンにある表向きのカードを(\d+)枚(、)?裏向きに(する|してもよい)$/))) return { act: 'shieldFaceDown', n: +m[1], optional: m[3] !== 'する' };
-    if ((m = s.match(/^自分のシールドを(\d+)(つ|枚)(選び、)?表向きに(する|してもよい)$/))) return { act: 'shieldFaceUp', n: +m[1], optional: m[4] !== 'する' };
+    if ((m = s.replace(/^自分のシールドゾーンにあるカードを/, '自分のシールドを').match(/^自分のシールドを(\d+)(つ|枚)(選び、)?表向きに(する|してもよい)$/))) return { act: 'shieldFaceUp', n: +m[1], optional: m[4] !== 'する' };
     if (/^相手は(、)?ゲームに負ける$/.test(s)) return { act: 'winGame' };
     if ((m = s.match(/^相手のシールドを(\d+)つ選び、持ち主の墓地に置く$/))) {
       return { act: 'shieldBurn', n: +m[1] };

@@ -1188,6 +1188,17 @@
       this.moveTo(f.card, 'mana', { tapped: multi });
       this.manaCharged = true;
       this.log(`${this.p[pi].name}は「${f.card.def.name}」をマナに置いた`);
+      const crv = parsed(f.card.def).kw.chargeReveal;
+      if (crv && f.card.tapped) {
+        const pool = this.p[pi].hand.filter((c) => ((c.def.races || []).join('/') + c.def.name).includes(crv));
+        if (pool.length) {
+          const r = await this.pickCards(pi, pool, 1, true, `「${f.card.def.name}」: 見せる${crv}カード（見せればアンタップ）`, 'recover');
+          if (r.length) {
+            f.card.tapped = false;
+            this.log(`${this.p[pi].name}は「${r[0].def.name}」を見せて「${f.card.def.name}」をアンタップした`);
+          }
+        }
+      }
       if (this.hasAbility(f.card, 'charged')) await this.trigger(f.card, 'charged', pi);
       this.changed();
       return true;
@@ -2416,7 +2427,8 @@
           if (a.optional && !(await this.yesNo(pi, `${nm}: 山札の上から${a.n}枚をシールド化しますか？`, src))) return;
           const added = await this.addShieldFromDeck(pi, a.n);
           if (added) {
-            this.log(`${me.name}はシールドを${added}つ追加した`);
+            if (a.faceUp) for (const c of me.shields.slice(-added)) c.faceUp = true;
+            this.log(`${me.name}はシールドを${added}つ${a.faceUp ? '表向きで' : ''}追加した`);
             await this.shieldAdded(pi);
           }
           break;
