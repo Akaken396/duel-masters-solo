@@ -501,6 +501,7 @@
         const mx = (arr) => Math.max(0, ...arr.filter((x) => this.isCreature(x)).map((x) => this.power(x)));
         if (!(mx(me.battle) > mx(op.battle))) return false;
       }
+      if (c.selfWasUnder && !(card && card._wasUnderOnGrave)) return false;
       if (c.evTwin && !(this._eventCard && this._eventCard.def.twin)) return false;
       if (c.evNotFromHand && !(this._eventCard && this._eventCard._enterFrom !== 'hand')) return false;
       if (c.spellsGE != null && (this.spellsThisTurn || [0, 0])[pi] < c.spellsGE) return false;
@@ -993,7 +994,10 @@
       let tapped = !!o.tapped;
       const f = this.find(card.uid);
       if (f) (f.arr || f.player[f.zone]).splice(f.index, 1);
-      const from = f ? f.zone : null;
+      const from = f ? f.zone : card._fromUnder ? 'under' : null;
+      const fromUnder = !!card._fromUnder;
+      delete card._fromUnder;
+      if (zone === 'grave') card._wasUnderOnGrave = fromUnder;
       const owner = this.p[card.owner];
       if (from === 'mana' && zone !== 'mana') delete card.faceDown;
       if (zone === 'mana' && tapped && this.p[card.owner].battle.some((s) => { const w = this.kwBase(s).manaUntapWho; return w && w.split(/・カードまたは|カードまたは|または/).some((x) => ((card.def.races || []).join('/') + card.def.name).includes(x)); })) tapped = false;
@@ -2802,7 +2806,10 @@
         card.faceUp = true;
         this.log(`「${card.def.name}」はシールド・ゴーで表向きのシールドになった`);
       }
-      for (const u of under) this.moveTo(u, toZone === 'shields' ? 'grave' : toZone, o.moveOpt);
+      for (const u of under) {
+        u._fromUnder = true;
+        this.moveTo(u, toZone === 'shields' ? 'grave' : toZone, o.moveOpt);
+      }
       for (const pl of this.p) for (const w of pl.battle.filter((x) => x.attachedTo === card.uid)) {
         w.attachedTo = null;
         if (o.destroy && this.hasAbility(w, 'hostDestroyed')) await this.trigger(w, 'hostDestroyed', w.owner, w.def, null, { defer: true });
@@ -3796,6 +3803,18 @@
           const pool = op.hand.filter((c) => this.isCreatureDef(c));
           const r = await this.pickCards(pi, pool, 1, false, `${nm}: ${op.name}の手札からクリーチャーを1体選んでください`, 'target');
           if (r[0] && (await this.yesNo(1 - pi, `${nm}: 選ばれた「${r[0].def.name}」を出しますか？`, r[0]))) await this.enterBattle(r[0], 1 - pi, 'other');
+          break;
+        }
+        case 'chooseRace': {
+          const cnt = {};
+          for (const pl of this.p) for (const z of ['battle', 'hand', 'grave', 'mana', 'deck']) for (const c of pl[z]) for (const r of c.def.races || []) cnt[r] = (cnt[r] || 0) + (pl === me && z === 'battle' ? 5 : pl === me ? 1 : 0.5);
+          const races = Object.keys(cnt).sort((x, y) => cnt[y] - cnt[x]);
+          if (!races.length) break;
+          const ids = await this.chooseModes(pi, `${nm}: 種族を1つ選んでください`, races.slice(0, 40).map((r) => ({ id: r, label: r })), { min: 1, max: 1, aiPick: [races[0]] });
+          const race = ids[0] || races[0];
+          this.log(`${me.name}は種族「${race}」を選んだ`);
+          const acts = JSON.parse(JSON.stringify(a.acts).split('センタクシュゾク・').join(race).split('センタクシュゾク').join(race));
+          for (const x of acts) await this.doAction(x, src, pi);
           break;
         }
         case 'useDyn': {

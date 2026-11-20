@@ -17,6 +17,7 @@
       .replace(/[．]/g, '。')
       .replace(/手札をすべて捨て、その後、/g, '手札をすべて捨てる。その後、')
       .replace(/各ターン(に)?(一|1)度、/g, '各ターンに1度、')
+      .replace(/^このカードが墓地に置かれた時、それが墓地に置かれる直前に進化クリーチャーの下にあった場合、/gm, '墓地へ下から置かれた時〔〕、')
       .replace(/相手のクリーチャーが、召喚以外の方法で/g, '相手のクリーチャーが召喚以外の方法で')
       .replace(/このターンの終わりにこのクリーチャーを破壊し、その後、カードを/g, 'このターンの終わりにこのクリーチャーを破壊し、カードを')
       .replace(/^自分の他の、/gm, '自分の他の')
@@ -280,6 +281,7 @@
     if ((mm = rest.match(/^このクリーチャー(は|が)(、)?各ターン(、)?はじめて攻撃する(時|とき)、/))) return { whens: ['attack'], rest: rest.slice(mm[0].length), cond: { ...cond, firstPerTurn: true } };
     if ((mm = rest.match(/^このG城が表向きで(、)?自分のシールドゾーンに置かれた(時|とき)または離れた(時|とき)、/))) return { whens: ['summon', 'selfShieldLeft'], rest: rest.slice(mm[0].length), cond };
     if ((mm = rest.match(/^(コスト(\d+)以下の)?(クリーチャー|カード)がどこからでも自分の墓地に置かれた(時|とき)、/))) return { whens: ['ownToGrave'], rest: rest.slice(mm[0].length), cond: { ...cond, ...(mm[2] ? { evMaxCost: +mm[2] } : {}), ...(mm[3] === 'クリーチャー' ? { evCreature: true } : {}) } };
+    if ((mm = rest.match(/^墓地へ下から置かれた時〔〕、/))) return { whens: ['toGrave'], rest: rest.slice(mm[0].length), cond: { ...cond, selfWasUnder: true } };
     if ((mm = rest.match(/^ツインパクトカードを自分のマナゾーンに置いた(時|とき)、/))) return { whens: ['manaPut'], rest: rest.slice(mm[0].length), cond: { ...cond, evTwin: true } };
     if ((mm = rest.match(/^各ターンのはじめに、/))) return { whens: ['turnStart', 'oppTurnStart'], rest: rest.slice(mm[0].length), cond };
     if ((mm = rest.match(/^スペースチャージ〔([a-z/]+)(\|1)?〕、/))) return { whens: ['manaPut'], rest: rest.slice(mm[0].length), cond: { ...cond, evCivAny: mm[1].split('/'), askUse: true, ...(mm[2] ? { oncePerTurn: true } : {}) } };
@@ -468,6 +470,12 @@
     if (/^他のクリーチャーを1体選び、タップまたはアンタップする$/.test(s)) return { act: 'tapOrUntap' };
     if (/^相手の手札を見てクリーチャーを1体選ぶ。相手はそれを出してもよい$/.test(s)) return { act: 'oppHandPickPut' };
     if (/^相手は自身のシールドを1つ選ぶ。そのシールドをブレイクする$/.test(s)) return { act: 'breakOppOne' };
+    if ((m = s.match(/^([^、。]+?)を(\d+)(体|枚)まで、自分の墓地から(自分の)?手札に(戻す|加える)$/) || s.match(/^自分の墓地から(、)?([^、。]+?)を(\d+)(体|枚)まで(選び、)?(自分の)?手札に(戻す|加える)$/))) {
+      const w = m[0].startsWith('自分の墓地から') ? m[2] : m[1];
+      const n = m[0].startsWith('自分の墓地から') ? +m[3] : +m[2];
+      const lc = lookCond(w);
+      if (!lc.unknown && !/^(カード|クリーチャー|呪文)$/.test(w)) return { act: 'graveToHand', n, cond: lc, optional: true };
+    }
     if (/^シールドを1つ選び、ブレイクしてもよい$/.test(s)) return { act: 'breakAnyOne', optional: true };
     if (/^このクリーチャーに含まれるカードと同じ枚数の?カードを引く$/.test(s)) return { act: 'drawSelfCards' };
     if (/^このクリーチャーの「このクリーチャーが出た時」で始まる能力を1つ使(う|ってもよい)$/.test(s)) return { act: 'useTrigger', from: 'self', when: 'summon', optional: /もよい/.test(s) };
@@ -804,7 +812,7 @@
     if ((m = s.match(/^((このターン|次の(自分の|相手の)ターンの(はじめ|終わり)まで)、)?自分は(、)?ゲームに負け(ない|ず、相手は(、)?(ゲームに)?勝てない)$/))) return { act: 'noLose', until: !m[2] || m[2] === 'このターン' ? 'turn' : 'next' };
     if (/^相手の手札を見る$/.test(s)) return { act: 'revealHand' };
     if ((m = s.match(/^相手の手札を見て(、)?(その中から)?(([^、。]*?)を)?(\d+)(枚|体)(まで)?選び、捨てさせる$/))) return { act: 'discard', n: +m[5], random: false, byMe: true, optional: !!m[7], cond: m[4] ? lookCond(m[4]) : null };
-    if ((m = s.match(/^自分のマナゾーンのカードを(\d+)枚(、)?裏向きに(する|してもよい)$/))) return { act: 'manaFaceDown', n: +m[1], optional: m[3] !== 'する' };
+    if ((m = s.match(/^自分のマナゾーン(の|にある)カードを(\d+)枚(、)?裏向きに(する|してもよい)$/))) return { act: 'manaFaceDown', n: +m[2], optional: m[4] !== 'する' };
     if ((m = s.match(/^自分のシールドゾーンにある表向きのカードを(\d+)枚(、)?裏向きに(する|してもよい)$/))) return { act: 'shieldFaceDown', n: +m[1], optional: m[3] !== 'する' };
     if ((m = s.replace(/^自分のシールドゾーンにあるカードを/, '自分のシールドを').match(/^自分のシールドを(\d+)(つ|枚)(選び、)?表向きに(する|してもよい)$/))) return { act: 'shieldFaceUp', n: +m[1], optional: m[4] !== 'する' };
     if (/^相手は(、)?ゲームに負ける$/.test(s)) return { act: 'winGame' };
@@ -1480,6 +1488,22 @@
     if (/^次の自分のターンのはじめまで、相手は(、)?自身のマナゾーン(にある|の)カードの枚数よりコストが大きいクリーチャーを(バトルゾーンに)?出した(時|とき)、そのクリーチャーを(自身の)?山札の(一番)?下に置く。?$/.test(body)) return [{ act: 'tempBigBottom' }];
     if (/^プレイヤーを1人選んでもよい。そのプレイヤーは自身の墓地をシャッフルし、山札の下に置く。?$/.test(body)) return [{ act: 'graveToDeckBottomPlayer' }];
     if (/^相手の手札を見てクリーチャーを1体選ぶ。相手はそれを出してもよい。?$/.test(body)) return [{ act: 'oppHandPickPut' }];
+    const crc = body.match(/^種族を1つ選(ぶ|び)(。|、その後、|、)(.+)$/);
+    if (crc) {
+      const T = 'センタクシュゾク';
+      const rest = crc[3]
+        .replace(/次の自分のターンが始まるまで/g, '次の自分のターンのはじめまで')
+        .replace(/はすべてブロックされない$/, 'はすべて「このクリーチャーはブロックされない」を得る')
+        .replace(/(このターン|次の自分のターンのはじめまで)、(バトルゾーンにある)?(その|選んだ)種族のクリーチャーは(すべて)?/g, '$1、自分の' + T + '・クリーチャーはすべて')
+        .replace(/はすべて(、)?ブロックされない。?$/, 'はすべて「このクリーチャーはブロックされない」を得る')
+        .replace(/選んだ種族を持つカード/g, T + '・カード')
+        .replace(/選んだ種族を持ち名前が異なるクリーチャー/g, T + '・クリーチャー')
+        .replace(/(選んだ|その)種族の自分のクリーチャー/g, '自分の' + T + '・クリーチャー')
+        .replace(/(選んだ|その)種族のクリーチャー/g, T + '・クリーチャー')
+        .replace(/バトルゾーンにある、?自分の/g, '自分の');
+      const inner = parseEffects(rest.replace(/。$/, ''));
+      if (inner && !inner.some((x) => x.act === 'manualNote') && JSON.stringify(inner).includes(T)) return [{ act: 'chooseRace', acts: inner }];
+    }
     const dst = body.match(/^自分の山札の上から(\d+)枚を見る。それらを1枚ずつ、(.+?)に置く。?$/);
     if (dst) {
       const ds = dst[2].split(/、|と/).map((x) => ({ 手札: 'hand', マナゾーン: 'mana', 墓地: 'grave', 山札の下: 'bottom' }[x.trim()]));
