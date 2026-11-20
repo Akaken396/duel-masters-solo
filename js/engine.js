@@ -1736,6 +1736,19 @@
         const tappers = this.p[pi].battle.filter((c) => this.isCreature(c) && !c.tapped && (!atc.civ || (c.def.civs || []).includes(atc.civ)));
         if (tappers.length >= atc.n) out.push({ mana: [], uses: [() => { for (const c of tappers.slice(0, atc.n)) c.tapped = true; this.log(`クリーチャー${atc.n}体をタップして唱える`); }], cost: 0, tapAlt: atc.n });
       }
+      // ムゲンクライムN：自分のクリーチャーをN体タップし、指定のコストを払って、手札か墓地から召喚する
+      const mgc = parsed(def).kw.mugenClimb;
+      if (mgc && def === card.def && ['hand', 'grave'].includes(this.zoneOf(card))) {
+        const tappers = this.p[pi].battle.filter((c) => this.isCreature(c) && !c.tapped);
+        const mana = tappers.length >= mgc.n && this.payWith(pi, { civs: mgc.civs }, mgc.cost);
+        if (mana) out.push({ mana, mugen: true, uses: [async () => {
+          const pool = this.p[pi].battle.filter((c) => this.isCreature(c) && !c.tapped);
+          const r = this.p[pi].isAI ? pool.slice(0, mgc.n) : await this.pickCards(pi, pool, mgc.n, false, `ムゲンクライム：タップするクリーチャーを${mgc.n}体選んでください`, 'recover');
+          for (const c of r) c.tapped = true;
+          for (const s2 of this.permanents(pi)) if (this.isOnField(s2) && this.hasAbility(s2, 'mugenTapped')) for (const c of r) if (c === s2) await this.trigger(s2, 'mugenTapped', pi, s2.def, null, { defer: true });
+          this.log(`ムゲンクライム：クリーチャー${r.length}体をタップした`);
+        }], cost: mgc.cost, opt: { text: `ムゲンクライム（${mgc.n}体タップ＋コスト${mgc.cost}）` } });
+      }
       // ギャラクシールド：代わりのコストを払って、表向きのシールドとして置く
       const gxs = parsed(def).kw.galaxy;
       if (gxs && def === card.def && this.zoneOf(card) === 'hand') {
@@ -1792,6 +1805,7 @@
         const mana = this.payWith(pi, { civs: alp.civs }, alp.cost);
         if (mana) out.push({ mana, uses: [async () => { this.log(`「${def.name}」: 代わりのコスト${alp.cost}を支払った`); for (const x of alp.then) await this.doAction(x, card, pi); }], cost: alp.cost, alt: alp });
       }
+      if (this.zoneOf(card) === 'grave' && mgc && !parsed(def).kw.graveSummon) return out.filter((x) => x.mugen);
       if (parsed(def).kw.bad) {
         const plan = this.costPlan(pi, card, def, null, true);
         const mana = this.payWith(pi, def, plan.cost);
@@ -2064,6 +2078,7 @@
       if (z === 'hyper') return parsed(card.def).kw.hyperSummon ? card : null;
       if (z !== 'grave') return null;
       if (parsed(card.def).kw.graveSummon) return card;
+      if (parsed(card.def).kw.mugenClimb) return card;
       if (parsed(card.def).kw.graveSummonIf && this.condOk2(pi, parsed(card.def).kw.graveSummonIf, card)) return card;
       if (card.def.type === 'spell' && parsed(card.def).kw.recycle) return card;
       for (const src of this.permanents(pi)) {
