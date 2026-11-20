@@ -287,6 +287,8 @@
         k.evolution = 'grave';
         k.graveEvo = { n, any: false, civs: civsIn(what), what: /^(光|水|闇|火|自然)の?$/.test(what) ? '' : what, zone: 'mana' };
       }, desc: '自分のマナゾーンのクリーチャーの上に重ねて出す' },
+    { name: '種族にサバイバーを追加', re: /^自分の(光|水|闇|火|自然)のクリーチャーはすべて、種族にサバイバーを追加する。?$/, auto: true, set: (k, m) => (k.addSurvivor = { 光: 'light', 水: 'water', 闇: 'darkness', 火: 'fire', 自然: 'nature' }[m[1]]), desc: '指定の文明のクリーチャーをサバイバーとして扱う' },
+    { name: 'サバイバー', re: /^サバイバー\s*$/, auto: true, set: () => {}, desc: 'このクリーチャーがバトルゾーンにある間、自分の他のサバイバーもすぐ上の能力を得る' },
     { name: 'サイレントスキル', re: /^サイレントスキル\s*$/, auto: true, set: (k) => (k.silentSkill = true), desc: '自分のターンのはじめにタップしていたら、アンタップするかわりに次の能力を使ってもよい' },
     { name: '手札進化', re: /^手札進化\s*[：:\-－―]\s*(.+)$/, auto: true,
       set: (k, m) => {
@@ -562,7 +564,6 @@
     { name: 'フシギバース', re: /^フシギバース/, auto: true, set: (k, m, raw) => { const xs = [...String(raw || '').matchAll(/\[([lwdfnc]+)(\d{2})\]|〔代替([lwdfnc]+)(\d{2})〕/g)]; const CV = { l: 'light', w: 'water', d: 'darkness', f: 'fire', n: 'nature' }; if (!xs.length) return; const code = xs[0][1] || xs[0][3]; k.fushigi = { n: +(xs[0][2] || xs[0][4]), min: xs.length > 2 ? +(xs[xs.length - 1][2] || xs[xs.length - 1][4]) : 1, civs: [...new Set(code.split(''))].map((y) => CV[y]).filter(Boolean) }; }, desc: '自分のクリーチャーを1体タップしてマナに置き、そのコストぶん安く墓地から召喚できる' },
     { name: 'ミクセル', re: /^ミクセル/, desc: '相手がコストの大きいクリーチャーを出す時、かわりにマナや山札に送る' },
     { name: 'シールド・フォース', re: /^シールド・フォース/, desc: '選んだシールドがある間、効果が働く' },
-    { name: 'サバイバー', re: /^サバイバー/, desc: '同じサバイバーのクリーチャーが能力を共有する' },
     { name: 'ギャラクシールド', re: /^ギャラクシールド\s*〔代替([lwdfnc]+)(\d{2})〕/, auto: true, set: (k, m) => { const CV = { l: 'light', w: 'water', d: 'darkness', f: 'fire', n: 'nature' }; k.galaxy = { cost: +m[2], civs: [...new Set(m[1].split(''))].map((x) => CV[x]).filter(Boolean) }; }, desc: 'かわりのコストを払って、表向きのシールドとして置ける' },
     { name: '無月の大罪', re: /^無月の大罪\s*(\d+)\s*$/, auto: true, set: (k, m) => (k.mugetsuSin = +m[1]), desc: 'コストをN少なくしてもよい。そうしたら、ターンの終わりに自分のクリーチャーを1体破壊する' },
     { name: 'Jチェンジ', re: /^Jチェンジ\s*(\d+)\s*$/, auto: true, set: (k, m) => (k.jChange = +m[1]), desc: '攻撃する時、マナの指定コスト以下のジョーカーズと入れ替えられる' },

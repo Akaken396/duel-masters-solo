@@ -288,8 +288,19 @@
       return out;
     }
     soulsOf(card) {
-      if (!card || !(card.under || []).length || this.zoneOf(card) !== 'battle') return [];
-      return card.under.map((u) => !this.isIgnored(u.def.name) && parsed(u.def).soul).filter(Boolean);
+      if (!card || this.zoneOf(card) !== 'battle') return [];
+      const out = (card.under || []).map((u) => !this.isIgnored(u.def.name) && parsed(u.def).soul).filter(Boolean);
+      // サバイバー：自分の他のサバイバーの「上の能力」
+      const pl = this.p[card.owner];
+      const isSv = (c) => (c.def.races || []).some((r) => r.includes('サバイバー')) || pl.battle.some((x) => { const as = parsed(x.def).kw.addSurvivor; return as && (c.def.civs || []).includes(as); });
+      if (isSv(card)) {
+        for (const x of pl.battle) {
+          if (x === card || this.isIgnored(x.def.name)) continue;
+          const sv = parsed(x.def).survivor;
+          if (sv && isSv(x)) out.push(sv);
+        }
+      }
+      return out;
     }
     abilities(card, def = card.def) {
       if (this.isIgnored(def.name)) return [];

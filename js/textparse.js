@@ -1811,6 +1811,30 @@
       const pm = t.match(/^(\[P\]|oP\s|P(?=[^\x00-\x7F]))\s*(.+)$/);
       if (pm && !/^P能力/.test(pm[2])) rawLines[i] = '〔P能力〕' + pm[2];
     }
+    // サバイバー：すぐ上の能力を、自分の他のサバイバーも持つ
+    let survivor = null;
+    {
+      // 「oS」の印がついた行（サバイバーで共有する能力）
+      const osLines = [];
+      for (let i = 0; i < rawLines.length; i++) {
+        const om = rawLines[i].match(/^(.*?)oS\s*(?=[^\x00-\x7F])(.+)$/);
+        if (!om) continue;
+        if (om[1].trim()) {
+          rawLines.splice(i, 1, om[1].trim(), om[2]);
+          i++;
+        } else rawLines[i] = om[2];
+        osLines.push(rawLines[i]);
+      }
+      const si = rawLines.findIndex((l) => /^サバイバー\s*[(（]/.test(l) || /^サバイバー\s*$/.test(stripReminder(l).trim()));
+      if ((si > 0 || osLines.length) && !def._soulPart) {
+        const sp = parseCard({ ...def, type: 'creature', text: osLines.length ? osLines.join('\n') : rawLines[si - 1], _soulPart: true });
+        survivor = { kw: { ...sp.kw }, abilities: sp.abilities.map((ab) => ({ ...ab, survivor: true })) };
+        delete survivor.kw.breaker;
+        delete survivor.kw.powerAttacker;
+        if (sp.kw.breaker > 1) survivor.kw.breaker = sp.kw.breaker;
+        if (!Object.keys(survivor.kw).length && !survivor.abilities.length) survivor = null;
+      }
+    }
     // スペース・チャージ：「q 文明：効果」を、マナに置かれた時の誘発に書き換える
     {
       const CVQ = { 光: 'light', 水: 'water', 闇: 'darkness', 火: 'fire', 自然: 'nature', 多色: 'multi' };
@@ -2451,7 +2475,7 @@
     // パワーアタッカー・ブレイカーなどの初期値
     applyLink();
     for (const ab of abilities) if (FROM_HAND(ab.acts) || (ab.modal && ab.modal.options.some((o) => FROM_HAND(o.acts)))) ab.fromHand = true;
-    return { kw, abilities, manual, known, hyper: hyperUsed ? hyper : null, soul };
+    return { kw, abilities, manual, known, hyper: hyperUsed ? hyper : null, soul, survivor };
   }
 
   const ZONE_JA = { mana: 'マナ', shields: 'シールド', hand: '手札', deckBottom: '山札の下', grave: '墓地' };
