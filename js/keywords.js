@@ -500,7 +500,13 @@
     { name: '超魂X', re: /^超魂X/, auto: true, set: () => {}, desc: 'これがクリーチャーの下にあれば、そのクリーチャーにも以下の能力を与える' },
     { name: 'パワー+（常在）', re: /^このクリーチャーのパワーを\+(\d+)する。?$/, auto: true, set: (k, m) => (k.soulPower = (k.soulPower || 0) + +m[1]), desc: 'パワーが上がる' },
     { name: 'サバキZ', re: /^サバキZ/, desc: '裁きの紋章を使った時などに、手札からコストを払わずに出せる' },
-    { name: 'D・D・D', re: /^D・D・D/, desc: '相手の攻撃中などに、手札からコストを払わずに出せる' },
+    { name: 'D・D・D', re: /^D・D・D\s*(\[([lwdfnc]+)(\d+)\]|〔代替([lwdfnc]+)(\d+)〕)?/, auto: true, set: (k, m, raw) => {
+        const x = (String(raw || '') + ' ' + m[0]).match(/[\[〔](?:代替)?([lwdfnc]+)(\d{2})[\]〕]/);
+        const code = x ? x[1] : '';
+        const n = x ? +x[2] : 0;
+        const CV = { l: 'light', w: 'water', d: 'darkness', f: 'fire', n: 'nature' };
+        k.ddd = { cost: n, civs: [...new Set(String(code).split(''))].map((x) => CV[x]).filter(Boolean) };
+      }, desc: '自分のクリーチャーが攻撃する時、指定のコストを払って手札から使える' },
     { name: 'マジボンバー', re: /^マジボンバー/, desc: '出た時に、手札かマナから指定コスト以下のクリーチャーを出せる' },
     { name: 'アバレチェーン', re: /^アバレチェーン/, desc: '攻撃する時に、手札からクリーチャーを出せる' },
     { name: 'ハイパーエナジー', re: /^ハイパーエナジー/, desc: '自分のクリーチャーをタップして、召喚コストを下げる' },

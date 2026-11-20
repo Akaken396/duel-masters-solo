@@ -34,6 +34,7 @@
       .replace(/\{[^}]{1,6}\}\s*/g, '') // 公式ページのアイコン記号 {GS} {x+} など
       .replace(/^[a-z]{1,2}[A-Z]?(?=この|自分|相手|各ターン)/gm, '') // 行頭に残ったアイコンの文字
       .replace(/\s*\[([lwdfnc]{1,5})(\d{2})\]\s*支払って/g, '〔代替$1$2〕支払って') // 代わりに払うコスト
+      .replace(/^D・D・D\s*\[([lwdfnc]{1,5})(\d{2})\]/gm, 'D・D・D 〔代替$1$2〕')
       .replace(/\[[a-z]{1,5}\d{0,3}\]/g, '') // マナ記号 [ll02] など
       .replace(/^l\s+/gm, '') // 能力を与える時の記号
       .replace(/\?\?|\uFFFD{1,2}/g, '\n▶')
@@ -287,6 +288,7 @@
     if ((mm = rest.match(/^墓地へ下から置かれた時〔〕、/))) return { whens: ['toGrave'], rest: rest.slice(mm[0].length), cond: { ...cond, selfWasUnder: true } };
     if ((mm = rest.match(/^相手がジャンケンで「?(グー|チョキ|パー)」?を出した(時|とき)、/))) return { whens: ['oppJanken'], rest: rest.slice(mm[0].length), cond: { ...cond, jankenHand: mm[1] } };
     if ((mm = rest.match(/^(各ターン、)?(自分が)?(はじめて)?(自分の)?コスト(\d+)以上のクリーチャーを(自分の手札から)?召喚した(時|とき)、/))) return { whens: ['selfPlay'], rest: rest.slice(mm[0].length), cond: { ...cond, evMinCost: +mm[5], evCreature: true, ...(mm[3] ? { firstPerTurn: true } : {}) } };
+    if ((mm = rest.match(/^このクリーチャーが「D・D・D」によって(バトルゾーンに)?出た(時|とき)、/))) return { whens: ['summon'], rest: rest.slice(mm[0].length), cond: { ...cond, viaDDD: true } };
     if ((mm = rest.match(/^ツインパクトカードを自分のマナゾーンに置いた(時|とき)、/))) return { whens: ['manaPut'], rest: rest.slice(mm[0].length), cond: { ...cond, evTwin: true } };
     if ((mm = rest.match(/^各ターンのはじめに、/))) return { whens: ['turnStart', 'oppTurnStart'], rest: rest.slice(mm[0].length), cond };
     if ((mm = rest.match(/^スペースチャージ〔([a-z/]+)(\|1)?〕、/))) return { whens: ['manaPut'], rest: rest.slice(mm[0].length), cond: { ...cond, evCivAny: mm[1].split('/'), askUse: true, ...(mm[2] ? { oncePerTurn: true } : {}) } };
@@ -1155,6 +1157,7 @@
     if ((mm0 = ct.match(/^自分の([^、。]+?)がバトルゾーンにあれば$/))) return { count: { what: mm0[1], n: 1 } };
     if (/^自分のマナゾーンのカードがすべてタップされていれば$/.test(ct)) return { manaAllTapped: true };
     if (/^このクリーチャーにクロスギアがクロスされていれば$/.test(ct)) return { crossedGE: 1 };
+    if (/^この(呪文|カード)を「D・D・D」で(唱えた|使った|実行した)なら$/.test(ct)) return { viaDDD: true };
     if (/^このクリーチャーがタップしていたら$/.test(ct)) return { selfTapped: true };
     if (/^自分のシールドが相手(のもの)?よりも?少なければ$/.test(ct)) return { shieldsLess: true };
     if (/^(この|その)ターン、自分のシールドゾーンにカードが置かれていれば$/.test(ct)) return { shieldAddedThisTurn: true };

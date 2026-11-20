@@ -505,6 +505,7 @@
       if (c.jankenHand && !(this._lastJanken && this._lastJanken.by !== pi && this._lastJanken.hand === c.jankenHand)) return false;
       if (c.oppHas && !op.battle.some((x) => this.fitLook(x, G.TextParse.lookCond(c.oppHas)))) return false;
       if (c.manaAllTapped && me.mana.some((x) => !x.tapped)) return false;
+      if (c.viaDDD && !(card && card._viaDDD === this.turn)) return false;
       if (c.evTwin && !(this._eventCard && this._eventCard.def.twin)) return false;
       if (c.evNotFromHand && !(this._eventCard && this._eventCard._enterFrom !== 'hand')) return false;
       if (c.spellsGE != null && (this.spellsThisTurn || [0, 0])[pi] < c.spellsGE) return false;
@@ -5646,6 +5647,21 @@
       await this.pause();
       // 攻撃する時の誘発をすべて待機に入れ、ターンプレイヤー→相手の順に、それぞれ好きな順番で解決する
       await this.allyEvent(card, pi, 'allyAttack');
+      // D・D・D：自分のクリーチャーが攻撃する時、手札から指定のコストで使える
+      for (const c of me.hand.slice()) {
+        const dd = parsed(c.def).kw.ddd || (c.def.twin && parsed(c.def.twin).kw.ddd);
+        if (!dd) continue;
+        await this.queueFn(c, pi, `手札の「${c.def.name}」のD・D・D`, async () => {
+          if (this.zoneOf(c) !== 'hand') return;
+          const mana = this.payWith(pi, { civs: dd.civs }, dd.cost);
+          if (!mana) return;
+          if (!(await this.yesNo(pi, `D・D・D：「${c.def.name}」をコスト${dd.cost}で使いますか？`, c))) return;
+          for (const m of mana) m.tapped = true;
+          c._viaDDD = this.turn;
+          this.log(`${me.name}はD・D・Dで「${c.def.name}」を使った`);
+          await this.putIntoPlay(pi, c, true);
+        }, { defer: true });
+      }
       for (const x of me.battle.filter((y) => y.attachedTo === card.uid)) if (this.hasAbility(x, 'hostAttack')) await this.trigger(x, 'hostAttack', pi, x.def, null, { defer: true });
       if (this.hasAbility(card, 'attack')) await this.trigger(card, 'attack', pi, card.def, null, { defer: true });
       // 侵略・革命チェンジも、攻撃する時に待機する処理の1つ
