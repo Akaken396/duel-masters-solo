@@ -872,7 +872,7 @@
         this.log(`${pl.name}にシールドがないので、「${card.def.name}」はシールドの上に置けない`);
         return;
       }
-      const host = pl.isAI && chooser === card.owner ? pl.shields[pl.shields.length - 1] : (await this.pickCards(chooser, pl.shields, 1, false, `「${card.def.name}」を上に重ねるシールド`, 'shield'))[0];
+      const host = (pl.isAI && chooser === card.owner ? pl.shields[pl.shields.length - 1] : (await this.pickCards(chooser, pl.shields, 1, false, `「${card.def.name}」を上に重ねるシールド`, 'shield'))[0]) || pl.shields[pl.shields.length - 1];
       const f = this.find(card.uid);
       if (f) (f.arr || f.player[f.zone]).splice(f.index, 1);
       card.tapped = false;

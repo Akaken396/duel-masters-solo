@@ -726,6 +726,14 @@
     const c = {};
     let m;
     if ((m = t.match(/^《(.+?)》$/))) return { nameIs: m[1], text: t };
+    // 「呪文またはメタリカ」：種類と種族の「または」はどちらかに合えばよい
+    if (/または/.test(t)) {
+      const ps = t.split('または').map((x) => x.trim());
+      if (ps.length === 2 && ps.some((x) => /^(呪文|クリーチャー|タマシード|カード|フィールド)$/.test(x))) {
+        const subs = ps.map((x) => lookCond(x));
+        if (subs.every((x) => !x.unknown)) return { any: subs, text: t };
+      }
+    }
     // 「メタリカ、ドラゴン、呪文」のような並び（どれかに合えばよい）
     if (/、/.test(t) && !/^(コスト|パワー|進化|名前|文明)|以下の、|以上の、|ではない/.test(t)) {
       const parts = t.split(/、|または/).map((x) => x.trim()).filter(Boolean);
@@ -1016,6 +1024,7 @@
   function parseEffects(body) {
     body = lookNorm(String(body || '').replace(/パワーを\s*-∞\s*する/g, 'パワーを0にする'))
       .replace(/を(、)?裏向き(のまま|にして)(、)?(?=新しいシールドとして)/g, 'を')
+      .replace(/(その中から、?)([^、。]+?)を(\d+)(枚|体|つ)または([^、。]+?)を(\d+)(枚|体|つ)/g, '$1$2または$5を$6$7')
       .replace(/を(、)?表向きに(して|し)(、)?新しいシールドとして(自分の)?シールドゾーンに(置く|加える)/g, 'を表向きでシールド化する')
       .replace(/(選び、|選んで)相手に見せ(てから|て|、)(自分の)?/g, '選び、')
       .replace(/相手に見せてから(自分の)?/g, '')
