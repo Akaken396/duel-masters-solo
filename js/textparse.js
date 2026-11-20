@@ -38,6 +38,7 @@
       .replace(/^キリフダッシュ\s*\[([lwdfnc]{1,5})(\d{2})\]/gm, 'キリフダッシュ 〔代替$1$2〕')
       .replace(/^(マナドライブ|シビルカウント)\s*[0-9０-９]*\s*[：:]\s*(?=\S)/gm, '')
       .replace(/^メテオバーン\s*[：:\-－―]\s*/gm, '')
+      .replace(/^アバレチェーン\s*[：:]\s*/gm, '')
       .replace(/このクリーチャーの下にあるカードを1枚選び(、)?墓地に置いてもよい。そうした場合、/g, 'このクリーチャーの下にあるカードを1枚墓地に置いてもよい。そうしたら、')
       .replace(/^鬼タイム\s*[：:]\s*(?!.*真上の)/gm, '')
       .replace(/\[[a-z]{1,5}\d{0,3}\]/g, '') // マナ記号 [ll02] など
@@ -2312,6 +2313,11 @@
           A.push({ when: 'kizunaP', acts: pa, text: raw });
           continue;
         }
+      }
+      const mjb = line.match(/^マジボンバー\s*(\d+)\s*$/);
+      if (mjb) {
+        A.push({ when: 'attack', acts: [{ act: 'majiBomber', n: +mjb[1] }], text: raw });
+        continue;
       }
       if (/^ブレイクボーナス〔〕、/.test(line)) {
         const bba = parseEffects(line.replace(/^ブレイクボーナス〔〕、/, '').replace(/。$/, ''));

@@ -876,9 +876,10 @@
       const pohs = parsed(card.def).kw.powerPerOppHandSpell;
       const pohv = pohs ? Math.floor(this.p[1 - card.owner].hand.filter((c) => c.def.type === 'spell').length / pohs.per) * pohs.n : 0;
       const spw = this.kwBase(card).soulPower || 0;
+      const hun = card.inBattle && this.kwBase(card).hunting ? this.p[card.owner].battle.filter((x) => this.isCreature(x) && ((x.def.races || []).join('/')).includes('ハンター')).length * this.kwBase(card).hunting : 0;
       const pph = parsed(card.def).kw.powerPerHand;
       const pphv = pph && (!pph.oppTurn || this.active !== card.owner) ? Math.floor(this.p[pph.opp ? 1 - card.owner : card.owner].hand.length / pph.per) * pph.n : 0;
-      let aura = pohv + pphv + spw;
+      let aura = pohv + pphv + spw + hun;
       for (const s2 of this.p[1 - card.owner].battle) if (this.isOnField(s2)) aura += parsed(s2.def).kw.oppPowerAura || 0;
       return pcv + psv + ptv + aura + this.powerExtra3(card);
     }
@@ -2459,6 +2460,7 @@
             }
             await this.queueFn(src, pi, `「${src.def.name}」の能力`, async () => {
               this._eventCard = card;
+              this.lastChosen = [card];
               if (ab.modal) await this.runModal(ab.modal, src, pi, src.def);
               else for (const a of ab.acts) await this.doAction(a, src, pi);
             });
@@ -2564,6 +2566,7 @@
           const who = src === card ? 'このクリーチャー自身' : `「${card.def.name}」`;
           await this.queueFn(src, pi, `${this.isOnField(src) ? '' : '（離れた）'}「${src.def.name}」の「自分の${ab.ally.race || 'クリーチャー'}が${evJ}時」の能力（${who}）`, async () => {
             this._eventCard = card;
+            this.lastChosen = [card];
             if (ab.modal) await this.runModal(ab.modal, src, pi, src.def);
             else for (const a of ab.acts) await this.doAction(a, src, pi);
           }, { defer: true });
@@ -2841,6 +2844,11 @@
           }
           return false;
         }
+      }
+      if (this.kw(card).eternalOmega && toZone !== 'battle' && toZone !== 'hand' && this.zoneOf(card) === 'battle' && !homeZone(card.frontDef || card.def)) {
+        this.log(`エターナル・Ω：「${card.def.name}」は${ZONE_LABEL[toZone] || toZone}のかわりに手札に戻る`);
+        toZone = 'hand';
+        o = { ...o, moveOpt: undefined };
       }
       // スター進化：離れる時、かわりに一番上のカードだけが離れる
       if (this.kw(card).starEvo && (card.under || []).length && toZone !== 'battle' && this.zoneOf(card) === 'battle') {
@@ -3967,6 +3975,14 @@
           this.log(`ガチンコ・ジャッジ：${me.name}の${win ? '勝ち' : '負け'}`);
           this._lastChanged = !!win;
           if (win) for (const x of a.win) await this.doAction(x, src, pi);
+          break;
+        }
+        case 'majiBomber': {
+          const top = me.deck[0];
+          if (top) this.log(`マジボンバー：${me.name}は山札の上を見た${me.isAI ? '' : '（「' + top.def.name + '」）'}`);
+          const pool = [...me.hand, ...(top ? [top] : [])].filter((c) => this.isCreatureDef(c) && (+c.def.cost || 0) <= a.n);
+          const r = await this.pickCards(pi, pool, 1, true, `マジボンバー：手札か山札の上からコスト${a.n}以下のクリーチャーを出してもよい`, 'recover');
+          if (r[0]) await this.enterBattle(r[0], pi, 'other');
           break;
         }
         case 'useDyn': {
@@ -5610,6 +5626,16 @@
       }
       this.changed();
       for (const c of gone) await this.trigger(c, 'destroyed', c.owner, c.def, null, { defer: true });
+      for (const c of gone) {
+        const lb = this.kwBase(c).lastBurst;
+        if (!lb || !c.def.twin || c.def.twin.type !== 'spell') continue;
+        await this.queueFn(c, c.owner, `「${c.def.name}」のラスト・バースト`, async () => {
+          if (!['grave', 'hand', 'mana'].includes(this.zoneOf(c))) return;
+          if (lb === 'normal' && this.zoneOf(c) !== 'grave') return;
+          if (!(await this.yesNo(c.owner, `ラスト・バースト：「${c.def.twin.name}」をコストを支払わずに唱えますか？`, c))) return;
+          await this.putIntoPlay(c.owner, c, true, c.def.twin);
+        }, { defer: true });
+      }
       for (const c of gone) if (c.def.type === 'creature') await this.allyEvent(c, c.owner, 'allyDestroyed');
       for (const c of gone) if (this.isCreature(c) || c.def.type === 'creature') {
         if (this.hasAbility(c, 'selfOrAllyDestroyed')) await this.trigger(c, 'selfOrAllyDestroyed', c.owner, c.def, null, { defer: true });
