@@ -2001,7 +2001,7 @@
       const k = def ? parsed(def).kw : {};
       if (k.evolution === 'grave') {
         const ge = k.graveEvo;
-        return this.p[pi][ge.zone || 'grave'].filter((c) => c.def !== def && !NON_CREATURE.includes(c.def.type) && (!ge.civs.length || (c.def.civs || []).some((x) => ge.civs.includes(x))));
+        return this.p[pi][ge.zone || 'grave'].filter((c) => c.def !== def && (ge.zone === 'battle' ? this.isCreature(c) : !NON_CREATURE.includes(c.def.type)) && (!ge.civs.length || (c.def.civs || []).some((x) => ge.civs.includes(x))));
       }
       const civs = k.evoCivs || [];
       return this.p[pi].battle.filter((c) => {
@@ -2076,7 +2076,22 @@
         if (ek === 'grave') {
           const pool = this.evoBases(pi, card.def);
           const n = k.graveEvo.n;
-          under = await this.pickCards(pi, pool, k.graveEvo.any ? pool.length : n, false, `「${card.def.name}」: 下に重ねる${k.graveEvo.zone === 'hand' ? '手札' : '墓地'}のクリーチャー${k.graveEvo.any ? '（1体以上）' : n + '体'}`, 'recover');
+          if (k.graveEvo.zone === 'battle') {
+            const aiPickInf = () => {
+              const out2 = [];
+              let t2 = 0;
+              for (const x of pool.slice().sort((a3, b3) => (+a3.def.cost || 0) - (+b3.def.cost || 0))) {
+                if (t2 >= (k.graveEvo.minCards || 1)) break;
+                out2.push(x);
+                t2 += 1 + (x.under || []).length;
+              }
+              return out2;
+            };
+            under = this.p[pi].isAI ? aiPickInf() : await this.pickCards(pi, pool, pool.length, true, `「${card.def.name}」: 下に重ねる自分のクリーチャー（1体以上・進化元のカード${k.graveEvo.minCards || 1}枚以上）`, 'recover');
+            const tot = under.reduce((a2, x) => a2 + 1 + (x.under || []).length, 0);
+            if (!under.length || tot < (k.graveEvo.minCards || 1)) return false;
+            under = under.flatMap((x) => [x, ...(x.under || []).splice(0)]);
+          } else under = await this.pickCards(pi, pool, k.graveEvo.any ? pool.length : n, false, `「${card.def.name}」: 下に重ねる${k.graveEvo.zone === 'hand' ? '手札' : '墓地'}のクリーチャー${k.graveEvo.any ? '（1体以上）' : n + '体'}`, 'recover');
           if (under.length < (k.graveEvo.any ? 1 : n)) return false;
         }
         if (!this.payment(pi, card)) return false;
