@@ -397,6 +397,13 @@
     if ((m = s.match(/^自分の(他の)?クリーチャー(を)?1体(を選び|選び)?の?、(攻撃する|出た)時にトリガーする能力を1つ使(う|ってもよい)$/))) return { act: 'useTrigger', from: 'pick', when: m[4] === '攻撃する' ? 'attack' : 'summon', optional: /もよい/.test(s) };
     if ((m = s.match(/^(それ|そのクリーチャー|その選んだクリーチャー)の、?(攻撃する|出た)時にトリガーする能力を、?(自分が)?1つ使(う|ってもよい)$/))) return { act: 'useTrigger', from: /選んだ/.test(m[1]) ? 'last' : 'event', when: m[2] === '攻撃する' ? 'attack' : 'summon', optional: /もよい/.test(s) };
     if (/^このクリーチャーをバトルゾーンから(自分の)?超次元ゾーンに置く$/.test(s)) return { act: 'selfToHyperAfterEnter' };
+    if ((m = s.match(/^(その|この)ターン、そのクリーチャーのパワーを、自分の(墓地|マナゾーン)にあるカード(\d+)枚につき-(\d+)する$/))) return { act: 'powerLastPerGrave', zone: m[2] === '墓地' ? 'grave' : 'mana', per: +m[3], n: -m[4] };
+    if (/^シールドを1つ選び、ブレイクしてもよい$/.test(s)) return { act: 'breakAnyOne', optional: true };
+    if (/^このクリーチャーに含まれるカードと同じ枚数の?カードを引く$/.test(s)) return { act: 'drawSelfCards' };
+    if (/^このクリーチャーの「このクリーチャーが出た時」で始まる能力を1つ使(う|ってもよい)$/.test(s)) return { act: 'useTrigger', from: 'self', when: 'summon', optional: /もよい/.test(s) };
+    if ((m = s.match(/^このクリーチャーのコストと同じ枚数、自分の山札の上から(カードを)?墓地に置(く|いてもよい)$/))) return { act: 'mill', n: 0, nFrom: 'selfCost', optional: /もよい/.test(s) };
+    if ((m = s.match(/^自分の手札を(\d+)枚タップしてマナゾーンに置(く|いてもよい)$/))) return { act: 'handToMana', n: +m[1], tapped: true, optional: /もよい/.test(s) };
+    if ((m = s.match(/^相手のクリーチャーを(\d+)体選ぶ。(この|その)ターン、そのクリーチャーのパワーを、自分の(マナゾーン|墓地)にあるカード1枚につき-(\d+)する$/))) return { act: 'powerDown', side: 'opp', n: +m[1], amount: m[3] === '墓地' ? 'grave' : 'mana', per: +m[4] };
     if ((m = s.match(/^この(タマシード|クリーチャー)から進化できる(コスト(\d+)以下の)?([^、。]*?)(NEO|進化)?クリーチャーを1体、自分の手札からこの上に置(く|いてもよい)$/))) return { act: 'evolveOntoSelf', maxCost: m[3] ? +m[3] : null, neo: m[5] === 'NEO', cond: m[4] ? lookCond(m[4] + 'クリーチャー') : null };
     if ((m = s.match(/^このクリーチャーに含まれるカード(\d+)枚につき、(.+)$/))) {
       const inner = parseEffects(m[2]);
@@ -734,6 +741,7 @@
     if ((m = s.match(/^相手のシールドを(\d+)つ選び、持ち主の墓地に置く$/))) {
       return { act: 'shieldBurn', n: +m[1] };
     }
+    if ((m = s.match(/^相手のクリーチャーを(\d+)体選び、マナの数だけパワーを-(\d+)する$/))) return { act: 'powerDown', side: 'opp', n: +m[1], amount: 'mana', per: +m[2] };
     if ((m = s.match(/^相手のクリーチャーを(\d+)体選び、墓地の数だけパワーを-(\d+)する$/))) {
       return { act: 'powerDown', side: 'opp', n: +m[1], amount: 'grave', per: +m[2] };
     }
@@ -1525,6 +1533,7 @@
       .replace(/(引き|引いて)、(その後、)?(自分の)?(手札を)?(\d+枚)(選び、)?捨てる/g, '引く。自分の手札を$5捨てる')
       .replace(/カードを(\d+)枚引き、/g, 'カードを$1枚引く。')
       .replace(/相手のクリーチャーを(\d+)体選ぶ。(この|その)ターン、そのクリーチャーのパワーを、?自分の墓地にあるカード(\d+)枚につき-(\d+)する/g, '相手のクリーチャーを$1体選び、墓地の数だけパワーを-$4する')
+      .replace(/相手のクリーチャーを(\d+)体選ぶ。(この|その)ターン、そのクリーチャーのパワーを、?自分のマナゾーンにあるカード(\d+)枚につき-(\d+)する/g, '相手のクリーチャーを$1体選び、マナの数だけパワーを-$4する')
       .replace(/相手のクリーチャーを(\d+)体選ぶ。(この|その)ターン、そのクリーチャーのパワーを/g, '相手のクリーチャーを$1体選び、パワーを')
       .replace(/自分の手札を(\d+)枚捨て、(その後、)?カードを(\d+)枚引く/g, '自分の手札を$1枚捨てる。カードを$3枚引く')
       .replace(/バトルゾーンにある自分のクリーチャーを(\d+)体選ぶ。次の自分のターンのはじめまで、相手がバトルゾーンにあるクリーチャーを選ぶ時、そのクリーチャーを選ぶことはできない/g, '自分のクリーチャーを$1体選んで次のターンまで選ばれなくする')

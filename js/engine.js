@@ -3110,7 +3110,7 @@
           const pool = this.targetsFor({ side: 'opp' }, pi);
           const r = await this.pickCards(pi, pool, a.n, false, `${nm}: パワーを下げるクリーチャー`, 'target', 'destroy');
           for (const c of r) {
-            const amt = a.amount === 'all' ? this.power(c) : a.amount === 'grave' ? me.grave.length * (a.per || 1000) : a.amount;
+            const amt = a.amount === 'all' ? this.power(c) : a.amount === 'grave' ? me.grave.length * (a.per || 1000) : a.amount === 'mana' ? me.mana.length * (a.per || 1000) : a.amount;
             c.tempPower -= amt;
             this.log(`「${c.def.name}」のパワーが${a.amount === 'all' ? '0になった' : '-' + amt + 'された'}`);
             if (this.power(c) <= 0) await this.destroyMany([c]);
@@ -3397,7 +3397,7 @@
           if (a.all && a.optional && !(await this.yesNo(pi, `${nm}: 手札をすべてマナゾーンに置きますか？`, src))) break;
           const r = a.all ? me.hand.slice() : await this.pickCards(pi, me.hand.slice(), a.n, a.optional, `${nm}: マナゾーンに置く手札`, 'discard');
           for (const c of r) {
-            this.moveTo(c, 'mana', { tapped: (c.def.civs || []).length > 1 });
+            this.moveTo(c, 'mana', { tapped: a.tapped || (c.def.civs || []).length > 1 });
             this.log(`${me.name}は手札の「${c.def.name}」をマナゾーンに置いた`);
           }
           break;
@@ -3588,6 +3588,7 @@
             const pool = me.battle.filter((x) => this.isCreature(x) && x !== src && this.hasAbility(x, w));
             c = (await this.pickCards(pi, pool, 1, !!a.optional, `${nm}: 能力を使うクリーチャーを選んでください`, 'recover'))[0];
           } else if (a.from === 'event') c = this._eventCard;
+          else if (a.from === 'self') c = src;
           else c = (this.lastChosen || [])[0];
           if (!c || !this.hasAbility(c, w)) break;
           if (a.optional && a.from !== 'pick' && !(await this.yesNo(pi, `${nm}: 「${c.def.name}」の${w === 'attack' ? '攻撃する時' : '出た時'}の能力を使いますか？`, c))) break;
@@ -3618,6 +3619,20 @@
           this._lastChanged = !!r[0];
           break;
         }
+        case 'breakAnyOne': {
+          const sides = [];
+          if (op.shields.length) sides.push({ id: 'opp', label: `${op.name}のシールド` });
+          if (me.shields.length) sides.push({ id: 'own', label: `${me.name}のシールド` });
+          if (!sides.length) break;
+          if (a.optional && !(await this.yesNo(pi, `${nm}: シールドを1つブレイクしますか？`, src))) break;
+          const side = sides.length === 1 ? sides[0].id : (await this.chooseModes(pi, `${nm}: どちらのシールドをブレイクしますか？`, sides, { min: 1, max: 1, aiPick: ['opp'] }))[0];
+          await this.breakShields(side === 'opp' ? pi : 1 - pi, 1, src);
+          break;
+        }
+        case 'drawSelfCards':
+          this.draw(pi, 1 + (src.under || []).length);
+          this.log(`${me.name}は${nm}に含まれるカードと同じ${1 + (src.under || []).length}枚を引いた`);
+          break;
         case 'selfToHyperAfterEnter':
           src._toHyperAfterEnter = true;
           break;
@@ -3797,8 +3812,9 @@
         }
         case 'powerLastPerGrave':
           for (const c of (this.lastChosen || []).filter((x) => this.zoneOf(x) === 'battle')) {
-            c.tempPower = (c.tempPower || 0) + Math.floor(me.grave.length / a.per) * a.n;
-            this.log(`「${c.def.name}」のパワーはこのターン${Math.floor(me.grave.length / a.per) * a.n}（${this.power(c)}）`);
+            const zl = me[a.zone || 'grave'].length;
+            c.tempPower = (c.tempPower || 0) + Math.floor(zl / a.per) * a.n;
+            this.log(`「${c.def.name}」のパワーはこのターン${Math.floor(zl / a.per) * a.n}（${this.power(c)}）`);
           }
           {
             const dead = (this.lastChosen || []).filter((x) => this.zoneOf(x) === 'battle' && this.isCreature(x) && this.power(x) <= 0);
@@ -4848,6 +4864,7 @@
           break;
         }
         case 'mill':
+          if (a.nFrom === 'selfCost') a = { ...a, n: +src.def.cost || 0 };
           if (a.optional && !(await this.yesNo(pi, `${nm}: 山札の上から${a.n}枚を墓地に置きますか？`, src))) return;
           for (let i = 0; i < a.n && me.deck.length; i++) {
             const c = me.deck[0];
