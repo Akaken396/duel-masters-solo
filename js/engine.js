@@ -524,6 +524,8 @@
       if (c.stPlus && !(card && card._viaSTTurn === this.turn && this.active !== pi && me._brkTurn === this.turn && me._brkN >= 2)) return false;
       if (c.odrive && !(card && (card._odrive || []).length)) return false;
       if (c.odriveCiv && !(card && (card._odrive || []).includes(c.odriveCiv))) return false;
+      if (c.turboRush && !(card && me._brokeBy && me._brokeBy[this.turn] && [...me._brokeBy[this.turn]].some((u) => u !== card.uid))) return false;
+      if (c.anyNoShield && me.shields.length && op.shields.length) return false;
       if (c.evTwin && !(this._eventCard && this._eventCard.def.twin)) return false;
       if (c.evNotFromHand && !(this._eventCard && this._eventCard._enterFrom !== 'hand')) return false;
       if (c.spellsGE != null && (this.spellsThisTurn || [0, 0])[pi] < c.spellsGE) return false;
@@ -2276,6 +2278,11 @@
         this.resolving = (this.resolving || 0) + 1;
         try {
           await this.trigger(card, 'cast', pi, def);
+          // ナイト・マジック：自分のナイトがあれば、もう一度使ってもよい
+          if (parsed(def).kw.knightMagic && this.p[pi].battle.some((c) => this.isCreature(c) && ((c.def.races || []).join('/')).includes('ナイト')) && (await this.yesNo(pi, `ナイト・マジック：「${def.name}」の能力をもう一度使いますか？`, card))) {
+            this.log(`ナイト・マジック：「${def.name}」の能力をもう一度使う`);
+            await this.trigger(card, 'cast', pi, def);
+          }
         } finally {
           this.resolving--;
         }
@@ -2286,6 +2293,10 @@
         for (const src of this.permanents(pi)) if (this.isOnField(src) && this.hasAbility(src, 'selfPlay')) await this.trigger(src, 'selfPlay', pi, src.def, card, { defer: true });
         await this.fireAll(1 - pi, 'oppCast');
         await this.resolvePending();
+        if (parsed(def).kw.cyclone && this.zoneOf(card) === 'grave' && (this.creaturesThisTurn || [0, 0])[pi] > 0) {
+          this.moveTo(card, 'hand');
+          this.log(`サイクロン：「${def.name}」は唱えた後、手札に戻った`);
+        }
         if (parsed(def).kw.returnAfterCast && this.zoneOf(card) === 'grave') {
           this.moveTo(card, 'hand');
           this.log(`「${def.name}」は唱えた後、手札に戻った`);
@@ -4108,6 +4119,16 @@
           this.log(`Jチェンジ：「${src.def.name}」と「${r[0].def.name}」を入れ替えた`);
           await this.leave(src, 'mana', { byOpp: false });
           await this.enterBattle(r[0], pi, 'other');
+          break;
+        }
+        case 'deckUnderAnyShield': {
+          if (!me.deck.length || !me.shields.length) break;
+          if (a.optional && !(await this.yesNo(pi, `${nm}: 山札の上から1枚を自分のシールドの下に置きますか？`, src))) break;
+          const host = (await this.pickCards(pi, me.shields.slice(), 1, false, `${nm}: 下に置くシールドを選んでください`, 'shield'))[0] || me.shields[0];
+          const c = me.deck.shift();
+          c.faceUp = false;
+          host.under = (host.under || []).concat(c);
+          this.log(`${nm}: 山札の上から1枚をシールドの下に置いた`);
           break;
         }
         case 'useDyn': {
@@ -6367,6 +6388,7 @@
       picked = [...new Set(picked)];
       this.log(`${op.name}のシールドを${picked.length}つブレイクした（残り${op.shields.length}）`);
       if (src && src.attacking) src._brokeN = (src._brokeN || 0) + picked.length;
+      if (src && src.owner === pi && picked.length) (this.p[pi]._brokeBy = this.p[pi]._brokeBy || {}), (this.p[pi]._brokeBy[this.turn] = (this.p[pi]._brokeBy[this.turn] || new Set()).add(src.uid));
       if (op._brkTurn !== this.turn) (op._brkTurn = this.turn), (op._brkN = 0);
       op._brkN += picked.length;
       for (const s2 of this.permanents(op.idx)) if (this.isOnField(s2) && this.hasAbility(s2, 'ownShieldBroken')) await this.trigger(s2, 'ownShieldBroken', op.idx, s2.def, null, { defer: true });

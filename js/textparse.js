@@ -45,7 +45,8 @@
       .replace(/^(レインボーナス|オシオキムーン)\s*[：:]\s*/gm, '')
       .replace(/^水晶武装\s*[0-9]*\s*[：:]\s*/gm, '')
       .replace(/^革命\s*[0-9]+\s*[：:\-－―]\s*/gm, '')
-      .replace(/^(ドロン・ゴー|ファイナル革命|光臨)\s*[：:\-－―]\s*/gm, '')
+      .replace(/^(ドロン・ゴー|ファイナル革命|光臨|鬼エンド|シールド・プラス)\s*[：:\-－―]\s*/gm, '')
+      .replace(/^龍マナ武装\s*[0-9]*\s*[：:\-－―]\s*/gm, '')
       .replace(/^革命0トリガー\s*[：:\-－―]\s*クリーチャーが自分を攻撃する時、自分のシールドが(0|1)(枚|つ)もなければ、この(呪文|クリーチャー)をコストを支払わずに(唱えて|召喚して)もよい。?/gm, '革命0トリガー〔有効〕')
       .replace(/このクリーチャーの下にあるカードを1枚選び(、)?墓地に置いてもよい。そうした場合、/g, 'このクリーチャーの下にあるカードを1枚墓地に置いてもよい。そうしたら、')
       .replace(/^鬼タイム\s*[：:]\s*(?!.*真上の)/gm, '')
@@ -498,6 +499,7 @@
       if (!lc.unknown && !/^(カード|クリーチャー|呪文)$/.test(w)) return { act: 'graveToHand', n, cond: lc, optional: true };
     }
     if ((m = s.match(/^(\d+)枚までカードを引(く|いてもよい)$/))) return { act: 'draw', n: +m[1], optional: true };
+    if (/^自分の山札の上から1枚目を裏向きのまま、自分のシールドいずれかの下に置(く|いてもよい)$/.test(s)) return { act: 'deckUnderAnyShield', optional: /もよい/.test(s) };
     if (/^シールドを1つ選び、ブレイクしてもよい$/.test(s)) return { act: 'breakAnyOne', optional: true };
     if (/^このクリーチャーに含まれるカードと同じ枚数の?カードを引く$/.test(s)) return { act: 'drawSelfCards' };
     if (/^このクリーチャーの「このクリーチャーが出た時」で始まる能力を1つ使(う|ってもよい)$/.test(s)) return { act: 'useTrigger', from: 'self', when: 'summon', optional: /もよい/.test(s) };
@@ -1174,6 +1176,8 @@
     if (/^他にウェーブストライカーが2体以上あれば$/.test(ct)) return { waveGE: 2 };
     if (/^シールド・フォースのシールドがあれば$/.test(ct)) return { sfShield: true };
     if (/^S・トリガー・プラスの条件を満たしていれば$/.test(ct)) return { stPlus: true };
+    if (/^ターボラッシュの条件を満たしていれば$/.test(ct)) return { turboRush: true };
+    if (/^シールドが1つもないプレイヤーがいれば$/.test(ct)) return { anyNoShield: true };
     if (/^O・ドライブを払っていれば$/.test(ct)) return { odrive: true };
     if ((mm0 = ct.match(/^O・ドライブで(光|水|闇|火|自然)を払っていれば$/))) return { odriveCiv: { 光: 'light', 水: 'water', 闇: 'darkness', 火: 'fire', 自然: 'nature' }[mm0[1]] };
     if ((mm0 = ct.match(/^自分と相手のシールド(の数)?が合計(\d+)(つ|枚)以下(なら|であれば|ならば)$/))) return { shieldsTotalLE: +mm0[2] };
@@ -1830,6 +1834,7 @@
         const mn = l0.normalize('NFKC').match(/(\d+)枚以上/);
         pre = `自分のマナゾーンにカードが${mn ? mn[1] : 7}枚以上あれば、`;
       } else if (/^シールド・フォース\s*[(（]/.test(l0)) pre = 'シールド・フォースのシールドがあれば、';
+      else if (/^ターボラッシュ\s*[(（]/.test(l0)) pre = 'ターボラッシュの条件を満たしていれば、';
       if (!pre) continue;
       const nx = rawLines[i + 1].replace(/^[a-zA-Z]\s+/, '');
       rawLines.splice(i, 2, pre + nx);
