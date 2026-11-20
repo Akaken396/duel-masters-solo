@@ -879,9 +879,10 @@
     if (window.CardScripts && CardScripts.get(def.name)) return 0;
     try {
       const p = parsed(def);
-      let n = p.manual.length;
+      const wk = (q) => (q.known || []).filter((k) => k.whole).length;
+      let n = p.manual.length + wk(p);
       const td = twinDef && twinDef(def);
-      if (td) n += parsed(td).manual.length;
+      if (td) n += parsed(td).manual.length + wk(parsed(td));
       return n;
     } catch (e) {
       return 0;

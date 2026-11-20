@@ -38,12 +38,12 @@
       .replace(/^キリフダッシュ\s*\[([lwdfnc]{1,5})(\d{2})\]/gm, 'キリフダッシュ 〔代替$1$2〕')
       .replace(/^ギャラクシールド\s*\[([lwdfnc]{1,5})(\d{2})\]/gm, 'ギャラクシールド 〔代替$1$2〕')
       .replace(/^(フシギバース|ムゲンクライム).*$/gm, (l) => l.replace(/\[([lwdfnc]{1,5})(\d{2})\]/g, '〔代替$1$2〕'))
-      .replace(/^(マナドライブ|シビルカウント)\s*[0-9０-９]*\s*[：:]\s*(?=\S)/gm, '')
+      .replace(/^(マナドライブ|シビルカウント)\s*[0-9０-９]*\s*([(（][^)）]*[)）])?\s*[：:\-－―]\s*(?=\S)/gm, '')
       .replace(/^メテオバーン\s*[：:\-－―]\s*/gm, '')
       .replace(/^アバレチェーン\s*[：:]\s*/gm, '')
       .replace(/^(レインボーナス|オシオキムーン)\s*[：:]\s*/gm, '')
       .replace(/^水晶武装\s*[0-9]*\s*[：:]\s*/gm, '')
-      .replace(/^革命\s*[0-9]+\s*[：:]\s*/gm, '')
+      .replace(/^革命\s*[0-9]+\s*[：:\-－―]\s*/gm, '')
       .replace(/このクリーチャーの下にあるカードを1枚選び(、)?墓地に置いてもよい。そうした場合、/g, 'このクリーチャーの下にあるカードを1枚墓地に置いてもよい。そうしたら、')
       .replace(/^鬼タイム\s*[：:]\s*(?!.*真上の)/gm, '')
       .replace(/\[[a-z]{1,5}\d{0,3}\]/g, '') // マナ記号 [ll02] など
@@ -2180,7 +2180,7 @@
       const hit = Kd && Kd.match(line, raw);
       if (hit) {
         if (hit.e.set) hit.e.set(K, hit.m, raw);
-        if (!hit.e.auto) known.push({ name: hit.e.name, desc: hit.e.desc, text: raw });
+        if (!hit.e.auto) known.push({ name: hit.e.name, desc: hit.e.desc, text: raw, whole: true });
         continue;
       }
       // 旧来の書式（後方互換）
