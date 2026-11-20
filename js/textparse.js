@@ -181,6 +181,7 @@
     [/^自分のシールドがブレイクされた(時|とき)/, 'ownShieldBroken'],
     [/^自分の裁きの紋章を持つ呪文を唱えた(時|とき)/, 'allyCastCrest'],
     [/^自分のシールドゾーンにカードが置かれた(時|とき)/, 'shieldAdded'],
+    [/^このオーラが(バトルゾーンを)?離れた(時|とき)/, 'left'],
     [/^他のクリーチャーが(バトルゾーンを)?離れた(時|とき)/, 'anyLeft'],
     [/^自分のクリーチャーが(バトルゾーンに)?出た(時|とき)/, 'allyEnterAny'],
   ];
@@ -219,6 +220,7 @@
     }
     if ((mm = rest.match(/^バラバラエティ\d+[：:]/))) rest = rest.slice(mm[0].length);
     if ((mm = rest.match(/^(ウルトラ・)?ドロン・ゴー[：:]/))) rest = rest.slice(mm[0].length);
+    if ((mm = rest.match(/^各ターン、(相手のクリーチャーがはじめて攻撃する|はじめてクリーチャーが自分を攻撃する|はじめて相手のクリーチャーが攻撃する)(時|とき)、/))) return { whens: ['oppAttack'], rest: rest.slice(mm[0].length), cond: { ...cond, firstPerTurn: true } };
     if ((mm = rest.match(/^各ターン、自分の(\d+)体目のクリーチャーが(バトルゾーンに)?出た(時|とき)、/))) return { whens: ['allyEnterAny'], rest: rest.slice(mm[0].length), cond: { ...cond, nthCreature: +mm[1] } };
     if ((mm = rest.match(/^(自分のターン中に、)?コスト(\d+)以上のクリーチャーを召喚した(時|とき)またはコスト(\d+)以上の呪文を唱えた(時|とき)、/))) return { whens: ['selfPlay'], rest: rest.slice(mm[0].length), cond: { ...cond, evMinCost: +mm[2], ...(mm[1] ? { myTurnOnly: true } : {}) } };
     const whens = [];
@@ -339,6 +341,18 @@
     if (/^次の自分のターンのはじめまで、自分のクリーチャーがタップした(時|とき)、カードを1枚引いてもよい$/.test(s)) return { act: 'tempTapDraw' };
     if (/^次の自分のターンのはじめまで、相手は(、)?自身のマナゾーンにあるカードの枚数よりコストが大きいクリーチャーを(バトルゾーンに)?出した(時|とき)、そのクリーチャーを自身の山札の一番下に置く$/.test(s)) return { act: 'tempBigBottom' };
     if ((m = s.match(/^(この|その)ターン、次に使う(光|水|闇|火|自然)?(の)?カードのコストを(、)?(最大)?(\d+)少なくしてもよい$/))) return { act: 'nextCostDiscount', civ: m[2] ? { 光: 'light', 水: 'water', 闇: 'darkness', 火: 'fire', 自然: 'nature' }[m[2]] : null, n: +m[6] };
+    if ((m = s.match(/^([^、。]+?)(・カード)?を(\d+)枚、自分の墓地から手札に戻(す|してもよい)$/)) && !lookCond(m[1]).unknown && !/^(カード|クリーチャー|呪文)$/.test(m[1])) return { act: 'graveToHand', n: +m[3], cond: lookCond(m[1]), optional: m[4] !== 'す' };
+    if ((m = s.match(/^自分の手札を(\d+)枚、好きな順序で山札の(上|下)に置く$/))) return { act: 'handToDeck', n: +m[1], top: m[2] === '上' };
+    if ((m = s.match(/^攻撃しているクリーチャーよりコストが小さい([^、。]*?)クリーチャーを(\d+)体、自分の手札から(バトルゾーンに)?出(す|してもよい)$/))) return { act: 'putFromHand', cond: lookCond((m[1] || '') + 'クリーチャー'), kinds: ['creature'], n: +m[2], optional: m[4] !== 'す', costLtEvent: true };
+    if (/^(その|この)ターン、相手のクリーチャーは攻撃もブロックもできない$/.test(s)) return { act: 'oppTeamLockTurn' };
+    if (/^(このクリーチャーとそのクリーチャー|そのクリーチャーとこのクリーチャー)をバトルさせ(る|てもよい)$/.test(s)) return { act: 'fightEvent', optional: /もよい/.test(s) };
+    if (/^プレイヤーを1人選んでもよい。そのプレイヤーは自身の墓地をシャッフルし、山札の下に置く$/.test(s)) return { act: 'graveToDeckBottomPlayer' };
+    if ((m = s.match(/^(その|この)ターン、そのクリーチャーのパワーを0にする$/))) return { act: 'eventPowerZero' };
+    if ((m = s.match(/^自分の手札を好きな数捨ててもよい。こうして捨てたカード1枚につき、相手のパワー(\d+)以下のクリーチャーを1体選び、破壊する$/))) return { act: 'discardAnyDestroy', maxPower: +m[1] };
+    if ((m = s.match(/^自分の墓地にあるカードの枚数以下のコストを持つ(光|水|闇|火|自然)?(の)?カードを(\d+)枚、自分の墓地からコストを支払わずに(実行し|使っ|唱え)てもよい$/))) return { act: 'useFromGraveLE', civ: m[1] ? { 光: 'light', 水: 'water', 闇: 'darkness', 火: 'fire', 自然: 'nature' }[m[1]] : null, n: +m[3] };
+    if (/^このターンに破壊された自分のエレメントをすべて、自分の墓地から出してもよい$/.test(s)) return { act: 'reviveDestroyedThisTurn' };
+    if ((m = s.match(/^自分の山札の下から(\d+)枚を表向きにする。その中からコスト(\d+)以下の([^、。]+?)を(\d+)体(、)?出してもよい。残りを好きな順序で山札の上に置く$/))) return { act: 'bottomRevealPut', n: +m[1], cond: { ...lookCond(m[3]), maxCost: +m[2] }, k: +m[4] };
+    if ((m = s.match(/^自分の山札をシャッフルし、上から自分のエレメントの数だけ見る。その中からカードを1枚、コストを支払わずに実行してもよい。残りを好きな順序で山札の下に置く$/))) return { act: 'lookElementsUse' };
     if ((m = s.match(/^そうしなければ、(.+)$/))) {
       const inner = parseEffects(m[1]);
       if (inner && !inner.some((x) => x.act === 'manualNote')) return { act: 'ifNotDidPrev', acts: inner };
@@ -456,7 +470,7 @@
     if ((m = s.match(/^それらの(クリーチャー)?に「(.+?)」(と「(.+?)」)?を与え、(この|その)ターンの終わりに(、)?(それらを)?破壊する$/))) return { act: 'groupGrantEnd', names: [m[2], m[4]].filter(Boolean), to: 'destroy' };
     // 合計で選ぶ：「相手のクリーチャーを、パワーの合計が6000以下になるように好きな数選び、破壊する」
     if ((m = s.match(/^(バトルゾーンにある)?相手のクリーチャーを(、)?(パワー|コスト)の合計が(\d+)以下になるよう(に)?好きな数選び、破壊する$/))) return { act: 'destroySum', stat: m[3] === 'パワー' ? 'power' : 'cost', max: +m[4], n: 99 };
-    if ((m = s.match(/^コストの合計が(その)?捨てた(手札|カード)のコスト以下になるように相手のクリーチャーを(\d+)体(まで)?選び、破壊する$/))) return { act: 'destroySum', stat: 'cost', max: 'discard', n: +m[3] };
+    if ((m = s.match(/^コストの合計が(その)?捨てた(手札|カード)のコスト以下になるように(、)?相手のクリーチャーを(\d+)体(まで)?選び、破壊する$/)) && (m = [m[0], m[1], m[2], m[4], m[5]])) return { act: 'destroySum', stat: 'cost', max: 'discard', n: +m[3] };
     // 「○○1体につき、△△をN体選び、タップする」など、数に応じた回数
     if ((m = s.replace(/^(バトルゾーンにある)?自分の、/, '$1自分の').match(/^(バトルゾーンにある)?(自分の[^、。]+?)(\d+)(体|枚|つ)につき(、)?(.+)$/)) && !/パワー|コスト/.test(m[6].slice(0, 6))) {
       const inner = parseEffect(m[6]);
@@ -893,6 +907,7 @@
     if ((mm = ct.match(/^それが(その|この)ターン(はじめて|最初)の攻撃(であれば|なら)$/))) return { firstAttack: true };
     if ((mm = ct.match(/^このクリーチャーが(カード(\d+)枚で)?リンクして(いれば|いる|いる時|い)?$/))) return { linked: mm[2] ? +mm[2] : 2 };
     if (/^自分のシールドの数が相手のより多ければ$/.test(ct)) return { shieldsMore: true };
+    if (/^これがタップされていて、追加ターン中でなければ$/.test(ct)) return { and: [{ selfTapped: true }, { notExtraTurn: true }] };
     if (/^このカードが(自分の)?シールドゾーン(に|で)表向き(なら|であれば)$/.test(ct)) return { selfFaceUpShield: true };
     if (/^(この|その)ターン、クリーチャーが攻撃していなければ$/.test(ct)) return { noAttackThisTurn: true };
     if ((mm = ct.match(/^すべてのシールドゾーンにある表向きのカードの(合計|数)が(\d+)枚以上(なら|あれば)$/))) return { faceUpAllShieldsGE: +mm[2] };
@@ -1037,6 +1052,14 @@
       .replace(/相手のクリーチャーを(\d+)体選んで破壊し、/g, '相手のクリーチャーを$1体選び、破壊する。')
       .replace(/。?これらのクリーチャーが出ることによって起こる効果やルールはすべて無視する。?/g, '。それらの出た時の効果は起こらない');
     if (/^次の自分のターンのはじめまで、相手は(、)?自身のマナゾーン(にある|の)カードの枚数よりコストが大きいクリーチャーを(バトルゾーンに)?出した(時|とき)、そのクリーチャーを(自身の)?山札の(一番)?下に置く。?$/.test(body)) return [{ act: 'tempBigBottom' }];
+    if (/^プレイヤーを1人選んでもよい。そのプレイヤーは自身の墓地をシャッフルし、山札の下に置く。?$/.test(body)) return [{ act: 'graveToDeckBottomPlayer' }];
+    const dad = body.match(/^自分の手札を好きな数捨ててもよい。こうして捨てたカード1枚につき、相手のパワー(\d+)以下のクリーチャーを1体選び、破壊する。?$/);
+    if (dad) return [{ act: 'discardAnyDestroy', maxPower: +dad[1] }];
+    const brp = body.match(/^自分の山札の下から(\d+)枚を表向きにする。その中からコスト(\d+)以下の([^、。]+?)を(\d+)体(、)?出してもよい。残りを好きな順序で山札の上に置く。?$/);
+    if (brp) return [{ act: 'bottomRevealPut', n: +brp[1], cond: { ...lookCond(brp[3]), maxCost: +brp[2] }, k: +brp[4] }];
+    if (/^自分の山札をシャッフルし、上から自分のエレメントの数だけ見る。その中からカードを1枚、コストを支払わずに実行してもよい。残りを好きな順序で山札の下に置く。?$/.test(body)) return [{ act: 'lookElementsUse' }];
+    const ugl = body.match(/^自分の墓地にあるカードの枚数以下のコストを持つ(光|水|闇|火|自然)?(の)?カードを(\d+)枚、自分の墓地からコストを支払わずに(実行し|使っ|唱え)てもよい。(それが「スーパー・S・トリガー」を持つなら、[^。]+。)?(こうして呪文を唱えたなら、それを唱えた後、墓地のかわりに山札の下に置く。?)?$/);
+    if (ugl) return [{ act: 'useFromGraveLE', civ: ugl[1] ? { 光: 'light', 水: 'water', 闇: 'darkness', 火: 'fire', 自然: 'nature' }[ugl[1]] : null, n: +ugl[3], bottomAfter: !!ugl[6] }];
     const tsd = body.match(/^相手のパワー(\d+)以下のクリーチャーをすべて(表向きに)?シールド化する。こうしてシールド化したカード1枚につき、自分はカードを1枚引く。?$/);
     if (tsd) return [{ act: 'toShieldAllDraw', maxPower: +tsd[1], faceUp: !!tsd[2] }];
     if (/^自分と相手のシールドを1つずつ選ぶ。このクリーチャーは選ばれたそれらのシールドをブレイクする。?$/.test(body)) return [{ act: 'breakBothOne' }];
@@ -1275,6 +1298,13 @@
       if (lk) {
         line = line.slice(lk[0].length).replace(/^(攻撃する|バトルに勝った|ブロックした)/, 'このクリーチャーが$1');
         linkFrom = abilities.length;
+      }
+      const zd = line.match(/^自分の墓地にカードが(\d+)枚以上あれば、このクリーチャーの召喚コストを(\d+)少なくする。さらに、自分の墓地から召喚してもよい。?$/);
+      if (zd) {
+        const KZ = inHyper ? hyper.kw : kw;
+        (KZ.selfCostIf = KZ.selfCostIf || []).push({ cond: { graveCountGE: +zd[1] }, n: +zd[2] });
+        KZ.graveSummonIf = { graveCountGE: +zd[1] };
+        continue;
       }
       // ビビッドロー：コストは注意書きの中にある
       if (/^ビビッドロー\s*$/.test(line)) {
@@ -1775,6 +1805,15 @@
     putFromMana: (a) => `マナから${a.cond.text}を${a.n}体出す`,
     selfFromHand: () => 'このクリーチャーを手札から出す',
     selfDiscardFromHand: () => 'このカードを手札から捨てる',
+    handToDeck: (a) => `手札${a.n}枚を山札の${a.top ? '上' : '下'}へ`,
+    oppTeamLockTurn: () => 'このターン、相手のクリーチャーは攻撃もブロックもできない',
+    graveToDeckBottomPlayer: () => 'プレイヤーを選び、その墓地を山札の下へ',
+    eventPowerZero: () => 'そのクリーチャーのパワーを0に',
+    discardAnyDestroy: (a) => `好きな数捨て、その数だけパワー${a.maxPower}以下を破壊`,
+    useFromGraveLE: () => '墓地の枚数以下のコストのカードを墓地からタダで使う',
+    reviveDestroyedThisTurn: () => 'このターン破壊された自分のエレメントを墓地から出す',
+    bottomRevealPut: (a) => `山札の下${a.n}枚から出す`,
+    lookElementsUse: () => 'エレメントの数だけ見て1枚タダで使う',
     tempTapDraw: () => '次のターンまで、自分のクリーチャーがタップしたら1枚引ける',
     tempBigBottom: () => '次のターンまで、相手が重いクリーチャーを出したら山札の下へ',
     nextCostDiscount: (a) => `次に使うカードのコストを${a.n}下げる`,
