@@ -506,6 +506,8 @@
       if (c.oppHas && !op.battle.some((x) => this.fitLook(x, G.TextParse.lookCond(c.oppHas)))) return false;
       if (c.manaAllTapped && me.mana.some((x) => !x.tapped)) return false;
       if (c.viaDDD && !(card && card._viaDDD === this.turn)) return false;
+      if (c.shieldsTotalLE != null && me.shields.length + op.shields.length > c.shieldsTotalLE) return false;
+      if (c.civElemGE && me.battle.filter((x) => (this.isCreature(x) || x.def.type === 'tamaseed') && (x.def.civs || []).includes(c.civElemGE.civ)).length < c.civElemGE.n) return false;
       if (c.evTwin && !(this._eventCard && this._eventCard.def.twin)) return false;
       if (c.evNotFromHand && !(this._eventCard && this._eventCard._enterFrom !== 'hand')) return false;
       if (c.spellsGE != null && (this.spellsThisTurn || [0, 0])[pi] < c.spellsGE) return false;
@@ -5872,6 +5874,23 @@
     async attackEnd(card, pi) {
       if (this.zoneOf(card) !== 'battle') return;
       if (this.hasAbility(card, 'attackEnd')) await this.trigger(card, 'attackEnd', pi);
+      if ((card._brokeN || 0) > 0) {
+        for (const c of this.p[pi].hand.slice()) {
+          const kf = parsed(c.def).kw.kirifuda;
+          if (!kf) continue;
+          await this.queueFn(c, pi, `手札の「${c.def.name}」のキリフダッシュ`, async () => {
+            if (this.zoneOf(c) !== 'hand' || this.locked(pi, c.def)) return;
+            const mana = this.payWith(pi, { civs: kf.civs }, kf.cost);
+            if (!mana) return;
+            if (!(await this.yesNo(pi, `キリフダッシュ：「${c.def.name}」をコスト${kf.cost}で召喚しますか？`, c))) return;
+            for (const m of mana) m.tapped = true;
+            this.log(`${this.p[pi].name}はキリフダッシュで「${c.def.name}」を召喚した`);
+            c._viaKirifuda = this.turn;
+            await this.putIntoPlay(pi, c, true);
+          }, { defer: true });
+        }
+        await this.resolvePending();
+      }
       if (this.zoneOf(card) === 'battle' && this.kw(card).gBreaker && this.p[pi].shields.length) {
         this.log(`G・ブレイカー：「${card.def.name}」の攻撃の後、自分のシールドをすべてブレイクする`);
         await this.breakShields(1 - pi, this.p[pi].shields.length, card);

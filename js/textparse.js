@@ -35,6 +35,9 @@
       .replace(/^[a-z]{1,2}[A-Z]?(?=この|自分|相手|各ターン)/gm, '') // 行頭に残ったアイコンの文字
       .replace(/\s*\[([lwdfnc]{1,5})(\d{2})\]\s*支払って/g, '〔代替$1$2〕支払って') // 代わりに払うコスト
       .replace(/^D・D・D\s*\[([lwdfnc]{1,5})(\d{2})\]/gm, 'D・D・D 〔代替$1$2〕')
+      .replace(/^キリフダッシュ\s*\[([lwdfnc]{1,5})(\d{2})\]/gm, 'キリフダッシュ 〔代替$1$2〕')
+      .replace(/^(マナドライブ|シビルカウント)\s*[0-9０-９]*\s*[：:]\s*(?=\S)/gm, '')
+      .replace(/^鬼タイム\s*[：:]\s*(?!.*真上の)/gm, '')
       .replace(/\[[a-z]{1,5}\d{0,3}\]/g, '') // マナ記号 [ll02] など
       .replace(/^l\s+/gm, '') // 能力を与える時の記号
       .replace(/\?\?|\uFFFD{1,2}/g, '\n▶')
@@ -1157,6 +1160,9 @@
     if ((mm0 = ct.match(/^自分の([^、。]+?)がバトルゾーンにあれば$/))) return { count: { what: mm0[1], n: 1 } };
     if (/^自分のマナゾーンのカードがすべてタップされていれば$/.test(ct)) return { manaAllTapped: true };
     if (/^このクリーチャーにクロスギアがクロスされていれば$/.test(ct)) return { crossedGE: 1 };
+    if ((mm0 = ct.match(/^自分と相手のシールド(の数)?が合計(\d+)(つ|枚)以下(なら|であれば|ならば)$/))) return { shieldsTotalLE: +mm0[2] };
+    if ((mm0 = ct.match(/^自分の(光|水|闇|火|自然)のクリーチャーまたは(光|水|闇|火|自然)のタマシードが合計(\d+)つ以上あれば$/))) return { civElemGE: { civ: { 光: 'light', 水: 'water', 闇: 'darkness', 火: 'fire', 自然: 'nature' }[mm0[1]], n: +mm0[3] } };
+    if ((mm0 = ct.match(/^自分のマナゾーンのカードが(\d+)枚以上で(光|水|闇|火|自然)文明があれば$/))) return { and: [{ manaGE: +mm0[1] }, { manaCivAll: [{ 光: 'light', 水: 'water', 闇: 'darkness', 火: 'fire', 自然: 'nature' }[mm0[2]]] }] };
     if (/^この(呪文|カード)を「D・D・D」で(唱えた|使った|実行した)なら$/.test(ct)) return { viaDDD: true };
     if (/^このクリーチャーがタップしていたら$/.test(ct)) return { selfTapped: true };
     if (/^自分のシールドが相手(のもの)?よりも?少なければ$/.test(ct)) return { shieldsLess: true };
@@ -2219,6 +2225,19 @@
         const kh = pc && Kd.match(gk[3], raw);
         if (kh && kh.e.auto) {
           (K.condGrants = K.condGrants || []).push({ cond: pc, power: 0, names: [gk[3]] });
+          continue;
+        }
+        const fz = pc && gk[3].match(/^この(呪文|クリーチャー)を(自分の手札から)?コストを支払わずに(唱えて|召喚して)もよい$/);
+        if (fz) {
+          const KF = inHyper ? hyper.kw : kw;
+          KF.gZero = gk[0];
+          KF.gZeroCond = pc;
+          continue;
+        }
+        const pg3 = pc && gk[3].match(/^このクリーチャー(は|の|に)(、)?(パワーは\+(\d+)され(、|る)|パワーを\+(\d+)(する|し、))?(「(.+?)」(と「(.+?)」)?を(得る|与える))?$/);
+        if (pg3 && (pg3[4] || pg3[6] || pg3[9])) {
+          const KG = inHyper ? hyper.kw : kw;
+          (KG.condGrants = KG.condGrants || []).push({ cond: pc, power: +(pg3[4] || pg3[6] || 0), names: [pg3[9], pg3[11]].filter(Boolean) });
           continue;
         }
         const scm2 = pc && gk[3].match(/^このクリーチャー(の召喚コスト|を召喚するコスト)(を(\d+)少なくする|は(\d+)少なくなる)$/);
