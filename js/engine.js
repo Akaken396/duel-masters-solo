@@ -69,7 +69,7 @@
     return t;
   }
 
-  const WHEN_J = { oppToGrave: 'カードが相手の墓地に置かれた時の能力', manaPut: 'スペース・チャージ', allyTapped: '自分のクリーチャーがタップした時の能力', linked: 'リンクした時の能力', oppEnterNonSummon: '相手が召喚以外でクリーチャーを出した時の能力', enteredByChange: '革命チェンジ・侵略で出た時の能力', allyEvolved: '進化クリーチャーを置いた時の能力', oppDiscarded: '相手が手札を捨てた時の能力', graveLeft: '墓地からカードが離れた時の能力', allyEnterAny: '自分のクリーチャーが出た時の能力', selfPlay: '重いカードを使った時の能力', selfDiscarded: '手札を捨てた時の能力', selfDraw: 'カードを引いた時の能力', oppPlay: '相手がカードを使った時の能力', oppEnterFree: '相手のクリーチャーがコストなしで出た時の能力', oppEnterBig: '相手のマナより重いクリーチャーが出た時の能力', allyDestroyed: '自分の（指定の）クリーチャーが破壊された時の能力', toGrave: '墓地に置かれた時の能力', hostDestroyed: '付けたクリーチャーが破壊された時の能力', charged: 'マナに置いた時の能力', hostAttack: '付いているクリーチャーの攻撃時の能力', hostAttackEnd: '付いているクリーチャーの攻撃の終わりの能力', eachTurnEnd: 'ターンの終わりの能力', oppTurnEnd: '相手のターンの終わりの能力', oppEnter: '相手のクリーチャーが出た時の能力', anyEnter: 'クリーチャーが出た時の能力', anyDestroyed: 'クリーチャーが破壊された時の能力', selfOrAllyDestroyed: '破壊された時の能力', blocked: 'ブロックされた時の能力', oppUnblocked: '相手の攻撃が通った時の能力', battled: 'バトルした時の能力', targeted: '選ばれた時の能力', oppAttack: '相手の攻撃時の能力', allyCast: '呪文を唱えた時の能力', oppCast: '相手が呪文を唱えた時の能力', allyBattleWin: '自分の（指定の）クリーチャーがバトルに勝った時の能力', oppDestroyed: '相手のクリーチャーが破壊された時の能力', ownShieldLeft: 'シールドが離れた時の能力', attackEnd: '攻撃の終わりの能力', beforeBreak: 'ブレイクの前の能力', unblocked: 'ブロックされなかった時の能力', allyAttack: '自分の（指定の）クリーチャーの攻撃時の能力', allyLeft: '自分の（指定の）クリーチャーが離れた時の能力', tapped: 'タップした時の能力', untapped: 'アンタップした時の能力', evolveSource: 'シンカパワー', tapAbility: 'タップ能力', battleLose: 'バトルに負けた時の能力', left: '離れた時の能力', attacked: '攻撃された時の能力', summonOnly: '召喚で出た時の能力', battleWin: 'バトルに勝った時の能力', oppTurnStart: '相手のターンのはじめの能力', broke: 'ブレイクした時の能力', summon: '出た時の能力', attack: '攻撃する時の能力', destroyed: '破壊された時の能力', turnStart: 'ターンのはじめの能力', turnEnd: 'ターンの終わりの能力', shieldAdded: 'シールドが置かれた時の能力', exLifeLost: 'EXライフが離れた時の能力', block: 'ブロックした時の能力', sealsGone: '封印が外れた時の能力' };
+  const WHEN_J = { allyUnblocked: '自分のクリーチャーの攻撃が通った時の能力', oppToGrave: 'カードが相手の墓地に置かれた時の能力', manaPut: 'スペース・チャージ', allyTapped: '自分のクリーチャーがタップした時の能力', linked: 'リンクした時の能力', oppEnterNonSummon: '相手が召喚以外でクリーチャーを出した時の能力', enteredByChange: '革命チェンジ・侵略で出た時の能力', allyEvolved: '進化クリーチャーを置いた時の能力', oppDiscarded: '相手が手札を捨てた時の能力', graveLeft: '墓地からカードが離れた時の能力', allyEnterAny: '自分のクリーチャーが出た時の能力', selfPlay: '重いカードを使った時の能力', selfDiscarded: '手札を捨てた時の能力', selfDraw: 'カードを引いた時の能力', oppPlay: '相手がカードを使った時の能力', oppEnterFree: '相手のクリーチャーがコストなしで出た時の能力', oppEnterBig: '相手のマナより重いクリーチャーが出た時の能力', allyDestroyed: '自分の（指定の）クリーチャーが破壊された時の能力', toGrave: '墓地に置かれた時の能力', hostDestroyed: '付けたクリーチャーが破壊された時の能力', charged: 'マナに置いた時の能力', hostAttack: '付いているクリーチャーの攻撃時の能力', hostAttackEnd: '付いているクリーチャーの攻撃の終わりの能力', eachTurnEnd: 'ターンの終わりの能力', oppTurnEnd: '相手のターンの終わりの能力', oppEnter: '相手のクリーチャーが出た時の能力', anyEnter: 'クリーチャーが出た時の能力', anyDestroyed: 'クリーチャーが破壊された時の能力', selfOrAllyDestroyed: '破壊された時の能力', blocked: 'ブロックされた時の能力', oppUnblocked: '相手の攻撃が通った時の能力', battled: 'バトルした時の能力', targeted: '選ばれた時の能力', oppAttack: '相手の攻撃時の能力', allyCast: '呪文を唱えた時の能力', oppCast: '相手が呪文を唱えた時の能力', allyBattleWin: '自分の（指定の）クリーチャーがバトルに勝った時の能力', oppDestroyed: '相手のクリーチャーが破壊された時の能力', ownShieldLeft: 'シールドが離れた時の能力', attackEnd: '攻撃の終わりの能力', beforeBreak: 'ブレイクの前の能力', unblocked: 'ブロックされなかった時の能力', allyAttack: '自分の（指定の）クリーチャーの攻撃時の能力', allyLeft: '自分の（指定の）クリーチャーが離れた時の能力', tapped: 'タップした時の能力', untapped: 'アンタップした時の能力', evolveSource: 'シンカパワー', tapAbility: 'タップ能力', battleLose: 'バトルに負けた時の能力', left: '離れた時の能力', attacked: '攻撃された時の能力', summonOnly: '召喚で出た時の能力', battleWin: 'バトルに勝った時の能力', oppTurnStart: '相手のターンのはじめの能力', broke: 'ブレイクした時の能力', summon: '出た時の能力', attack: '攻撃する時の能力', destroyed: '破壊された時の能力', turnStart: 'ターンのはじめの能力', turnEnd: 'ターンの終わりの能力', shieldAdded: 'シールドが置かれた時の能力', exLifeLost: 'EXライフが離れた時の能力', block: 'ブロックした時の能力', sealsGone: '封印が外れた時の能力' };
 
   class GameOver extends Error {
     constructor(winner, reason) {
@@ -490,6 +490,10 @@
       if (c.evolvedFromTama && !(card && (card.under || []).some((u) => u.def.type === 'tamaseed'))) return false;
       if (c.oppManaMore && !(op.mana.length > me.mana.length)) return false;
       if (c.creaturesMore && !(me.battle.filter((x) => this.isCreature(x)).length > op.battle.filter((x) => this.isCreature(x)).length)) return false;
+      if (c.attackingPlayer && !(card && card._attackingPlayer)) return false;
+      if (c.attackingCreature && !(card && card.attacking && !card._attackingPlayer)) return false;
+      if (c.evAttackingPlayer && !(this._eventCard && this._eventCard._attackingPlayer)) return false;
+      if (c.evTwin && !(this._eventCard && this._eventCard.def.twin)) return false;
       if (c.evNotFromHand && !(this._eventCard && this._eventCard._enterFrom !== 'hand')) return false;
       if (c.spellsGE != null && (this.spellsThisTurn || [0, 0])[pi] < c.spellsGE) return false;
       if (c.anyBattleGE && this.countOwn(pi, c.anyBattleGE.what) + this.countOwn(1 - pi, c.anyBattleGE.what) < c.anyBattleGE.n) return false;
@@ -1073,7 +1077,7 @@
         // スペース・チャージ（自分のマナゾーンにカードが置かれた時）
         for (const s of this.p[card.owner].battle) if (this.isOnField(s) && this.hasAbility(s, 'manaPut') && this.abilities(s).some((ab) => ab.when === 'manaPut' && (!ab.cond || !ab.cond.evCivAny || ab.cond.evCivAny.some((cv) => this.civMatch(card, cv))))) {
           this.pending = this.pending || [];
-          this.pending.push({ card: s, when: 'manaPut', controller: s.owner, def: s.def, extra: card, label: `【${this.p[s.owner].name}】「${s.def.name}」のスペース・チャージ（「${card.def.name}」がマナに置かれた）` });
+          this.pending.push({ card: s, when: 'manaPut', controller: s.owner, def: s.def, extra: card, label: `【${this.p[s.owner].name}】「${s.def.name}」の、マナゾーンにカードが置かれた時の能力（「${card.def.name}」）` });
         }
       }
       if (zone === 'battle' && from !== 'battle') {
@@ -1181,6 +1185,8 @@
       if (cd.nameIs) return c.def.name === cd.nameIs || c.def.name.replace(/\s/g, '') === cd.nameIs.replace(/\s/g, '');
       if (cd.any) return cd.any.some((x) => this.fitLook(c, x));
       if (cd.evoOnly && !this.evoKind(c.def)) return false;
+      if (cd.notGR && homeZone(c.frontDef || c.def) === 'gr') return false;
+      if (cd.notPsychic && homeZone(c.frontDef || c.def) === 'hyper') return false;
       if (cd.twinpact && !(c.def.twin && c.def.twin.type === 'spell')) return false;
       const hay = (c.def.races || []).join('/') + '/' + c.def.name;
       return (
@@ -2384,6 +2390,8 @@
             if (ab.when !== 'allyEnter' || !ab.ally) continue;
             const al = ab.ally;
             if (!this.allyMatch(card, al.race)) continue;
+            if (ab.cond) this._eventCard = card;
+            if (ab.cond && !this.condOk2(pi, ab.cond, src)) continue;
             if (al.perTurn) {
               src.allyUsed = src.allyUsed || {};
               const key = ab.text;
@@ -2391,6 +2399,7 @@
               src.allyUsed[key] = this.turn;
             }
             await this.queueFn(src, pi, `「${src.def.name}」の能力`, async () => {
+              this._eventCard = card;
               for (const a of ab.acts) await this.doAction(a, src, pi);
             });
           }
@@ -2476,12 +2485,15 @@
       const lookback = when === 'allyLeft' || when === 'allyDestroyed';
       const srcs = this.permanents(pi).filter((x) => this.isOnField(x));
       if (lookback) for (const x of [card, ...(this._goneBatch || [])]) if (x.owner === pi && !srcs.includes(x) && !this.isOnField(x)) srcs.push(x);
-      const evJ = { allyLeft: '離れた', allyDestroyed: '破壊された', allyAttack: '攻撃する' }[when] || '';
+      const evJ = { allyLeft: '離れた', allyDestroyed: '破壊された', allyAttack: '攻撃する', allyUnblocked: '攻撃してブロックされなかった' }[when] || '';
       for (const src of srcs) {
         for (const ab of this.abilities(src)) {
           if (ab.when !== when || !ab.ally) continue;
           if (ab.ally.others && src === card) continue;
           if (!this.allyMatch(card, ab.ally.race)) continue;
+          if (ab.cond && ab.cond.evAttackingPlayer && !card._attackingPlayer) continue;
+          if (ab.cond) this._eventCard = card;
+          if (ab.cond && !this.condOk2(pi, ab.cond, src)) continue;
           if (ab.ally.perTurn) {
             src.allyUsed = src.allyUsed || {};
             if (src.allyUsed[ab.text + when] === this.turn) continue;
@@ -3633,6 +3645,24 @@
           this.draw(pi, 1 + (src.under || []).length);
           this.log(`${me.name}は${nm}に含まれるカードと同じ${1 + (src.under || []).length}枚を引いた`);
           break;
+        case 'ownShieldToGrave': {
+          if (!me.shields.length) break;
+          const r = await this.pickCards(pi, me.shields.slice(), Math.min(a.n, me.shields.length), false, `${nm}: 墓地に置く自分のシールド（裏向きのまま）`, 'shield', 'discard');
+          for (const c of r) {
+            this.moveTo(c, 'grave');
+            this.log(`${me.name}はシールドを1つ墓地に置いた（S・トリガーは使えない）`);
+          }
+          break;
+        }
+        case 'breakBonus': {
+          if (this.zoneOf(src) !== 'battle') break;
+          const times = src._brokeN || 0;
+          for (let i = 0; i < times; i++) {
+            if (!(await this.yesNo(pi, `${nm}: ブレイク・ボーナスを使いますか？（${i + 1}/${times}回目）`, src))) break;
+            for (const x of a.acts) await this.doAction(x, src, pi);
+          }
+          break;
+        }
         case 'selfToHyperAfterEnter':
           src._toHyperAfterEnter = true;
           break;
@@ -3762,6 +3792,10 @@
               await this.putIntoPlay(pi, c, true);
             } finally {
               this._castDepth--;
+            }
+            if (a.bottomAfter && this.zoneOf(c) === 'grave') {
+              this.moveTo(c, 'deck', { top: false });
+              this.log(`「${c.def.name}」は唱えた後、山札の下に置かれた`);
             }
           }
           break;
@@ -5326,6 +5360,8 @@
       const op = this.opp(pi);
       card.tapped = true;
       card.attacking = true;
+      card._attackingPlayer = tgtCard === 'player';
+      card._brokeN = 0;
       for (const x of this.linkMembers(card)) x.tapped = true;
       for (const s2 of this.permanents(pi)) if (this.isOnField(s2) && this.hasAbility(s2, 'allyTapped')) await this.trigger(s2, 'allyTapped', pi, s2.def, card, { defer: true });
       if ((me.tempTapDrawUntil || 0) >= this.turn) await this.queueFn(card, pi, '「クリーチャーがタップした時、1枚引いてもよい」', async () => { if (await this.yesNo(pi, 'クリーチャーがタップしたので、カードを1枚引きますか？')) this.draw(pi, 1); }, { defer: true });
@@ -5494,6 +5530,8 @@
         }
         if (tgtCard === 'player') {
           if (this.hasAbility(card, 'unblocked')) await this.trigger(card, 'unblocked', pi);
+          await this.allyEvent(card, pi, 'allyUnblocked');
+          await this.resolvePending();
           await this.fireAll(op.idx, 'oppUnblocked');
           if (this.zoneOf(card) !== 'battle') return true;
           if (op.shields.length === 0) {
@@ -5746,6 +5784,7 @@
       }
       picked = [...new Set(picked)];
       this.log(`${op.name}のシールドを${picked.length}つブレイクした（残り${op.shields.length}）`);
+      if (src && src.attacking) src._brokeN = (src._brokeN || 0) + picked.length;
       for (const s2 of this.permanents(op.idx)) if (this.isOnField(s2) && this.hasAbility(s2, 'ownShieldBroken')) await this.trigger(s2, 'ownShieldBroken', op.idx, s2.def, null, { defer: true });
       await this.pause();
       // ブレイクした時の効果（ニガ=アブシュームなど）
