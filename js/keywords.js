@@ -176,7 +176,7 @@
     { name: 'デュエリスト', re: /^デュエリスト/, desc: 'デュエリストに関する能力' },
     { name: 'バズレンダ', re: /^バズレンダ/, desc: '追加コストを払った回数だけ効果を繰り返す' },
     { name: 'ニンジャ・チェンジ', re: /^ニンジャ・チェンジ/, desc: '攻撃中に手札のシノビと入れ替える' },
-    { name: 'O・ドライブ', re: /^O・ドライブ/, desc: '追加コストを払うと追加の効果' },
+    { name: 'O・ドライブ', re: /^O・ドライブ〔([^〕|]+)(\|or)?〕$/, auto: true, set: (k, m) => (k.odrive = { reqs: m[1].split(',').map((x) => ({ civ: x.split(':')[0], n: +x.split(':')[1] })), or: !!m[2] }), desc: '召喚する時、指定の文明のマナを追加でタップすると、次の能力を得る' },
     { name: 'キリフダッシュ', re: /^キリフダッシュ\s*〔代替([lwdfnc]+)(\d{2})〕/, auto: true, set: (k, m) => {
         const CV = { l: 'light', w: 'water', d: 'darkness', f: 'fire', n: 'nature' };
         k.kirifuda = { cost: +m[2], civs: [...new Set(m[1].split(''))].map((x) => CV[x]).filter(Boolean) };

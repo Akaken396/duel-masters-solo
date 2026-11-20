@@ -522,6 +522,8 @@
       if (c.waveGE != null && [...me.battle, ...op.battle].filter((x) => x !== card && this.isCreature(x) && /ウェーブストライカー/.test(x.def.text || '')).length < c.waveGE) return false;
       if (c.sfShield && !(card && card._sfShield && this.p[card.owner].shields.some((x) => x.uid === card._sfShield))) return false;
       if (c.stPlus && !(card && card._viaSTTurn === this.turn && this.active !== pi && me._brkTurn === this.turn && me._brkN >= 2)) return false;
+      if (c.odrive && !(card && (card._odrive || []).length)) return false;
+      if (c.odriveCiv && !(card && (card._odrive || []).includes(c.odriveCiv))) return false;
       if (c.evTwin && !(this._eventCard && this._eventCard.def.twin)) return false;
       if (c.evNotFromHand && !(this._eventCard && this._eventCard._enterFrom !== 'hand')) return false;
       if (c.spellsGE != null && (this.spellsThisTurn || [0, 0])[pi] < c.spellsGE) return false;
@@ -770,6 +772,9 @@
     }
     manual(card, def = card.def) {
       return parsed(def).manual;
+    }
+    civName(cv) {
+      return { light: '光', water: '水', darkness: '闇', fire: '火', nature: '自然' }[cv] || cv;
     }
     civMatch(card, cv) {
       const cs = (card.def.civs || []).filter((x) => x !== 'zero');
@@ -1800,6 +1805,17 @@
         const cst = Math.max(1, base.cost - joe.n);
         const mana = this.payWith(pi, def, cst);
         if (mana && cst < base.cost) out.push({ mana, uses: [...base.uses, () => (card._joeTurn = this.turn)], cost: cst, opt: { text: `J・O・E（コスト${cst}。ターンの終わりに山札の下へ、${joe.draw}枚引く）` } });
+      }
+      // O・ドライブ：追加でマナをタップして能力を得る
+      const odv = parsed(def).kw.odrive;
+      if (odv && def === card.def && !NON_CREATURE.includes(def.type)) {
+        const base = this.costPlan(pi, card, def, null);
+        const sets = odv.or ? [...odv.reqs.map((r) => [r]), ...(odv.reqs.length > 1 ? [odv.reqs] : [])] : [odv.reqs];
+        for (const st of sets) {
+          const extra = st.reduce((a2, r) => a2 + r.n, 0);
+          const mana = this.payWith(pi, { civs: [...new Set([...(def.civs || []), ...st.map((r) => r.civ)])] }, base.cost + extra);
+          if (mana) out.push({ mana, uses: [...base.uses, () => (card._odrive = st.map((r) => r.civ))], cost: base.cost + extra, opt: { text: `O・ドライブ（${st.map((r) => this.civName(r.civ) + r.n).join('・')}を追加）` } });
+        }
       }
       // ギャラクシールド：代わりのコストを払って、表向きのシールドとして置く
       const gxs = parsed(def).kw.galaxy;

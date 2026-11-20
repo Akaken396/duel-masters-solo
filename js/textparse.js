@@ -1174,6 +1174,8 @@
     if (/^他にウェーブストライカーが2体以上あれば$/.test(ct)) return { waveGE: 2 };
     if (/^シールド・フォースのシールドがあれば$/.test(ct)) return { sfShield: true };
     if (/^S・トリガー・プラスの条件を満たしていれば$/.test(ct)) return { stPlus: true };
+    if (/^O・ドライブを払っていれば$/.test(ct)) return { odrive: true };
+    if ((mm0 = ct.match(/^O・ドライブで(光|水|闇|火|自然)を払っていれば$/))) return { odriveCiv: { 光: 'light', 水: 'water', 闇: 'darkness', 火: 'fire', 自然: 'nature' }[mm0[1]] };
     if ((mm0 = ct.match(/^自分と相手のシールド(の数)?が合計(\d+)(つ|枚)以下(なら|であれば|ならば)$/))) return { shieldsTotalLE: +mm0[2] };
     if ((mm0 = ct.match(/^自分の(光|水|闇|火|自然)のクリーチャーまたは(光|水|闇|火|自然)のタマシードが合計(\d+)つ以上あれば$/))) return { civElemGE: { civ: { 光: 'light', 水: 'water', 闇: 'darkness', 火: 'fire', 自然: 'nature' }[mm0[1]], n: +mm0[3] } };
     if ((mm0 = ct.match(/^自分のマナゾーンのカードが(\d+)枚以上で(光|水|闇|火|自然)文明があれば$/))) return { and: [{ manaGE: +mm0[1] }, { manaCivAll: [{ 光: 'light', 水: 'water', 闇: 'darkness', 火: 'fire', 自然: 'nature' }[mm0[2]]] }] };
@@ -1798,6 +1800,25 @@
     for (let i = 0; i < rawLines.length - 1; i++) {
       if (!/^サイレントスキル\s*[(（]/.test(rawLines[i])) continue;
       rawLines[i + 1] = '〔サイレント〕' + rawLines[i + 1].replace(/^i\s+/, '');
+    }
+    // O・ドライブ：追加でマナをタップして召喚したら、次の能力（「文明：」で始まる行はその文明を払った時）を得る
+    {
+      const oi = rawLines.findIndex((l) => /^O・ドライブ/.test(l));
+      if (oi >= 0 && !def._soulPart) {
+        const CVO = { 光: 'light', 水: 'water', 闇: 'darkness', 火: 'fire', 自然: 'nature' };
+        const hd = rawLines[oi].normalize('NFKC').replace(/[(（].*$/, '');
+        const reqs = [...hd.matchAll(/(光|水|闇|火|自然)\s*x\s*(\d+)/g)].map((x) => ({ civ: CVO[x[1]], n: +x[2] }));
+        const isAnd = /と/.test(hd) || reqs.length === 1;
+        if (reqs.length) {
+          rawLines[oi] = `O・ドライブ〔${reqs.map((r) => r.civ + ':' + r.n).join(',')}${isAnd ? '' : '|or'}〕`;
+          for (let j = oi + 1; j < rawLines.length; j++) {
+            const cm = rawLines[j].match(/^(光|水|闇|火|自然)\s*[：:]\s*(.+)$/);
+            if (cm && !isAnd) rawLines[j] = `O・ドライブで${cm[1]}を払っていれば、` + cm[2];
+            else if (j === oi + 1 && isAnd) rawLines[j] = 'O・ドライブを払っていれば、' + rawLines[j];
+            else break;
+          }
+        }
+      }
     }
     // ウェーブストライカー・アクセル・メタモーフ・シールド・フォース：次の行の能力に条件がつく
     for (let i = 0; i < rawLines.length - 1; i++) {
