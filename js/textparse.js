@@ -37,6 +37,8 @@
       .replace(/^D・D・D\s*\[([lwdfnc]{1,5})(\d{2})\]/gm, 'D・D・D 〔代替$1$2〕')
       .replace(/^キリフダッシュ\s*\[([lwdfnc]{1,5})(\d{2})\]/gm, 'キリフダッシュ 〔代替$1$2〕')
       .replace(/^(マナドライブ|シビルカウント)\s*[0-9０-９]*\s*[：:]\s*(?=\S)/gm, '')
+      .replace(/^メテオバーン\s*[：:\-－―]\s*/gm, '')
+      .replace(/このクリーチャーの下にあるカードを1枚選び(、)?墓地に置いてもよい。そうした場合、/g, 'このクリーチャーの下にあるカードを1枚墓地に置いてもよい。そうしたら、')
       .replace(/^鬼タイム\s*[：:]\s*(?!.*真上の)/gm, '')
       .replace(/\[[a-z]{1,5}\d{0,3}\]/g, '') // マナ記号 [ll02] など
       .replace(/^l\s+/gm, '') // 能力を与える時の記号
@@ -1508,6 +1510,11 @@
     if (/^次の自分のターンのはじめまで、相手は(、)?自身のマナゾーン(にある|の)カードの枚数よりコストが大きいクリーチャーを(バトルゾーンに)?出した(時|とき)、そのクリーチャーを(自身の)?山札の(一番)?下に置く。?$/.test(body)) return [{ act: 'tempBigBottom' }];
     if (/^プレイヤーを1人選んでもよい。そのプレイヤーは自身の墓地をシャッフルし、山札の下に置く。?$/.test(body)) return [{ act: 'graveToDeckBottomPlayer' }];
     if (/^相手の手札を見てクリーチャーを1体選ぶ。相手はそれを出してもよい。?$/.test(body)) return [{ act: 'oppHandPickPut' }];
+    const gj = body.match(/^相手とガチンコ・ジャッジ(する|してもよい)。自分が勝ったら、(.+?)。?$/);
+    if (gj) {
+      const win = parseEffects(gj[2].replace(/。$/, ''));
+      if (win && !win.some((x) => x.act === 'manualNote')) return [{ act: 'gachinko', optional: gj[1] !== 'する', win }];
+    }
     const jk = body.match(/^(相手(プレイヤー)?と)ジャンケン(で|して)勝敗を決め(る|てもよい)。自分が勝った(場合|ら)、(.+?)(。(自分が|自分がジャンケンで)?負けた(場合|ら)、(.+?))?。?$/);
     if (jk) {
       const win = parseEffects(jk[6].replace(/。$/, ''));

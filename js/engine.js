@@ -1734,6 +1734,23 @@
         const tappers = this.p[pi].battle.filter((c) => this.isCreature(c) && !c.tapped && (!atc.civ || (c.def.civs || []).includes(atc.civ)));
         if (tappers.length >= atc.n) out.push({ mana: [], uses: [() => { for (const c of tappers.slice(0, atc.n)) c.tapped = true; this.log(`クリーチャー${atc.n}体をタップして唱える`); }], cost: 0, tapAlt: atc.n });
       }
+      // ハイパーエナジー：自分のクリーチャーを1体タップするごとに召喚コストを2少なくする（1より少なくならない）
+      if (parsed(def).kw.hyperEnergy && def === card.def && !NON_CREATURE.includes(def.type)) {
+        const tappers = this.p[pi].battle.filter((c) => this.isCreature(c) && !c.tapped);
+        const base = this.costPlan(pi, card, def, null);
+        for (let n = 1; n <= tappers.length && base.cost - 2 * (n - 1) > 1; n++) {
+          const cst = Math.max(1, base.cost - 2 * n);
+          const mana = this.payWith(pi, def, cst);
+          if (!mana) continue;
+          const nn = n;
+          out.push({ mana, uses: [...base.uses, async () => {
+            const pool = this.p[pi].battle.filter((c) => this.isCreature(c) && !c.tapped);
+            const r = this.p[pi].isAI ? pool.slice(0, nn) : await this.pickCards(pi, pool, Math.min(nn, pool.length), false, `ハイパーエナジー：タップするクリーチャーを${nn}体選んでください`, 'recover');
+            for (const c of r) c.tapped = true;
+            this.log(`ハイパーエナジー：クリーチャー${r.length}体をタップしてコストを${2 * r.length}下げた`);
+          }], cost: cst, opt: { text: `ハイパーエナジー（${nn}体タップ）` } });
+        }
+      }
       // 召喚する時に○○すればコストが下がる
       const sco = parsed(def).kw.summonCostOpt;
       if (sco && def === card.def && this.canDoCost(pi, card, sco.act)) {
@@ -3908,6 +3925,21 @@
           await this.resolvePending();
           this.log(`ジャンケン：${me.name}の${res > 0 ? '勝ち' : '負け'}`);
           for (const x of res > 0 ? a.win : a.lose) await this.doAction(x, src, pi);
+          break;
+        }
+        case 'gachinko': {
+          if (a.optional && !(await this.yesNo(pi, `${nm}: ガチンコ・ジャッジしますか？`, src))) break;
+          const t1 = me.deck[0];
+          const t2 = op.deck[0];
+          const c1 = t1 ? +t1.def.cost || 0 : -1;
+          const c2 = t2 ? +t2.def.cost || 0 : -1;
+          this.log(`ガチンコ・ジャッジ：${me.name}「${t1 ? t1.def.name : 'なし'}」(${c1}) vs ${op.name}「${t2 ? t2.def.name : 'なし'}」(${c2})`);
+          if (t1) me.deck.push(me.deck.shift());
+          if (t2) op.deck.push(op.deck.shift());
+          const win = t1 && c1 >= c2;
+          this.log(`ガチンコ・ジャッジ：${me.name}の${win ? '勝ち' : '負け'}`);
+          this._lastChanged = !!win;
+          if (win) for (const x of a.win) await this.doAction(x, src, pi);
           break;
         }
         case 'useDyn': {
