@@ -179,6 +179,8 @@
     [/^自分のターンが終わる(時|とき)/, 'turnEnd'],
     [/^カードが自分の墓地から離れた(時|とき)/, 'graveLeft'],
     [/^自分のシールドがブレイクされた(時|とき)/, 'ownShieldBroken'],
+    [/^自分の裁きの紋章を持つ呪文を唱えた(時|とき)/, 'allyCastCrest'],
+    [/^自分のシールドゾーンにカードが置かれた(時|とき)/, 'shieldAdded'],
     [/^他のクリーチャーが(バトルゾーンを)?離れた(時|とき)/, 'anyLeft'],
     [/^自分のクリーチャーが(バトルゾーンに)?出た(時|とき)/, 'allyEnterAny'],
   ];
@@ -334,6 +336,20 @@
     }
     if ((m = s.match(/^それを(持ち主の)?(マナゾーンに置|シールド化|手札に戻|山札の下に置)(く|する|す|いてもよい|してもよい)$/))) return { act: 'moveEvent', to: { マナゾーンに置: 'mana', シールド化: 'shields', 手札に戻: 'hand', 山札の下に置: 'deckBottom' }[m[2]], optional: /もよい/.test(m[3]) };
     if ((m = s.match(/^コストの合計が(\d+)以下になるように(、)?([^、。]*?)クリーチャーを好きな数(、)?自分の(墓地|手札)から(バトルゾーンに)?出す$/))) return { act: 'putSumCost', max: +m[1], from: m[5] === '墓地' ? 'grave' : 'hand', cond: m[3] ? lookCond(m[3].replace(/の$/, '')) : null };
+    if (/^次の自分のターンのはじめまで、自分のクリーチャーがタップした(時|とき)、カードを1枚引いてもよい$/.test(s)) return { act: 'tempTapDraw' };
+    if (/^次の自分のターンのはじめまで、相手は(、)?自身のマナゾーンにあるカードの枚数よりコストが大きいクリーチャーを(バトルゾーンに)?出した(時|とき)、そのクリーチャーを自身の山札の一番下に置く$/.test(s)) return { act: 'tempBigBottom' };
+    if ((m = s.match(/^(この|その)ターン、次に使う(光|水|闇|火|自然)?(の)?カードのコストを(、)?(最大)?(\d+)少なくしてもよい$/))) return { act: 'nextCostDiscount', civ: m[2] ? { 光: 'light', 水: 'water', 闇: 'darkness', 火: 'fire', 自然: 'nature' }[m[2]] : null, n: +m[6] };
+    if ((m = s.match(/^そうしなければ、(.+)$/))) {
+      const inner = parseEffects(m[1]);
+      if (inner && !inner.some((x) => x.act === 'manualNote')) return { act: 'ifNotDidPrev', acts: inner };
+    }
+    if ((m = s.match(/^相手のパワー(\d+)以下のクリーチャーをすべて(表向きに)?シールド化する。こうしてシールド化したカード1枚につき、自分はカードを1枚引く$/))) return { act: 'toShieldAllDraw', maxPower: +m[1], faceUp: !!m[2] };
+    if (/^自分と相手のシールドを1つずつ選ぶ。このクリーチャーは選ばれたそれらのシールドをブレイクする$/.test(s)) return { act: 'breakBothOne' };
+    if ((m = s.match(/^次の自分のターンのはじめに、(.+)$/))) {
+      const inner = parseEffects(m[1].replace(/。$/, ''));
+      if (inner && !inner.some((x) => x.act === 'manualNote')) return { act: 'atNextTurnStart', acts: inner };
+    }
+    if ((m = s.match(/^カードを(\d+)枚、自分のシールドゾーンから手札に加え(る|てもよい)$/))) return { act: 'shieldToHand', n: +m[1], optional: m[2] !== 'る' };
     if (/^(この(クリーチャー|カード)を、?)?自分のシールド(1つ)?の上に表向きにして置く$/.test(s)) return { act: 'stackSelfOnShield' };
     if ((m = s.match(/^相手の(コスト(\d+)以下の)?(、)?(進化ではない)?クリーチャーを(\d+)体選び、持ち主のシールド(1つ)?の上に表向きにして置く$/))) return { act: 'stackOppOnShield', n: +m[5], maxCost: m[2] ? +m[2] : null, notEvo: !!m[4] };
     if ((m = s.match(/^自分の手札から([^、。]+?)を(\d+)枚、コストを支払わずに唱え(る|てもよい)$/))) return { act: 'castFromHand', n: +m[2], cond: lookCond(m[1]), optional: m[3] !== 'る' };
@@ -849,7 +865,7 @@
     // 「〜があり、〜があれば」は両方の条件
     const andm = ct.match(/^(.+?)(があり|であり|あり)、(.+)$/);
     if (andm) {
-      const a1 = parseCondText(andm[1] + 'があれば');
+      const a1 = parseCondText(andm[1] + (andm[2] === 'であり' ? 'であれば' : 'があれば'));
       const a2 = parseCondText(andm[3]);
       if (a1 && a2) return { and: [a1, a2] };
     }
@@ -860,6 +876,8 @@
     if ((mm = ct.match(/^それが(その|この)ターン(はじめて|最初)の攻撃(であれば|なら)$/))) return { firstAttack: true };
     if ((mm = ct.match(/^このクリーチャーが(カード(\d+)枚で)?リンクして(いれば|いる|いる時|い)?$/))) return { linked: mm[2] ? +mm[2] : 2 };
     if (/^自分のシールドの数が相手のより多ければ$/.test(ct)) return { shieldsMore: true };
+    if (/^このカードが(自分の)?シールドゾーン(に|で)表向き(なら|であれば)$/.test(ct)) return { selfFaceUpShield: true };
+    if (/^(この|その)ターン、クリーチャーが攻撃していなければ$/.test(ct)) return { noAttackThisTurn: true };
     if ((mm = ct.match(/^すべてのシールドゾーンにある表向きのカードの(合計|数)が(\d+)枚以上(なら|あれば)$/))) return { faceUpAllShieldsGE: +mm[2] };
     if ((mm = ct.match(/^コストが異なる自分のエレメントが(\d+)(つ|枚|体)以上あれば$/))) return { distinctCosts: +mm[1] };
     if ((mm = ct.match(/^(バトルゾーンに)?自分の(、)?名前に[《「](.+?)[》」]を?(持つ|とある)クリーチャーが(\d+)体以上(バトルゾーンに)?あれば$/))) return { count: { what: mm[3], n: +mm[5] } };
@@ -895,7 +913,8 @@
     if ((mm = ct.match(/^自分の墓地に([^、。]+?)が(\d+)(体|枚|つ)(以上|でも)$/))) return { graveWhatGE: { what: mm[1], n: +mm[2] } };
     if (/^(自分の)?シールドゾーンに表向きのカードが$/.test(ct)) return { faceUpShieldsGE: 1 };
     if ((mm = ct.match(/^「(.+?)」を持つカードが自分のシールドゾーンに表向き(で)?$/))) return { faceUpShieldHas: mm[1] };
-    if (/^このカードが自分のシールドゾーンに表向き(で)?$/.test(ct)) return { selfFaceUpShield: true };
+    if (/^このカードが(自分の)?シールドゾーン(に|で)表向き(で)?$/.test(ct)) return { selfFaceUpShield: true };
+    if (/^(この|その)ターン、クリーチャーが攻撃していな(い|ければ)$/.test(ct)) return { noAttackThisTurn: true };
     // 場の状態
     if ((mm = ct.match(/^(バトルゾーンに)?自分の((《[^》]+》)(と|、)?)+が$/))) return { namesPresent: [...ct.matchAll(/《([^》]+)》/g)].map((x) => x[1]) };
     if ((mm = ct.match(/^(バトルゾーンに)?自分の《([^》]+)》がない$/))) return { nameAbsent: mm[2] };
@@ -987,7 +1006,7 @@
   }
   function parseEffects(body) {
     body = lookNorm(String(body || '').replace(/パワーを\s*-∞\s*する/g, 'パワーを0にする'))
-      .replace(/を(、)?裏向きのまま(、)?(?=新しいシールドとして)/g, 'を')
+      .replace(/を(、)?裏向き(のまま|にして)(、)?(?=新しいシールドとして)/g, 'を')
       .replace(/を(、)?表向きに(して|し)(、)?新しいシールドとして(自分の)?シールドゾーンに(置く|加える)/g, 'を表向きでシールド化する')
       .replace(/(選び、|選んで)相手に見せ(てから|て|、)(自分の)?/g, '選び、')
       .replace(/相手に見せてから(自分の)?/g, '')
@@ -999,6 +1018,10 @@
       .replace(/(を|を、)?新しいシールドとして(持ち主の|自分の|自身の)?シールドゾーンに(裏向きにして|裏向きのまま)?(加える|置く|加え、|加えてもよい|置いてもよい)/g, (x, a, b, c, d) => (a || '') + { 加える: 'シールド化する', 置く: 'シールド化する', '加え、': 'シールド化し、', 加えてもよい: 'シールド化してもよい', 置いてもよい: 'シールド化してもよい' }[d])
       .replace(/相手のクリーチャーを(\d+)体選んで破壊し、/g, '相手のクリーチャーを$1体選び、破壊する。')
       .replace(/。?これらのクリーチャーが出ることによって起こる効果やルールはすべて無視する。?/g, '。それらの出た時の効果は起こらない');
+    if (/^次の自分のターンのはじめまで、相手は(、)?自身のマナゾーン(にある|の)カードの枚数よりコストが大きいクリーチャーを(バトルゾーンに)?出した(時|とき)、そのクリーチャーを(自身の)?山札の(一番)?下に置く。?$/.test(body)) return [{ act: 'tempBigBottom' }];
+    const tsd = body.match(/^相手のパワー(\d+)以下のクリーチャーをすべて(表向きに)?シールド化する。こうしてシールド化したカード1枚につき、自分はカードを1枚引く。?$/);
+    if (tsd) return [{ act: 'toShieldAllDraw', maxPower: +tsd[1], faceUp: !!tsd[2] }];
+    if (/^自分と相手のシールドを1つずつ選ぶ。このクリーチャーは選ばれたそれらのシールドをブレイクする。?$/.test(body)) return [{ act: 'breakBothOne' }];
     const l3 = body.match(/^(自分の)?山札の上から3枚を(見る|表向きにする)。(その中から|そのうち(の)?)1枚を([^、。]+?)、1枚を([^、。]+?)、(残りの1枚|最後の1枚|もう1枚)を([^、。]+?)。?$/);
     if (l3 && zoneWord(l3[5]) && zoneWord(l3[6]) && zoneWord(l3[8])) return [{ act: 'lookSplit', n: 3, dests: [zoneWord(l3[5]), zoneWord(l3[6]), zoneWord(l3[8])] }];
     const ru = body.match(/^自分の山札の上から([^、。]+?)が(\d+)体出るまで表向きにし、その(\d+)体を(バトルゾーンに)?出す。(その後、)?(自分の)?山札をシャッフルする。?/);
@@ -1729,6 +1752,13 @@
     putFromMana: (a) => `マナから${a.cond.text}を${a.n}体出す`,
     selfFromHand: () => 'このクリーチャーを手札から出す',
     selfDiscardFromHand: () => 'このカードを手札から捨てる',
+    tempTapDraw: () => '次のターンまで、自分のクリーチャーがタップしたら1枚引ける',
+    tempBigBottom: () => '次のターンまで、相手が重いクリーチャーを出したら山札の下へ',
+    nextCostDiscount: (a) => `次に使うカードのコストを${a.n}下げる`,
+    ifNotDidPrev: (a) => 'しなければ：' + a.acts.map((x) => (ACT_LABEL[x.act] ? ACT_LABEL[x.act](x) : x.act)).join('、'),
+    toShieldAllDraw: (a) => `相手のパワー${a.maxPower}以下をすべてシールド化し、その数だけ引く`,
+    breakBothOne: () => '自分と相手のシールドを1つずつブレイク',
+    atNextTurnStart: () => '次の自分のターンのはじめに処理',
     stackSelfOnShield: () => 'このカードをシールドの上に表向きで置く',
     stackOppOnShield: (a) => `相手のクリーチャー${a.n}体を持ち主のシールドの上に表向きで置く`,
     discardDrawPlus: (a) => `手札を${a.n}枚まで捨て、捨てた数+${a.plus}枚引く`,
@@ -1858,7 +1888,7 @@
     return (a.tappedOnly ? 'タップ中の' : '') + (a.untappedOnly ? 'アンタップ中の' : '') + (a.maxPower ? `パワー${a.maxPower}以下` : '') + (a.maxCost ? `コスト${a.maxCost}以下` : '');
   }
   const whenLabel = (x) => (x.ally && WHEN_LABEL[x.when] ? WHEN_LABEL[x.when].replace('（指定の）クリーチャー', (x.ally.others ? '他の' : '') + (x.ally.race ? x.ally.race.replace(/(・)?クリーチャー$/, '') : 'クリーチャー')) + (x.ally.others ? '' : '（自身を含む）') : WHEN_LABEL[x.when]);
-  const WHEN_LABEL = { linked: 'リンクした時', oppEnterNonSummon: '相手が召喚以外でクリーチャーを出した時', enteredByChange: '革命チェンジ・侵略で出た時', allyEvolved: '自分の進化クリーチャーを置いた時', oppDiscarded: '相手が手札を捨てた時', graveLeft: 'カードが自分の墓地から離れた時', allyEnterAny: '自分のN体目のクリーチャーが出た時', selfPlay: 'コストN以上を使った時', selfDiscarded: '自分が手札を捨てた時', selfDraw: '自分がカードを引いた時', oppPlay: '相手がカードを使った時', oppEnterFree: '相手のクリーチャーがコストなしで出た時', oppShieldAdded: '相手のシールドが増えた時', oppEnterBig: '相手のマナより重いクリーチャーが出た時', allyDestroyed: '自分の（指定の）クリーチャーが破壊された時', toGrave: '墓地に置かれた時', hostDestroyed: '付けたクリーチャーが破壊された時', charged: 'マナに置いた時', hostAttack: '付けたクリーチャーの攻撃時', hostAttackEnd: '付けたクリーチャーの攻撃の終わり', eachTurnEnd: '各ターンの終わり', oppTurnEnd: '相手のターンの終わり', oppEnter: '相手のクリーチャーが出た時', anyEnter: '他のクリーチャーが出た時', anyDestroyed: 'クリーチャーが破壊された時', selfOrAllyDestroyed: '自分のクリーチャーが破壊された時', blocked: 'ブロックされた時', oppUnblocked: '相手の攻撃が通った時', battled: 'バトルした時', targeted: '選ばれた時', oppAttack: '相手の攻撃時', allyCast: '自分が呪文を唱えた時', oppCast: '相手が呪文を唱えた時', allyBattleWin: '自分の（指定の）クリーチャーがバトルに勝った時', oppDestroyed: '相手のクリーチャーが破壊された時', ownShieldLeft: 'シールドが離れた時', attackEnd: '攻撃の終わり', beforeBreak: 'ブレイクの前', unblocked: 'ブロックされなかった時', allyAttack: '自分の（指定の）クリーチャーが攻撃する時', allyLeft: '自分の（指定の）クリーチャーが離れた時', tapped: 'タップした時', untapped: 'アンタップした時', evolveSource: '進化元になる時', tapAbility: 'タップ能力', battleLose: 'バトルに負けた時', allyEnter: '自分の（指定の）クリーチャーが出た時', left: '離れた時', attacked: '攻撃された時', summonOnly: '召喚で出た時', summon: '出た時', attack: '攻撃時', destroyed: '破壊時', turnStart: 'ターン開始時', turnEnd: 'ターン終了時', shieldAdded: 'シールド追加時', cast: '呪文', block: 'ブロック時', battleWin: 'バトルに勝った時', oppTurnStart: '相手のターン開始時', broke: 'ブレイクした時' };
+  const WHEN_LABEL = { allyCastCrest: '裁きの紋章を唱えた時', linked: 'リンクした時', oppEnterNonSummon: '相手が召喚以外でクリーチャーを出した時', enteredByChange: '革命チェンジ・侵略で出た時', allyEvolved: '自分の進化クリーチャーを置いた時', oppDiscarded: '相手が手札を捨てた時', graveLeft: 'カードが自分の墓地から離れた時', allyEnterAny: '自分のN体目のクリーチャーが出た時', selfPlay: 'コストN以上を使った時', selfDiscarded: '自分が手札を捨てた時', selfDraw: '自分がカードを引いた時', oppPlay: '相手がカードを使った時', oppEnterFree: '相手のクリーチャーがコストなしで出た時', oppShieldAdded: '相手のシールドが増えた時', oppEnterBig: '相手のマナより重いクリーチャーが出た時', allyDestroyed: '自分の（指定の）クリーチャーが破壊された時', toGrave: '墓地に置かれた時', hostDestroyed: '付けたクリーチャーが破壊された時', charged: 'マナに置いた時', hostAttack: '付けたクリーチャーの攻撃時', hostAttackEnd: '付けたクリーチャーの攻撃の終わり', eachTurnEnd: '各ターンの終わり', oppTurnEnd: '相手のターンの終わり', oppEnter: '相手のクリーチャーが出た時', anyEnter: '他のクリーチャーが出た時', anyDestroyed: 'クリーチャーが破壊された時', selfOrAllyDestroyed: '自分のクリーチャーが破壊された時', blocked: 'ブロックされた時', oppUnblocked: '相手の攻撃が通った時', battled: 'バトルした時', targeted: '選ばれた時', oppAttack: '相手の攻撃時', allyCast: '自分が呪文を唱えた時', oppCast: '相手が呪文を唱えた時', allyBattleWin: '自分の（指定の）クリーチャーがバトルに勝った時', oppDestroyed: '相手のクリーチャーが破壊された時', ownShieldLeft: 'シールドが離れた時', attackEnd: '攻撃の終わり', beforeBreak: 'ブレイクの前', unblocked: 'ブロックされなかった時', allyAttack: '自分の（指定の）クリーチャーが攻撃する時', allyLeft: '自分の（指定の）クリーチャーが離れた時', tapped: 'タップした時', untapped: 'アンタップした時', evolveSource: '進化元になる時', tapAbility: 'タップ能力', battleLose: 'バトルに負けた時', allyEnter: '自分の（指定の）クリーチャーが出た時', left: '離れた時', attacked: '攻撃された時', summonOnly: '召喚で出た時', summon: '出た時', attack: '攻撃時', destroyed: '破壊時', turnStart: 'ターン開始時', turnEnd: 'ターン終了時', shieldAdded: 'シールド追加時', cast: '呪文', block: 'ブロック時', battleWin: 'バトルに勝った時', oppTurnStart: '相手のターン開始時', broke: 'ブレイクした時' };
 
   function civJ(c) {
     return { light: '光', water: '水', darkness: '闇', fire: '火', nature: '自然' }[c] || '';
