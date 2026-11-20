@@ -224,6 +224,8 @@
     { name: '種族のマナはアンタップ', re: /^自分の([^、。]+?)(・カード|カード)をマナゾーンに置いた(時|とき)、それをアンタップする。?$/, auto: true, set: (k, m) => (k.manaUntapWho = m[1]), desc: '指定のカードをマナゾーンに置いた時、アンタップする' },
     { name: '重いとさらにコスト軽減', re: /^自分の(?<subj>[^、。]+?)の召喚コストを(?<n>\d+)少なくする。そのコストが(?<c>\d+)以上なら、追加で(?<n2>\d+)少なくする。?$/, auto: true,
       set: (k, m) => (k.costAura = (k.costAura || []).concat({ side: 'self', subj: m.groups.subj, n: -m.groups.n }, { side: 'self', subj: 'コスト' + m.groups.c + '以上の' + m.groups.subj, n: -m.groups.n2 })), desc: '召喚コストを下げる（重ければさらに下げる）' },
+    { name: '唱えられなくする効果を無視', re: /^この(呪文|カード)を(唱えられなく|使えなく)する効果を無視する。?$/, auto: true, set: (k) => (k.ignoreLock = true), desc: '唱えられなくする効果を受けない' },
+    { name: '単色の効果を無視', re: /^多色ではない(、)?クリーチャーの能力と呪文の効果を無視する。?$/, auto: true, set: (k) => (k.ignoreMono = true), desc: '多色ではないカードの能力・効果を受けない' },
     { name: '破壊されない', re: /^このクリーチャーは(、)?破壊されない。?$/, auto: true, set: (k) => (k.noDestroy = true), desc: '破壊されない' },
     { name: '離れない', re: /^このクリーチャーは(、)?(バトルゾーンを)?離れない。?$/, auto: true, set: (k) => (k.noLeave = true), desc: 'バトルゾーンを離れない' },
     { name: '超次元ゾーンから召喚', re: /^このクリーチャーを(、)?(自分の)?超次元ゾーンから召喚してもよい。?$/, auto: true, set: (k) => (k.hyperSummon = true), desc: '超次元ゾーンから召喚できる' },
