@@ -1256,7 +1256,7 @@
       }
       if (this.loopPlay) {
         const rec = this.loopPlay.answers.shift();
-        const ids = rec && this.mapAnswer(req, rec);
+        const ids = rec && rec.key === key && this.mapAnswer(req, rec);
         if (ids) return ids;
         this.loopPlay.broken = '選択肢が記録と違う';
         this.log(`ループ再生：「${req.prompt}」の選択肢が記録と合わないので、ここからは手で選んでください`);
@@ -1268,7 +1268,7 @@
       if (aa && aa.turn === this.turn && !this.loopPlay && this.autoOn !== false) {
         const ids = this.mapAnswer(req, aa);
         if (ids) {
-          this.log(`自動で同じ答え：${(aa.labels || []).join('、') || '（なし）'}`);
+          this.log(`自動で同じ答え：${(aa.names || []).join('、') || '（なし）'}`);
           return ids;
         }
       }
@@ -1298,11 +1298,17 @@
         return this.choose(pi, req);
       }
       const ids = Array.isArray(res) ? res : res && res.ids ? res.ids : res;
-      const rec = { kind: req.kind, prompt: req.prompt, ids: (ids || []).slice(), labels: (ids || []).map((id) => { const o = (req.options || []).find((x) => String(x.id) === String(id)); return o ? (o.card ? o.card.def.name : o.label) : String(id); }) };
+      const rec = { key, kind: req.kind, prompt: req.prompt, ids: (ids || []).slice(), labels: (ids || []).map((id) => { const o = (req.options || []).find((x) => String(x.id) === String(id)); return o ? this.optDesc(o) : String(id); }) };
+      rec.names = rec.ids.map((id) => { const o = (req.options || []).find((x) => String(x.id) === String(id)); return o ? (o.def ? o.def.name : o.card ? o.card.def.name : o.label) : String(id); });
       if (res && res.remember) (this.autoAnswers = this.autoAnswers || {})[key] = { ...rec, turn: this.turn };
       if (this.loopRec && this.loopRec.cur) this.loopRec.cur.answers.push(rec);
       if (this.ansRec) this.ansRec.push(rec);
       return ids;
+    }
+    // 選択肢の中身（カードなら名前・使う面・ゾーン、それ以外はラベル）
+    optDesc(o) {
+      if (o.card) return `${o.card.def.name}|${o.def ? o.def.name : ''}|${String(o.label || '').replace(/[0-9０-９]+/g, '#')}|${this.zoneOf(o.card) || ''}`;
+      return String(o.label || '').replace(/[0-9０-９]+/g, '#');
     }
     answerKey(req) {
       return `${req.kind}|${String(req.prompt || '').replace(/[0-9０-９]+/g, '#')}`;
@@ -1314,8 +1320,9 @@
       const used = new Set();
       const out = [];
       for (let i = 0; i < rec.ids.length; i++) {
-        let o = opts.find((x) => String(x.id) === String(rec.ids[i]) && !used.has(x.id));
-        if (!o) o = opts.find((x) => !used.has(x.id) && (x.card ? x.card.def.name : x.label) === rec.labels[i]);
+        // 同じid・同じ中身 → なければ同じ中身（カード名・面・ラベル）の別のもの
+        let o = opts.find((x) => String(x.id) === String(rec.ids[i]) && !used.has(x.id) && this.optDesc(x) === rec.labels[i]);
+        if (!o) o = opts.find((x) => !used.has(x.id) && this.optDesc(x) === rec.labels[i]);
         if (!o) return null;
         used.add(o.id);
         out.push(o.id);
@@ -1361,6 +1368,13 @@
         case 'tapAbility': return this.useTapAbility(pi, step.uid);
         case 'attack': return this.attack(pi, step.uid, step.target);
         case 'graveUse': return this.playFromGrave(pi, step.uid);
+        case 'freePlay':
+        case 'freeTwin': {
+          const f = this.find(step.uid);
+          if (!f || this.zoneOf(f.card) !== 'hand' || (step.t === 'freeTwin' && !this.twin(f.card))) return false;
+          await this.putIntoPlay(f.card.owner, f.card, true, step.t === 'freeTwin' ? this.twin(f.card) : f.card.def);
+          return true;
+        }
         default: return false;
       }
     }

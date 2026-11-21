@@ -600,8 +600,8 @@
       mv('deck', { top: true }, '山札の上へ'),
       mv('deck', { top: false }, '山札の下へ')
     );
-    if (z === 'hand') items.push({ label: 'コストを払わずに使う', run: () => g.act(() => g.putIntoPlay(c.owner, c, true)) });
-    if (z === 'hand' && g.twin(c)) items.push({ label: 'コストを払わずに呪文側を使う', run: () => g.act(() => g.putIntoPlay(c.owner, c, true, g.twin(c))) });
+    if (z === 'hand') items.push({ label: 'コストを払わずに使う', run: () => g.actRec({ t: 'freePlay', pi: c.owner, uid: c.uid, label: 'コストを払わずに使う' }) });
+    if (z === 'hand' && g.twin(c)) items.push({ label: 'コストを払わずに呪文側を使う', run: () => g.actRec({ t: 'freeTwin', pi: c.owner, uid: c.uid, label: 'コストを払わずに呪文側を使う' }) });
     openMenu(ev.clientX, ev.clientY, `[手動] ${z === 'shields' || (z === 'hand' && !visibleHand(c.owner)) ? '？' : c.def.name}（${owner}）`, items);
   }
 
