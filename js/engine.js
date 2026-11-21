@@ -1250,6 +1250,10 @@
       if (this.p[pi].isAI) return this.AI.choose(this, pi, req);
       const key = this.answerKey(req);
       // ループの再生中：記録した答えを使う
+      if (this.loopPlay && this.loopPlay.mode === 'answers' && !this.loopPlay.answers.length) {
+        this.log(`■ 選択のループを${this.loopPlay.n}回くり返した`);
+        this.loopPlay = null;
+      }
       if (this.loopPlay) {
         const rec = this.loopPlay.answers.shift();
         const ids = rec && this.mapAnswer(req, rec);
@@ -1257,10 +1261,11 @@
         this.loopPlay.broken = '選択肢が記録と違う';
         this.log(`ループ再生：「${req.prompt}」の選択肢が記録と合わないので、ここからは手で選んでください`);
         this.loopPlay.answers = [];
+        if (this.loopPlay.mode === 'answers') this.loopPlay = null;
       }
       // 「このターン、同じ質問には同じ答え」
       const aa = (this.autoAnswers || {})[key];
-      if (aa && aa.turn === this.turn && !this.loopPlay) {
+      if (aa && aa.turn === this.turn && !this.loopPlay && this.autoOn !== false) {
         const ids = this.mapAnswer(req, aa);
         if (ids) {
           this.log(`自動で同じ答え：${(aa.labels || []).join('、') || '（なし）'}`);
@@ -1269,10 +1274,34 @@
       }
       this.changed();
       const res = await this.opts.chooser(this, pi, req);
+      // 選択の記録（誘発が続くループ用）
+      if (res && res.ctl === 'ansRecStart') {
+        this.ansRec = [];
+        this.log('選択の記録を開始した（1周分を選んで、同じ質問に戻ったら「くり返す」）');
+        return this.choose(pi, req);
+      }
+      if (res && res.ctl === 'ansRecStop') {
+        this.ansRec = null;
+        this.log('選択の記録をやめた');
+        return this.choose(pi, req);
+      }
+      if (res && res.ctl === 'ansRepeat') {
+        const cyc = this.ansRec || [];
+        this.ansRec = null;
+        const n = res.n | 0;
+        if (cyc.length && n > 0) {
+          const q = [];
+          for (let i = 0; i < n; i++) for (const x of cyc) q.push({ ...x, ids: x.ids.slice(), labels: x.labels.slice() });
+          this.loopPlay = { mode: 'answers', answers: q, n, broken: null };
+          this.log(`選択のループ（${cyc.length}回の選択）を${n}回くり返す`);
+        }
+        return this.choose(pi, req);
+      }
       const ids = Array.isArray(res) ? res : res && res.ids ? res.ids : res;
       const rec = { kind: req.kind, prompt: req.prompt, ids: (ids || []).slice(), labels: (ids || []).map((id) => { const o = (req.options || []).find((x) => String(x.id) === String(id)); return o ? (o.card ? o.card.def.name : o.label) : String(id); }) };
       if (res && res.remember) (this.autoAnswers = this.autoAnswers || {})[key] = { ...rec, turn: this.turn };
       if (this.loopRec && this.loopRec.cur) this.loopRec.cur.answers.push(rec);
+      if (this.ansRec) this.ansRec.push(rec);
       return ids;
     }
     answerKey(req) {

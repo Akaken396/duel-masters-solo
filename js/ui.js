@@ -293,6 +293,18 @@
     }
     render();
   });
+  $('#chk-auto').addEventListener('change', (e) => {
+    if (!game) return;
+    game.autoOn = e.target.checked;
+    game.log(game.autoOn ? '「同じ答え」の自動回答をオンにした' : '「同じ答え」の自動回答をオフにした（毎回聞きます）');
+    render();
+  });
+  $('#btn-auto-clear').addEventListener('click', () => {
+    if (!game) return;
+    game.autoAnswers = {};
+    game.log('自動の答えをすべて解除した');
+    render();
+  });
   $('#btn-loop-play').addEventListener('click', async () => {
     if (!game || !game.loopSaved) return;
     const n = parseInt(prompt(`記録したループ（${game.loopSaved.length}手）を何回くり返しますか？`, '5'), 10);
@@ -374,6 +386,12 @@
     }
     $('#btn-end').disabled = !(isHuman(g.active) && g.winner == null);
     $('#btn-undo').disabled = !g.canUndo() || g.p[g.history[g.history.length - 1].active].isAI;
+    {
+      const n = Object.values(g.autoAnswers || {}).filter((x) => x.turn === g.turn).length;
+      $('#btn-auto-clear').textContent = `自動の答えを解除（${n}）`;
+      $('#btn-auto-clear').disabled = !n;
+      $('#chk-auto').checked = g.autoOn !== false;
+    }
     $('#btn-loop-rec').textContent = g.loopRec ? '■ 記録終了' : '⏺ ループ記録';
     $('#btn-loop-rec').disabled = !(isHuman(g.active) && g.winner == null);
     $('#btn-loop-play').disabled = !(g.loopSaved && isHuman(g.active) && g.winner == null && !g.loopRec);
@@ -671,6 +689,33 @@
       const head = el('h3', { text: who + req.prompt });
       const kids = [head];
       if (req.kind !== 'reveal') kids.push(el('label', { class: 'remember', title: 'このターンの間、同じ質問が出たら自動で同じ答えを選びます' }, remember, el('span', { text: ' このターン、同じ質問には同じ答え' })));
+      // 誘発が続くループ：選択だけを記録してくり返す
+      {
+        const ctl = (o) => {
+          closeModal();
+          resolve(o);
+          render();
+        };
+        const bar = el('div', { class: 'ansloop' });
+        if (!g.ansRec) {
+          bar.append(el('button', { text: '⏺ ここから選択を記録', title: 'この質問から1周分の選択を記録します（処理が続くループ用）', onclick: () => ctl({ ctl: 'ansRecStart' }) }));
+        } else {
+          bar.append(
+            el('span', { class: 'muted', text: `選択を記録中（${g.ansRec.length}回）` }),
+            el('button', {
+              text: '↻ ここまでを1周としてくり返す',
+              title: '記録を始めた質問に戻ってきたら押してください',
+              onclick: () => {
+                if (!g.ansRec.length) return alert('まだ1回も選んでいません');
+                const n = parseInt(prompt(`記録した選択（${g.ansRec.length}回）を何周くり返しますか？`, '5'), 10);
+                if (n > 0) ctl({ ctl: 'ansRepeat', n });
+              },
+            }),
+            el('button', { text: '記録やめる', onclick: () => ctl({ ctl: 'ansRecStop' }) })
+          );
+        }
+        if (req.kind !== 'reveal') kids.push(bar);
+      }
 
       if (req.kind === 'modes') {
         // 先に処理内容をすべて選ぶ。選んだ順に処理する
