@@ -1272,8 +1272,29 @@
           return ids;
         }
       }
+      // ループの検出：直前の選択の並びが2回続けて同じで、今の質問がその1周目の最初と同じ
+      if (!this.ansHist || this.ansHist.turn !== this.turn) this.ansHist = { turn: this.turn, seq: [] };
+      {
+        const sq = this.ansHist.seq;
+        const same = (x, y) => x.key === y.key && x.labels.join('\u0001') === y.labels.join('\u0001');
+        let hint = null;
+        for (let k = 1; k <= Math.min(40, sq.length >> 1); k++) {
+          if (sq[sq.length - k].key !== key) continue;
+          let ok = true;
+          for (let i = 1; i <= k && ok; i++) ok = same(sq[sq.length - i], sq[sq.length - k - i]);
+          if (ok) {
+            hint = { k };
+            break;
+          }
+        }
+        req = { ...req, loopHint: hint };
+      }
       this.changed();
-      const res = await this.opts.chooser(this, pi, req);
+      let res = await this.opts.chooser(this, pi, req);
+      if (res && res.ctl === 'ansHintRepeat') {
+        this.ansRec = this.ansHist.seq.slice(-(res.k | 0)).map((x) => ({ ...x }));
+        res = { ctl: 'ansRepeat', n: res.n };
+      }
       // 選択の記録（誘発が続くループ用）
       if (res && res.ctl === 'ansRecStart') {
         this.ansRec = [];
@@ -1303,6 +1324,8 @@
       if (res && res.remember) (this.autoAnswers = this.autoAnswers || {})[key] = { ...rec, turn: this.turn };
       if (this.loopRec && this.loopRec.cur) this.loopRec.cur.answers.push(rec);
       if (this.ansRec) this.ansRec.push(rec);
+      this.ansHist.seq.push(rec);
+      if (this.ansHist.seq.length > 200) this.ansHist.seq.splice(0, 100);
       return ids;
     }
     // 選択肢の中身（カードなら名前・使う面・ゾーン、それ以外はラベル）
@@ -3482,6 +3505,12 @@
       }
     }
     // 待機中の能力を解決する。何かを解決している最中なら、終わってからまとめて解決
+    // 待機中の能力の一覧（同じものは×n）
+    pendSummary(list) {
+      const m = new Map();
+      for (const x of list) m.set(x.label, (m.get(x.label) || 0) + 1);
+      return [...m].map(([l, n]) => (n > 1 ? `${l} ×${n}` : l)).join(' / ');
+    }
     async resolvePending() {
       if (this.resolving > 0 || this.inPending) return;
       this.inPending = true;
@@ -3491,18 +3520,37 @@
           let mine = this.pending.filter((x) => x.controller === ap);
           if (!mine.length) mine = this.pending.filter((x) => x.controller !== ap);
           let item = mine[0];
-          if (mine.length > 1) {
-            const opts = mine.map((x, i) => ({ id: String(i), label: x.label, card: x.card }));
+          // 同じ能力はまとめる（×n）。同じものしか無ければ聞かずに順に解決する
+          const sig = (x) => `${x.controller}|${x.when}|${x.label}|${x.def ? x.def.name : ''}|${x.fn ? 'fn' : ''}`;
+          const groups = [];
+          for (const x of mine) {
+            const g0 = groups.find((g1) => g1.sig === sig(x));
+            if (g0) g0.items.push(x);
+            else groups.push({ sig: sig(x), items: [x] });
+          }
+          const batch = this._pendBatch && groups.find((g1) => g1.sig === this._pendBatch);
+          if (batch) item = batch.items[0];
+          else if (groups.length > 1) {
+            this._pendBatch = null;
+            const opts = [];
+            groups.forEach((g1, i) => {
+              const n = g1.items.length;
+              opts.push({ id: 'g' + i, label: n > 1 ? `${g1.items[0].label} ×${n}` : g1.items[0].label, card: g1.items[0].card });
+              if (n > 1) opts.push({ id: 'a' + i, label: `${g1.items[0].label} ×${n} をまとめて続けて解決`, card: g1.items[0].card });
+            });
             const others = this.pending.filter((x) => !mine.includes(x));
             const r = await this.choose(item.controller, {
               kind: 'mode',
-              prompt: `待機中の能力が${mine.length}つあります。次に解決するものを選んでください（残りはその後、また選べます）` + (others.length ? `\n相手側で待機中：${others.map((x) => x.label).join(' / ')}` : ''),
+              prompt: `待機中の能力が${mine.length}つあります。次に解決するものを選んでください（残りはその後、また選べます）` + (others.length ? `\n相手側で待機中：${this.pendSummary(others)}` : ''),
               options: opts,
               min: 1,
               max: 1,
             });
-            item = mine[+r[0]] || mine[0];
-          }
+            const id = String(r[0] || 'g0');
+            const g1 = groups[+id.slice(1)] || groups[0];
+            item = g1.items[0];
+            if (id[0] === 'a') this._pendBatch = g1.sig;
+          } else this._pendBatch = null;
           this.pending.splice(this.pending.indexOf(item), 1);
           this.log(`▶ 解決：${item.label}`);
           this.resolving = (this.resolving || 0) + 1;
@@ -3523,6 +3571,7 @@
         }
       } finally {
         this.inPending = false;
+        this._pendBatch = null;
       }
     }
 

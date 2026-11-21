@@ -382,7 +382,7 @@
     );
     // 待機中の能力（処理の順番待ち）
     if (g.pending && g.pending.length) {
-      $('#turninfo').append(el('div', { class: 'pending-list', text: '待機中：' + g.pending.map((x, i) => `${i + 1}. ${x.label}`).join('　') }));
+      $('#turninfo').append(el('div', { class: 'pending-list', text: '待機中：' + g.pendSummary(g.pending) }));
     }
     $('#btn-end').disabled = !(isHuman(g.active) && g.winner == null);
     $('#btn-undo').disabled = !g.canUndo() || g.p[g.history[g.history.length - 1].active].isAI;
@@ -697,6 +697,20 @@
           render();
         };
         const bar = el('div', { class: 'ansloop' });
+        if (req.loopHint && !g.ansRec) {
+          const k = req.loopHint.k;
+          bar.append(
+            el('button', {
+              class: 'primary',
+              text: `↻ ループを検出（1周＝${k}回の選択）：まとめてくり返す`,
+              title: '直前の選択が同じ並びで2回続きました。同じ選び方を指定した周回数だけ自動でくり返します',
+              onclick: () => {
+                const n = parseInt(prompt(`同じ選び方（1周＝${k}回の選択）をあと何周くり返しますか？`, '10'), 10);
+                if (n > 0) ctl({ ctl: 'ansHintRepeat', k, n });
+              },
+            })
+          );
+        }
         if (!g.ansRec) {
           bar.append(el('button', { text: '⏺ ここから選択を記録', title: 'この質問から1周分の選択を記録します（処理が続くループ用）', onclick: () => ctl({ ctl: 'ansRecStart' }) }));
         } else {
