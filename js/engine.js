@@ -1081,8 +1081,9 @@
       if (from === 'shields' && zone !== 'shields') {
         if (zone === 'hand' && this.isSabakiCrest(card)) this._stackToHand = (this._stackToHand || []).concat(card);
         card.faceUp = false;
-        for (const c of this.p[card.owner].battle) {
-          if (parsed(c.def).kw.zRush) {
+        // Zラッシュ：どちらのプレイヤーのシールドでも、離れたらハイパーモード
+        for (const c of [...this.p[0].battle, ...this.p[1].battle]) {
+          if (this.started && this.kw(c).zRush) {
             if (!c.hyper) this.log(`「${c.def.name}」のZラッシュ：次の自分のターンのはじめまでハイパーモード`);
             c.hyper = true;
             c.hyperUntil = this.nextTurnOf(c.owner);
@@ -2614,10 +2615,11 @@
         await this.fireHand(pi, 'allyEnter', (ab) => ab.ally && this.allyMatch(card, ab.ally.race));
         await this.resolvePending();
         for (const src of this.permanents(pi)) {
-          if (src === card || !this.isOnField(src)) continue;
+          if (!this.isOnField(src)) continue;
           for (const ab of this.abilities(src)) {
             if (ab.when !== 'allyEnter' || !ab.ally) continue;
             const al = ab.ally;
+            if (src === card && al.others) continue;
             if (!this.allyMatch(card, al.race)) continue;
             if (ab.cond) this._eventCard = card;
             if (ab.cond && !this.condOk2(pi, ab.cond, src)) continue;

@@ -2180,7 +2180,7 @@
           const am = head.replace(/^各ターンに(1|一)度、/, '〔1〕').match(/^(〔1〕)?自分の(他の)?([^。]{1,30}?)が(バトルゾーンに)?(出た|攻撃する|破壊された|離れた)(時|とき)、/);
           if (am && !/この|ターン|相手/.test(am[3])) {
             whens = [{ 出た: 'allyEnter', 攻撃する: 'allyAttack', 破壊された: 'allyDestroyed', 離れた: 'allyLeft' }[am[5]]];
-            mAlly = { race: am[3].replace(/(・)?クリーチャー$/, '').replace(/^クリーチャー$/, '') || null, others: !!am[2] || am[5] === '出た', perTurn: am[1] ? 1 : 0 };
+            mAlly = { race: am[3].replace(/(・)?クリーチャー$/, '').replace(/^クリーチャー$/, '') || null, others: !!am[2], perTurn: am[1] ? 1 : 0 };
           } else {
             const th = parseTriggerHead(head);
             if (th) {
@@ -2450,7 +2450,7 @@
         const what = ally[4].replace(/(・)?クリーチャー$/, '').replace(/^クリーチャー$/, '');
         const actsA = parseEffects(ally.input.slice(ally[0].length));
         if (actsA) {
-          A.push({ when: 'allyEnter', acts: actsA, ally: { race: what || null, others: !!ally[3] || true, perTurn: ally[2] ? +ally[2] : 0 }, ...(allyCond ? { cond: allyCond } : {}), text: raw });
+          A.push({ when: 'allyEnter', acts: actsA, ally: { race: what || null, others: !!ally[3], perTurn: ally[2] ? +ally[2] : 0 }, ...(allyCond ? { cond: allyCond } : {}), text: raw });
           continue;
         }
       }
