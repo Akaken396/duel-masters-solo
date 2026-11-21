@@ -952,6 +952,16 @@
 
     log(msg) {
       this.logs.push(msg);
+      // ループのくり返し中は画面のログを出さない（終わったらまとめて知らせる）
+      if (this.loopPlay && !/^■|ループ/.test(msg)) {
+        this._loopHidden = (this._loopHidden || 0) + 1;
+        return;
+      }
+      if (this._loopHidden) {
+        const n = this._loopHidden;
+        this._loopHidden = 0;
+        this.opts.onLog?.(`（ループ中のログ${n}行は省略）`);
+      }
       this.opts.onLog?.(msg);
     }
 
@@ -968,6 +978,8 @@
     async pause(mult = 1) {
       if (this.aborted) throw new GameOver(null, '中断');
       this.changed();
+      // ループのくり返し中は待たない
+      if (this.loopPlay) return;
       const d = this.opts.aiDelay || 0;
       if (d > 0) await sleep(d * mult);
     }
