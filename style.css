@@ -265,3 +265,6 @@ header nav button.on { background: var(--panel2); border-color: var(--line); }
 /* シールドの束（上に重なった表向きのカード） */
 .shstack { position: relative; display: inline-block; }
 .shstack .n { position: absolute; right: 2px; bottom: 2px; font-size: 10px; padding: 0 4px; border-radius: 6px; background: #1d4ed8; color: #fff; }
+
+/* 選択画面の「同じ答え」 */
+.modal label.remember { display: block; font-size: 12px; opacity: 0.85; margin: 2px 0 6px; cursor: pointer; }

@@ -1248,8 +1248,139 @@
 
     async choose(pi, req) {
       if (this.p[pi].isAI) return this.AI.choose(this, pi, req);
+      const key = this.answerKey(req);
+      // ループの再生中：記録した答えを使う
+      if (this.loopPlay) {
+        const rec = this.loopPlay.answers.shift();
+        const ids = rec && this.mapAnswer(req, rec);
+        if (ids) return ids;
+        this.loopPlay.broken = '選択肢が記録と違う';
+        this.log(`ループ再生：「${req.prompt}」の選択肢が記録と合わないので、ここからは手で選んでください`);
+        this.loopPlay.answers = [];
+      }
+      // 「このターン、同じ質問には同じ答え」
+      const aa = (this.autoAnswers || {})[key];
+      if (aa && aa.turn === this.turn && !this.loopPlay) {
+        const ids = this.mapAnswer(req, aa);
+        if (ids) {
+          this.log(`自動で同じ答え：${(aa.labels || []).join('、') || '（なし）'}`);
+          return ids;
+        }
+      }
       this.changed();
-      return this.opts.chooser(this, pi, req);
+      const res = await this.opts.chooser(this, pi, req);
+      const ids = Array.isArray(res) ? res : res && res.ids ? res.ids : res;
+      const rec = { kind: req.kind, prompt: req.prompt, ids: (ids || []).slice(), labels: (ids || []).map((id) => { const o = (req.options || []).find((x) => String(x.id) === String(id)); return o ? (o.card ? o.card.def.name : o.label) : String(id); }) };
+      if (res && res.remember) (this.autoAnswers = this.autoAnswers || {})[key] = { ...rec, turn: this.turn };
+      if (this.loopRec && this.loopRec.cur) this.loopRec.cur.answers.push(rec);
+      return ids;
+    }
+    answerKey(req) {
+      return `${req.kind}|${String(req.prompt || '').replace(/[0-9０-９]+/g, '#')}`;
+    }
+    // 記録した答えを今の選択肢に当てはめる（同じidか、同じカード名・ラベル）
+    mapAnswer(req, rec) {
+      const opts = req.options || [];
+      if (!opts.length) return rec.ids.length ? null : [];
+      const used = new Set();
+      const out = [];
+      for (let i = 0; i < rec.ids.length; i++) {
+        let o = opts.find((x) => String(x.id) === String(rec.ids[i]) && !used.has(x.id));
+        if (!o) o = opts.find((x) => !used.has(x.id) && (x.card ? x.card.def.name : x.label) === rec.labels[i]);
+        if (!o) return null;
+        used.add(o.id);
+        out.push(o.id);
+      }
+      const min = req.min ?? 0;
+      if (out.length < Math.min(min, opts.length)) return null;
+      return out;
+    }
+    // ===== ループの記録と再生 =====
+    loopStart() {
+      this.loopRec = { steps: [], cur: null };
+      this.log('ループ記録を開始した（1周分を操作してから「記録終了」）');
+    }
+    loopStop() {
+      if (!this.loopRec) return null;
+      const steps = this.loopRec.steps;
+      this.loopRec = null;
+      this.loopSaved = steps.length ? steps : null;
+      this.log(`ループ記録を終了した（${steps.length}手）`);
+      return this.loopSaved;
+    }
+    // 人間の操作（記録できる形）
+    async actRec(step) {
+      const run = () => this.runStep(step);
+      if (this.loopRec) {
+        const st = { ...step, answers: [] };
+        this.loopRec.cur = st;
+        await this.act(async () => {
+          const ok = await run();
+          if (ok !== false) this.loopRec && this.loopRec.steps.push(st);
+        }, step.label || '操作');
+        if (this.loopRec) this.loopRec.cur = null;
+        return;
+      }
+      await this.act(run, step.label || '操作');
+    }
+    async runStep(step) {
+      const pi = step.pi;
+      switch (step.t) {
+        case 'play': return this.play(pi, step.uid);
+        case 'playTwin': return this.playTwin(pi, step.uid);
+        case 'charge': return this.chargeMana(pi, step.uid);
+        case 'tapAbility': return this.useTapAbility(pi, step.uid);
+        case 'attack': return this.attack(pi, step.uid, step.target);
+        case 'graveUse': return this.playFromGrave(pi, step.uid);
+        default: return false;
+      }
+    }
+    // 記録したループをN回くり返す。手順が取れなくなったら止める
+    async loopReplay(n) {
+      const steps = this.loopSaved;
+      if (!steps || !steps.length || this.busy) return 0;
+      let done = 0;
+      this.busy = false;
+      this.snapshot('ループ再生');
+      const L0 = this.logs.length;
+      for (let i = 0; i < n && this.winner == null; i++) {
+        let okAll = true;
+        for (const st of steps) {
+          const f = this.find(st.uid);
+          if (!f) {
+            okAll = false;
+            break;
+          }
+          this.loopPlay = { answers: st.answers.map((x) => ({ ...x })), broken: null };
+          this.busy = true;
+          let r;
+          try {
+            r = await this.runStep(st);
+          } catch (e) {
+            if (!(e instanceof GameOver)) {
+              console.error(e);
+              this.log('エラー: ' + e.message);
+            }
+            r = false;
+          } finally {
+            this.busy = false;
+          }
+          const br = this.loopPlay && this.loopPlay.broken;
+          this.loopPlay = null;
+          if (r === false || br) {
+            okAll = false;
+            break;
+          }
+        }
+        if (!okAll) {
+          this.log(`ループ再生：${i + 1}周目で同じ手順が取れなくなったので止めた`);
+          break;
+        }
+        done++;
+      }
+      this.log(`■ ループを${done}回くり返した（${steps.length}手×${done}回）`);
+      this.changed();
+      return done;
     }
     // 複数の選択肢から、先に処理内容をすべて選ぶ（repeat: 同じものを複数回選べる）
     async chooseModes(pi, prompt, options, o = {}) {

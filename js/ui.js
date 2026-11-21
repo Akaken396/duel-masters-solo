@@ -281,6 +281,25 @@
     for (const m of game.logs) addLog(m);
     render();
   });
+  $('#btn-loop-rec').addEventListener('click', () => {
+    if (!game) return;
+    if (game.loopRec) {
+      const st = game.loopStop();
+      $('#btn-loop-rec').textContent = '⏺ ループ記録';
+      $('#btn-loop-play').disabled = !st;
+    } else {
+      game.loopStart();
+      $('#btn-loop-rec').textContent = '■ 記録終了';
+    }
+    render();
+  });
+  $('#btn-loop-play').addEventListener('click', async () => {
+    if (!game || !game.loopSaved) return;
+    const n = parseInt(prompt(`記録したループ（${game.loopSaved.length}手）を何回くり返しますか？`, '5'), 10);
+    if (!(n > 0)) return;
+    await game.loopReplay(n);
+    render();
+  });
   $('#btn-quit').addEventListener('click', () => {
     if (game && game.winner == null && !confirm('対戦をやめますか？')) return;
     quitGame();
@@ -355,6 +374,9 @@
     }
     $('#btn-end').disabled = !(isHuman(g.active) && g.winner == null);
     $('#btn-undo').disabled = !g.canUndo() || g.p[g.history[g.history.length - 1].active].isAI;
+    $('#btn-loop-rec').textContent = g.loopRec ? '■ 記録終了' : '⏺ ループ記録';
+    $('#btn-loop-rec').disabled = !(isHuman(g.active) && g.winner == null);
+    $('#btn-loop-play').disabled = !(g.loopSaved && isHuman(g.active) && g.winner == null && !g.loopRec);
     for (const pi of [0, 1]) renderSide(pi);
   }
 
@@ -503,17 +525,17 @@
       {
         label: `使う（コスト${c.def.cost}）${why}`,
         disabled: !g.canPlay(pi, c),
-        run: () => g.act(() => g.play(pi, c.uid)),
+        run: () => g.actRec({ t: 'play', pi, uid: c.uid, label: `「${c.def.name}」を使う` }),
       },
       g.twin(c) && {
         label: g.twin(c).type === 'field' ? `裏面「${g.twin(c).name}」で出す（コスト${g.twin(c).cost}）` : `呪文側「${g.twin(c).name}」を使う（コスト${g.twin(c).cost}）`,
         disabled: !g.canPlayTwin(pi, c),
-        run: () => g.act(() => g.playTwin(pi, c.uid)),
+        run: () => g.actRec({ t: 'playTwin', pi, uid: c.uid, label: `「${c.def.name}」の呪文側を使う` }),
       },
       {
         label: g.manaCharged ? 'マナに置く（このターンは置いた）' : 'マナに置く',
         disabled: !g.canCharge(pi, c),
-        run: () => g.act(() => g.chargeMana(pi, c.uid)),
+        run: () => g.actRec({ t: 'charge', pi, uid: c.uid, label: 'マナに置く' }),
       },
     ]);
   }
@@ -523,7 +545,7 @@
     const g = game;
     const pi = c.owner;
     const ts = g.attackTargets(c);
-    const extra = g.canTapAbility(c) ? [{ label: '攻撃するかわりに、タップして能力を使う', run: () => g.act(() => g.useTapAbility(pi, c.uid), 'タップ能力') }] : [];
+    const extra = g.canTapAbility(c) ? [{ label: '攻撃するかわりに、タップして能力を使う', run: () => g.actRec({ t: 'tapAbility', pi, uid: c.uid, label: 'タップ能力' }) }] : [];
     if (g.canHyperize(pi, c)) extra.push({ label: `ハイパー化する（自分の他のクリーチャーを${g.kw(c).hyperize.tapOthers}体タップ）`, run: () => g.act(() => g.hyperize(pi, c.uid)) });
     if (g.canCross(pi, c)) extra.push({ label: `クリーチャーにクロスする（コスト${c.def.cost}）`, run: () => g.act(() => g.crossGear(pi, c.uid)) });
     openMenu(
@@ -534,9 +556,9 @@
         t === 'player'
           ? {
               label: `${g.opp(pi).name}を攻撃（シールド${g.opp(pi).shields.length}）`,
-              run: () => g.act(() => g.attack(pi, c.uid, 'player')),
+              run: () => g.actRec({ t: 'attack', pi, uid: c.uid, target: 'player', label: '攻撃' }),
             }
-          : { label: `「${t.def.name}」(${g.power(t)})を攻撃`, run: () => g.act(() => g.attack(pi, c.uid, t.uid)) }
+          : { label: `「${t.def.name}」(${g.power(t)})を攻撃`, run: () => g.actRec({ t: 'attack', pi, uid: c.uid, target: t.uid, label: '攻撃' }) }
       ))
     );
   }
@@ -580,7 +602,7 @@
       { label: '上の1枚をシールドへ', disabled: !top, run: () => g.manualMove(top.uid, 'shields') },
       { label: '上の1枚を墓地へ', disabled: !top, run: () => g.manualMove(top.uid, 'grave') },
       { label: '山札をすべて見る', run: () => pileModal(pi, 'deck') },
-      ...(top && isHuman(pi) && g.active === pi && g.canPlayFromGrave(pi, top) ? [{ label: `上の1枚「${top.def.name}」を使う（能力）`, run: () => g.act(() => g.playFromGrave(pi, top.uid)) }] : []),
+      ...(top && isHuman(pi) && g.active === pi && g.canPlayFromGrave(pi, top) ? [{ label: `上の1枚「${top.def.name}」を使う（能力）`, run: () => g.actRec({ t: 'graveUse', pi, uid: top.uid, label: '墓地から使う' }) }] : []),
     ]);
   }
 
@@ -615,7 +637,7 @@
           e.addEventListener('click', () => {
             g.opts.onChange = prev;
             closeModal();
-            g.act(() => g.playFromGrave(pi, c.uid));
+            g.actRec({ t: 'graveUse', pi, uid: c.uid, label: '墓地から使う' });
           });
         }
         box.append(el('div', { class: 'opt' }, e, usable ? el('div', { text: 'クリックで使う' }) : null));
@@ -640,13 +662,15 @@
     return new Promise((resolve) => {
       const who = mode === 'solo' ? `[${g.p[pi].name}] ` : '';
       const selected = new Set();
+      const remember = el('input', { type: 'checkbox' });
       const done = (ids) => {
         closeModal();
-        resolve(ids);
+        resolve(remember.checked ? { ids, remember: true } : ids);
         render();
       };
       const head = el('h3', { text: who + req.prompt });
       const kids = [head];
+      if (req.kind !== 'reveal') kids.push(el('label', { class: 'remember', title: 'このターンの間、同じ質問が出たら自動で同じ答えを選びます' }, remember, el('span', { text: ' このターン、同じ質問には同じ答え' })));
 
       if (req.kind === 'modes') {
         // 先に処理内容をすべて選ぶ。選んだ順に処理する
