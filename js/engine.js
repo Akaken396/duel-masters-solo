@@ -532,6 +532,7 @@
       if (c.turboRush && !(card && me._brokeBy && me._brokeBy[this.turn] && [...me._brokeBy[this.turn]].some((u) => u !== card.uid))) return false;
       if (c.anyNoShield && me.shields.length && op.shields.length) return false;
       if (c.evRace && !(this._eventCard && ((this._eventCard.def.races || []).join('/')).includes(c.evRace))) return false;
+      if (c.manaWhatGE && me.mana.filter((x) => this.fitLook(x, G.TextParse.lookCond(c.manaWhatGE.what))).length < c.manaWhatGE.n) return false;
       if (c.evTwin && !(this._eventCard && this._eventCard.def.twin)) return false;
       if (c.evNotFromHand && !(this._eventCard && this._eventCard._enterFrom !== 'hand')) return false;
       if (c.spellsGE != null && (this.spellsThisTurn || [0, 0])[pi] < c.spellsGE) return false;
@@ -4350,6 +4351,19 @@
           this.log(`${nm}: コスト${cs}の${op.name}のクリーチャー${tg.length}体と、表向きにした3枚を山札の下に置いた`);
           break;
         }
+        case 'attachAuraFromGrave': {
+          if (this.zoneOf(src) !== 'battle') break;
+          const pool = me.grave.filter((c) => attachKind(c.def) === 'aura' && (+c.def.cost || 0) <= a.maxCost);
+          const r = await this.pickCards(pi, pool, 1, true, `${nm}: 墓地からこのクリーチャーに付けるオーラ`, 'recover');
+          if (!r[0]) break;
+          this.moveTo(r[0], 'battle');
+          r[0].attachedTo = src.uid;
+          r[0].sick = false;
+          r[0].enteredTurn = this.turn;
+          this.log(`${me.name}は墓地のオーラ「${r[0].def.name}」を「${src.def.name}」に付けた`);
+          await this.trigger(r[0], 'summon', pi);
+          break;
+        }
         case 'useDyn': {
           const lim = me[a.cmp].filter((c) => c !== src).length;
           const pool = me.hand.filter((c) => c !== src && (+c.def.cost || 0) <= lim && (!a.nonCreature || NON_CREATURE.includes(c.def.type)) && !this.locked(pi, c.def));
@@ -4465,7 +4479,7 @@
           }
           break;
         case 'useFromHand': {
-          const pool = me.hand.filter((c) => c !== src && (+c.def.cost || 0) <= a.maxCost && (!a.nonCreature || NON_CREATURE.includes(c.def.type)) && !this.locked(pi, c.def));
+          const pool = me.hand.filter((c) => c !== src && (+c.def.cost || 0) <= a.maxCost && (!a.nonCreature || NON_CREATURE.includes(c.def.type)) && (!a.cond || this.fitLook(c, a.cond)) && !this.locked(pi, c.def));
           const r = await this.pickCards(pi, pool, a.n, true, `${nm}: 手札からコストなしで使うカード`, 'recover');
           for (const c of r) await this.putIntoPlay(pi, c, true);
           break;

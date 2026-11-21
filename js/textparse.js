@@ -17,6 +17,8 @@
       .replace(/[．]/g, '。')
       .replace(/手札をすべて捨て、その後、/g, '手札をすべて捨てる。その後、')
       .replace(/各ターン(に)?(一|1)度、/g, '各ターンに1度、')
+      .replace(/Jトルネードしてもよい。そうしたら、/g, '自分の他のジョーカーズ・クリーチャーを1体、手札に戻してもよい。そうしたら、')
+      .replace(/Jトルネードする。/g, '自分の他のジョーカーズ・クリーチャーを1体、手札に戻す。')
       .replace(/^([^、。\n]+?)(も)?(ない|ある|いる|されている)時、(このクリーチャーのパワーは)/gm, (x, a1, mo, v, rest) => a1 + (mo || '') + ({ ない: 'なければ', ある: 'あれば', いる: 'いれば', されている: 'されていれば' }[v]) + '、' + rest)
       .replace(/^このカードが墓地に置かれた時、それが墓地に置かれる直前に進化クリーチャーの下にあった場合、/gm, '墓地へ下から置かれた時〔〕、')
       .replace(/相手のクリーチャーが、召喚以外の方法で/g, '相手のクリーチャーが召喚以外の方法で')
@@ -506,6 +508,9 @@
     if ((m = s.match(/^(この|その)ターン、そのクリーチャーの能力をすべて無視する$/))) return { act: 'lastIgnoreAbilities' };
     if (/^次の自分のターンのはじめまで、相手のクリーチャーの能力をすべて無視する$/.test(s)) return { act: 'oppIgnoreAllNext' };
     if ((m = s.match(/^そのクリーチャーのコスト以下の、?((光|水|闇|火|自然)(または|か)?)*の?クリーチャーを1体、自分の(手札|手札または超次元ゾーン)から(バトルゾーンに)?出(す|してもよい)$/))) return { act: 'putEventCostLE', civs: (s.split('コスト以下の')[1].split('クリーチャー')[0].match(/光|水|闇|火|自然/g) || []).map((x) => ({ 光: 'light', 水: 'water', 闇: 'darkness', 火: 'fire', 自然: 'nature' }[x])), zones: /超次元/.test(m[4]) ? ['hand', 'hyper'] : ['hand'] };
+    if (/^その(Jトルネードされた)?クリーチャーの「このクリーチャーが(バトルゾーンに)?出た時」で始まる能力を1つ使(う|ってもよい)$/.test(s)) return { act: 'useTrigger', from: 'last', when: 'summon', optional: /もよい/.test(s) };
+    if ((m = s.match(/^Jack-Potカードまたはコスト(\d+)以下の呪文を1枚、自分の手札からコストを支払わずに実行してもよい$/))) return { act: 'useFromHand', maxCost: 99, n: 1, cond: { any: [{ nameHas: 'Jack-Pot' }, { types: ['spell'], maxCost: +m[1] }] } };
+    if ((m = s.match(/^コスト(\d+)以下のオーラを1つ、自分の墓地からこのクリーチャーに付ける$/))) return { act: 'attachAuraFromGrave', maxCost: +m[1] };
     if (/^シールドを1つ選び、ブレイクしてもよい$/.test(s)) return { act: 'breakAnyOne', optional: true };
     if (/^このクリーチャーに含まれるカードと同じ枚数の?カードを引く$/.test(s)) return { act: 'drawSelfCards' };
     if (/^その「このクリーチャーが(バトルゾーンに)?出た時」で始まる能力を1つ使(う|ってもよい)$/.test(s)) return { act: 'useTrigger', from: 'event', when: 'summon', optional: true };
@@ -1182,6 +1187,14 @@
     if (/^このクリーチャーにクロスギアがクロスされていれば$/.test(ct)) return { crossedGE: 1 };
     if (/^他にウェーブストライカーが2体以上あれば$/.test(ct)) return { waveGE: 2 };
     if (/^シールド・フォースのシールドがあれば$/.test(ct)) return { sfShield: true };
+    const tei = ct.match(/^(.+?)ていて、(.+)$/);
+    if (tei) {
+      const c1 = /^このクリーチャーがこのターン(バトルゾーンに)?出$/.test(tei[1]) ? { enteredThisTurn: true } : parseCondText(tei[1] + 'ていれば');
+      const c2 = parseCondText(tei[2]);
+      if (c1 && c2) return { and: [c1, c2] };
+    }
+    if ((mm0 = ct.match(/^自分のマナゾーンに([^、。]+?)が(\d+)(体|枚|つ)以上(あれば|あり)$/)) && !/カード$|文明/.test(mm0[1])) return { manaWhatGE: { what: mm0[1], n: +mm0[2] } };
+    if (/^これが追加ターンでなければ$/.test(ct)) return { notExtraTurn: true };
     if (/^S・トリガー・プラスの条件を満たしていれば$/.test(ct)) return { stPlus: true };
     if (/^ターボラッシュの条件を満たしていれば$/.test(ct)) return { turboRush: true };
     if (/^シールドが1つもないプレイヤーがいれば$/.test(ct)) return { anyNoShield: true };
