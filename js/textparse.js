@@ -2279,12 +2279,12 @@
         }
       }
       const cc = line.match(/(バトルゾーンに)?自分の([^、。]+?)が(\d+)(体|枚|つ)以上あれば、/);
-      if (cc && !/マナゾーンに/.test(cc[0]) && !/異なる$/.test(line.slice(0, cc.index))) {
+      if (cc && !/マナゾーンに|墓地に|手札に|シールドゾーンに|山札に/.test(cc[0]) && !/異なる$/.test(line.slice(0, cc.index)) && !/。/.test(line.slice(0, cc.index))) {
         cond = { ...(cond || {}), count: { what: cc[2], n: +cc[3] } };
         line = line.replace(cc[0], '');
       }
       const mc = line.match(/自分のマナゾーンに(光|水|闇|火|自然)のカードが(\d+)枚以上あれば、/);
-      if (mc) {
+      if (mc && !/。/.test(line.slice(0, mc.index))) {
         cond = { manaCiv: CIVJ[mc[1]], n: +mc[2] };
         line = line.replace(mc[0], '');
       }

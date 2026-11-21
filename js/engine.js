@@ -790,6 +790,7 @@
       return cv === 'multi' ? cs.length >= 2 : cs.includes(cv);
     }
     isCreatureDef(card) {
+      if (card.def.twin && card.def.twin.type === 'creature' && this.zoneOf(card) !== 'battle') return true;
       return !NON_CREATURE.includes(card.def.type) && !attachKind(card.def);
     }
     isCreature(card) {
