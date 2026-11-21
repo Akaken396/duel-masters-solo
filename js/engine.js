@@ -782,6 +782,26 @@
     manual(card, def = card.def) {
       return parsed(def).manual;
     }
+    // カードの呪文側（ツインパクトの呪文側も含む）。条件 fit に合うものだけ
+    spellDefs(c, fit) {
+      return [c.def, c.def.twin].filter((d) => d && d.type === 'spell' && (!fit || fit(d)));
+    }
+    async castSpellOf(pi, c, fit, pmt) {
+      const ds = this.spellDefs(c, fit);
+      if (!ds.length) return false;
+      let d = ds[0];
+      if (ds.length > 1 && !this.p[pi].isAI) {
+        const ids = await this.chooseModes(pi, pmt || `「${c.def.name}」のどちらの呪文を唱えますか？`, ds.map((x, i) => ({ id: String(i), label: x.name })), { min: 1, max: 1, aiPick: ['0'] });
+        d = ds[+ids[0]] || ds[0];
+      }
+      this._castDepth = (this._castDepth || 0) + 1;
+      try {
+        await this.putIntoPlay(pi, c, true, d);
+      } finally {
+        this._castDepth--;
+      }
+      return true;
+    }
     civName(cv) {
       return { light: '光', water: '水', darkness: '闇', fire: '火', nature: '自然' }[cv] || cv;
     }
@@ -2381,6 +2401,7 @@
         await this.notifyAll('onAnyCast', card, def);
         await this.fireAll(1 - pi, 'oppPlay', card);
         card._castFrom = castFrom;
+        card._castDef = def;
         await this.fireAll(pi, 'allyCast', card);
         if (this.isSabakiCrest(card)) for (const s2 of this.permanents(pi)) if (this.isOnField(s2) && this.hasAbility(s2, 'allyCastCrest')) await this.trigger(s2, 'allyCastCrest', pi, s2.def, card, { defer: true });
         for (const src of this.permanents(pi)) if (this.isOnField(src) && this.hasAbility(src, 'selfPlay')) await this.trigger(src, 'selfPlay', pi, src.def, card, { defer: true });
@@ -3891,15 +3912,11 @@
         case 'castFromGrave': {
           if ((this._castDepth || 0) > 6) break; // 念のための無限ループ防止
           const graves = a.anyGrave ? [...me.grave, ...op.grave] : me.grave;
-          const pool = graves.filter((c) => c !== src && c.def.type === 'spell' && (a.maxCost == null || (+c.def.cost || 0) <= a.maxCost) && (!a.civ || (c.def.civs || []).includes(a.civ)) && !this.locked(pi, c.def));
+          const fitG = (d) => (a.maxCost == null || (+d.cost || 0) <= a.maxCost) && (!a.civ || (d.civs || []).includes(a.civ)) && !this.locked(pi, d);
+          const pool = graves.filter((c) => c !== src && this.spellDefs(c, fitG).length);
           const r = await this.pickCards(pi, pool, a.n, a.optional, `${nm}: 墓地から唱える呪文`, 'recover');
           for (const c of r) {
-            this._castDepth = (this._castDepth || 0) + 1;
-            try {
-              await this.putIntoPlay(pi, c, true);
-            } finally {
-              this._castDepth--;
-            }
+            await this.castSpellOf(pi, c, fitG);
             if (a.bottomAfter && this.zoneOf(c) === 'grave') {
               this.moveTo(c, 'deck', { top: false });
               this.log(`「${c.def.name}」は唱えた後、墓地のかわりに山札の下に置かれた`);
@@ -4418,23 +4435,35 @@
           break;
         }
         case 'castFromMana': {
-          const pool = me.mana.filter((c) => c.def.type === 'spell' && (+c.def.cost || 0) <= a.maxCost && (!a.civs || (c.def.civs || []).some((x) => a.civs.includes(x))) && !this.locked(pi, c.def));
+          const fitM = (d) => (+d.cost || 0) <= a.maxCost && (!a.civs || (d.civs || []).some((x) => a.civs.includes(x))) && !this.locked(pi, d);
+          const pool = me.mana.filter((c) => this.spellDefs(c, fitM).length);
           const r = await this.pickCards(pi, pool, 1, !!a.optional, `${nm}: マナゾーンからコストなしで唱える呪文`, 'recover');
-          if (r[0]) await this.putIntoPlay(pi, r[0], true);
+          if (r[0]) await this.castSpellOf(pi, r[0], fitM);
           break;
         }
         case 'recastEventFromGrave': {
           const c = this._eventCard;
-          if (!c || c._castFrom !== 'hand' || this.zoneOf(c) !== 'grave' || this.locked(pi, c.def)) break;
-          if (!(await this.yesNo(pi, `${nm}: 「${c.def.name}」を墓地からもう一度コストを支払わずに唱えますか？`, c))) break;
-          await this.putIntoPlay(pi, c, true);
+          const cd = c && (c._castDef || c.def);
+          if (!c || c._castFrom !== 'hand' || this.zoneOf(c) !== 'grave' || !cd || cd.type !== 'spell' || this.locked(pi, cd)) break;
+          // 各ターン1度：使った時だけ数える（断ったら、次に唱えた時にまた使える）
+          src.abUsed = src.abUsed || {};
+          if (src.abUsed.recast === this.turn) break;
+          if (!(await this.yesNo(pi, `${nm}: 「${cd.name}」を墓地からもう一度コストを支払わずに唱えますか？`, c))) break;
+          src.abUsed.recast = this.turn;
+          this._castDepth = (this._castDepth || 0) + 1;
+          try {
+            await this.putIntoPlay(pi, c, true, cd);
+          } finally {
+            this._castDepth--;
+          }
           break;
         }
         case 'castFromBothGraves': {
-          const pool = [...me.grave, ...op.grave].filter((c) => c.def.type === 'spell' && (+c.def.cost || 0) <= a.maxCost && !this.locked(pi, c.def));
+          const fitB = (d) => (+d.cost || 0) <= a.maxCost && !this.locked(pi, d);
+          const pool = [...me.grave, ...op.grave].filter((c) => this.spellDefs(c, fitB).length);
           const r = await this.pickCards(pi, pool, Math.min(a.n, pool.length), true, `${nm}: 両方の墓地から唱える呪文（コスト${a.maxCost}以下を${a.n}枚まで）`, 'recover');
           for (const c of r) {
-            await this.putIntoPlay(pi, c, true);
+            await this.castSpellOf(pi, c, fitB);
             if (this.zoneOf(c) === 'grave') {
               this.moveTo(c, 'deck', { top: false });
               this.log(`「${c.def.name}」を持ち主の山札の一番下に置いた`);
@@ -4615,15 +4644,11 @@
           break;
         }
         case 'castFromHandOrGrave': {
-          const pool = [...me.hand, ...me.grave].filter((c) => c !== src && c.def.type === 'spell' && (+c.def.cost || 0) <= a.maxCost && (!a.civs.length || (c.def.civs || []).some((x) => a.civs.includes(x))) && !this.locked(pi, c.def));
+          const fitH = (d) => (+d.cost || 0) <= a.maxCost && (!a.civs.length || (d.civs || []).some((x) => a.civs.includes(x))) && !this.locked(pi, d);
+          const pool = [...me.hand, ...me.grave].filter((c) => c !== src && this.spellDefs(c, fitH).length);
           const r = await this.pickCards(pi, pool, a.n, true, `${nm}: 手札か墓地からコストなしで唱える呪文`, 'recover');
           for (const c of r) {
-            this._castDepth = (this._castDepth || 0) + 1;
-            try {
-              await this.putIntoPlay(pi, c, true);
-            } finally {
-              this._castDepth--;
-            }
+            await this.castSpellOf(pi, c, fitH);
             if (a.bottomAfter && this.zoneOf(c) === 'grave') {
               this.moveTo(c, 'deck', { top: false });
               this.log(`「${c.def.name}」は唱えた後、山札の下に置かれた`);

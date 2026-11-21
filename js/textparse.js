@@ -2450,7 +2450,7 @@
         continue;
       }
       if (/^自分の手札から呪文を唱えた時、その呪文を自分の墓地からもう(1|一)度、コストを支払わずに唱えてもよい。この能力は各ターン(1|一)度しか使えない。?$/.test(line)) {
-        A.push({ when: 'allyCast', acts: [{ act: 'recastEventFromGrave' }], cond: { oncePerTurn: true }, text: raw });
+        A.push({ when: 'allyCast', acts: [{ act: 'recastEventFromGrave' }], text: raw });
         continue;
       }
       if (/^ブレイクボーナス〔〕、/.test(line)) {
