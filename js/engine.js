@@ -1042,6 +1042,7 @@
     // カードを owner の指定ゾーンへ移す（ルール無視の基本操作）
     moveTo(card, zone, o) {
       o = o || {};
+      card._zoneSeq = (card._zoneSeq || 0) + 1; // ゾーンを移ったら別のカード扱い
       // サイキック・ドラグハートは超次元ゾーンへ、GRクリーチャーは超GRの下へ戻る
       const home = homeZone(card.frontDef || card.def);
       if (card.frontDef && zone !== 'battle') this.unflip(card);
@@ -3230,7 +3231,7 @@
       if (!this.hasAbility(card, when, def)) return;
       this.pending = this.pending || [];
       const zj = { hand: '手札の', grave: '墓地の', mana: 'マナの', shields: 'シールドの', hyper: '超次元の' }[this.zoneOf(card)] || '';
-      this.pending.push({ card, when, controller, def, extra, label: `【${this.p[controller].name}】${zj}「${def.name}」の${WHEN_J[when] || when}` });
+      this.pending.push({ card, when, controller, def, extra, seq: card._zoneSeq || 0, label: `【${this.p[controller].name}】${zj}「${def.name}」の${WHEN_J[when] || when}` });
       if (!o.defer) await this.resolvePending();
     }
     // 任意の処理を待機させる（場のカードの「〜した時」能力など）
@@ -3333,7 +3334,15 @@
           this.resolving = (this.resolving || 0) + 1;
           try {
             if (item.fn) await item.fn();
-            else await this.runAbility(item.card, item.when, item.controller, item.def, item.extra);
+            else {
+              const prevSeq = this._abSrc;
+              this._abSrc = item.seq != null ? { uid: item.card.uid, seq: item.seq } : null;
+              try {
+                await this.runAbility(item.card, item.when, item.controller, item.def, item.extra);
+              } finally {
+                this._abSrc = prevSeq;
+              }
+            }
           } finally {
             this.resolving--;
           }
@@ -3506,7 +3515,17 @@
       await this.doActionInner(a, src, pi);
       this._lastChanged = this.stateSig() + '#' + (this.pickedCount || 0) !== before;
     }
+    // 能力が誘発した後に、そのカードがゾーンを移っていたら「このクリーチャー」はもういない
+    srcGone(src) {
+      const ab = this._abSrc;
+      return !!(ab && src && ab.uid === src.uid && (src._zoneSeq || 0) !== ab.seq);
+    }
     async doActionInner(a, src, pi) {
+      if (/^self/.test(a.act || '') && a.act !== 'selfDiscard' && this.srcGone(src)) {
+        this.log(`「${src.def.name}」はすでに別のゾーンに移っているので、その処理は行わない`);
+        this._lastChanged = false;
+        return;
+      }
       this.currentSource = src && src.def;
       this._actSrc = src;
       const me = this.p[pi];
