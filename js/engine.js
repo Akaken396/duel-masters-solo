@@ -4833,15 +4833,11 @@
         }
         case 'castLtSelfHandGrave': {
           const lim = +src.def.cost || 0;
-          const pool = [...me.hand, ...me.grave].filter((c) => c !== src && c.def.type === 'spell' && (+c.def.cost || 0) < lim && !this.locked(pi, c.def));
+          const fitL = (d) => (+d.cost || 0) < lim && !this.locked(pi, d);
+          const pool = [...me.hand, ...me.grave].filter((c) => c !== src && this.spellDefs(c, fitL).length);
           const r = await this.pickCards(pi, pool, a.n, true, `${nm}: 手札か墓地からコストなしで唱える呪文（コスト${lim}未満）`, 'recover');
           for (const c of r) {
-            this._castDepth = (this._castDepth || 0) + 1;
-            try {
-              await this.putIntoPlay(pi, c, true);
-            } finally {
-              this._castDepth--;
-            }
+            await this.castSpellOf(pi, c, fitL);
             if (a.bottomAfter && this.zoneOf(c) === 'grave') {
               this.moveTo(c, 'deck', { top: false });
               this.log(`「${c.def.name}」は唱えた後、山札の下に置かれた`);
@@ -5680,12 +5676,12 @@
           this.log(`${me.name}は山札をシャッフルした`);
           break;
         case 'searchDeck': {
-          const pool = me.deck.filter((c) => this.fitLook(c, a.cond) && (a.dest !== 'battle' || this.isCreature(c)) && (a.dest !== 'cast' || (c.def.type === 'spell' && !this.locked(pi, c.def))));
+          const pool = me.deck.filter((c) => (a.dest === 'cast' ? this.spellDefs(c, (d) => this.fitLook({ def: d }, a.cond) && !this.locked(pi, d)).length : this.fitLook(c, a.cond)) && (a.dest !== 'battle' || this.isCreature(c)));
           const r = await this.pickCards(pi, pool, a.n, a.upTo || !pool.length, `${nm}: 山札から${(a.cond && a.cond.text) || 'カード'}を選んでください`, 'recover');
           if (a.dest === 'cast') {
             shuffle(me.deck, this.rng);
             this.log(`${me.name}は山札をシャッフルした`);
-            for (const c of r) await this.putIntoPlay(pi, c, true);
+            for (const c of r) await this.castSpellOf(pi, c, (d) => this.fitLook({ def: d }, a.cond) && !this.locked(pi, d));
             break;
           }
           for (const c of r) {
@@ -6001,7 +5997,15 @@
         }
         case 'putFromHand':
         case 'castFromHand': {
-          let pool = [...me.hand, ...(a.alsoGrave ? me.grave : [])].filter((c) => c !== src && (a.act === 'castFromHand' ? c.def.type === 'spell' : (a.kinds || ['creature']).includes(this.isCreature(c) ? 'creature' : c.def.type)));
+          if (a.act === 'castFromHand') {
+            // 呪文を唱える：ツインパクトの呪文側も対象。条件は呪文側で見る
+            const fitC = (d) => (a.maxCost == null || (+d.cost || 0) <= a.maxCost) && (!a.civ || (d.civs || []).includes(a.civ)) && (!a.nameHas || d.name.includes(a.nameHas)) && (!a.hasText || (d.text || '').includes(a.hasText)) && (!a.cond || this.fitLook({ def: d }, a.cond)) && (!a.costLtEvent || !this._eventCard || (+d.cost || 0) < (+this._eventCard.def.cost || 0)) && (!a.costLESelf || (+d.cost || 0) <= (+src.def.cost || 0)) && !this.locked(pi, d);
+            const poolC = [...me.hand, ...(a.alsoGrave ? me.grave : [])].filter((c) => c !== src && this.spellDefs(c, fitC).length);
+            const rC = await this.pickCards(pi, poolC, a.n, a.optional, `${nm}: 手札から唱える呪文`, 'recover');
+            for (const c of rC) await this.castSpellOf(pi, c, fitC);
+            break;
+          }
+          let pool = [...me.hand, ...(a.alsoGrave ? me.grave : [])].filter((c) => c !== src && (a.kinds || ['creature']).includes(this.isCreature(c) ? 'creature' : c.def.type));
           if (a.maxCost != null) pool = pool.filter((c) => (+c.def.cost || 0) <= a.maxCost);
           if (a.notEvo) pool = pool.filter((c) => !this.evoKind(c.def));
           if (a.civ) pool = pool.filter((c) => (c.def.civs || []).includes(a.civ));
