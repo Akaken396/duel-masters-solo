@@ -999,6 +999,8 @@
       host.under = host.under || [];
       host.under.push(card);
       this.log(`「${card.def.name}」を${pl.name}のシールドの上に表向きで置いた（シールドの束は1つと数える）`);
+      // シールドの上に置くのも「シールドゾーンにカードが置かれた」
+      if (this.started) await this.shieldAdded(card.owner);
     }
 
     zoneOf(card) {
@@ -1257,6 +1259,13 @@
       return this.p.map((pl) => ['hand', 'mana', 'battle', 'grave', 'shields', 'deck'].map((z) => pl[z].length).join(',') + ':' + [...pl.battle, ...pl.mana].filter((c) => c.tapped).length + ':' + pl.battle.reduce((s, c) => s + (c.under || []).length, 0)).join('|') + '#' + (this.showCount || 0);
     }
 
+    // 表向きにしたカードを人間のプレイヤーに見せる
+    async revealShow(cards, prompt) {
+      if (!cards || !cards.length || !this.started) return;
+      const hp = [0, 1].find((q) => !this.p[q].isAI);
+      if (hp == null) return;
+      await this.choose(hp, { kind: 'reveal', prompt, cards: cards.slice(), options: [{ id: 'ok', label: '確認した' }], min: 1, max: 1, aiPick: ['ok'] });
+    }
     async yesNo(pi, prompt, card) {
       const r = await this.choose(pi, {
         kind: 'yesno',
@@ -2561,6 +2570,7 @@
         const look = me2.deck.splice(0, Math.min(this.kw(card).soulRaid, me2.deck.length));
         if (look.length) {
           this.log(`超魂レイド：山札の上から${look.length}枚を表向きにした：${look.map((c) => c.def.name).join('、')}`);
+          await this.revealShow(look, `超魂レイドで表向きにしたカード（${me2.name}）`);
           const pool = look.filter((c) => this.isCreatureDef(c) || c.def.type === 'tamaseed');
           const r = await this.pickCards(pi, pool, 1, true, '超魂レイド：このクリーチャーの下に置くカード', 'recover');
           if (r[0]) {
@@ -2866,7 +2876,7 @@
       // エスケープ：かわりに自分のシールドを1つ手札へ
       const k = this.kw(card);
       const zeroP = this.isCreature(card) && this.power(card) <= 0;
-      if (k.escape && (o.destroy || o.byOpp !== false) && this.p[card.owner].shields.length && !(zeroP && this.p[card.owner].isAI)) {
+      if (k.escape && o.destroy && this.p[card.owner].shields.length && !(zeroP && this.p[card.owner].isAI)) {
         if (await this.yesNo(card.owner, `「${card.def.name}」のエスケープ：かわりにシールドを1つ手札に戻しますか？${zeroP ? '（パワーが0以下なので、戻してもまた破壊されます）' : ''}`, card)) {
           const sh = this.p[card.owner].shields[this.p[card.owner].shields.length - 1];
           this.moveTo(sh, 'hand');
@@ -3537,6 +3547,7 @@
           if (!look.length) break;
           for (const c of look) me.deck.splice(me.deck.indexOf(c), 1); // 見ている間は山札から外す
           this.log(`${me.name}は山札の上から${look.length}枚を${a.reveal ? '表向きにした：' + look.map((c) => c.def.name).join('、') : '見た'}`);
+          if (a.reveal && !a.whole) await this.revealShow(look, `${me.name}が表向きにしたカード`);
           const cd = a.cond || {};
           const fit = (c) => this.fitLook(c, cd);
           const ok = look.filter(fit);
@@ -4342,6 +4353,7 @@
           if (!look.length) break;
           const hit = look.filter((c) => ((c.def.races || []).join('/') + c.def.name).includes(a.race));
           this.log(`スリリング・スリー：山札の上から${look.length}枚を表向きにした：${look.map((c) => c.def.name).join('、')}（${a.race}は${hit.length}枚）`);
+          await this.revealShow(look, `表向きにしたカード（${me ? me.name : ''}）`);
           for (const c of look) me.deck.splice(me.deck.indexOf(c), 1);
           me.deck.push(...look);
           for (let i = 0; i < hit.length; i++) {
@@ -4429,6 +4441,7 @@
           if (!look.length) break;
           for (const c of look) me.deck.splice(me.deck.indexOf(c), 1);
           this.log(`${me.name}は山札の${a.whole ? '中' : '上から' + look.length + '枚'}を${a.reveal ? '表向きにした：' + look.map((c) => c.def.name).join('、') : '見た'}`);
+          if (a.reveal && !a.whole) await this.revealShow(look, `${me.name}が表向きにしたカード`);
           let left = look.slice();
           const tutor = [];
           const worth = (c) => +c.def.cost || 0;
@@ -4639,6 +4652,7 @@
           const look = me.deck.slice(-a.n);
           if (!look.length) break;
           this.log(`${me.name}は山札の下から${look.length}枚を表向きにした：${look.map((c) => c.def.name).join('、')}`);
+          await this.revealShow(look, `表向きにしたカード（${me ? me.name : ''}）`);
           const pool = look.filter((c) => this.isCreatureDef(c) && this.fitLook(c, a.cond));
           const r = await this.pickCards(pi, pool, a.k, true, `${nm}: 出すクリーチャー`, 'recover');
           for (const c of r) await this.enterBattle(c, pi, 'other');
@@ -4756,6 +4770,7 @@
         case 'revealSort': {
           const look = me.deck.slice(0, a.n);
           this.log(`${me.name}は山札の上から${look.length}枚を表向きにした：${look.map((c) => c.def.name).join('、')}`);
+          await this.revealShow(look, `表向きにしたカード（${me ? me.name : ''}）`);
           for (const c of look) {
             if (this.fitLook(c, a.cond)) this.moveTo(c, a.to, { tapped: a.tapped });
             else if (a.rest === 'grave') this.moveTo(c, 'grave');

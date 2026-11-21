@@ -718,6 +718,16 @@
         return;
       }
 
+      if (req.kind === 'reveal') {
+        kids.push(el('div', { class: 'opts' }, (req.cards || []).map((c) => {
+          const e = cardFace(c.def, { inst: c });
+          e.addEventListener('mouseenter', () => showZoom(c.def, c));
+          return el('div', { class: 'opt' }, e, el('div', { class: 'lbl', text: c.def.name }));
+        })));
+        kids.push(el('div', { class: 'acts' }, el('button', { class: 'primary', text: '確認した', onclick: () => done(['ok']) })));
+        openModal(...kids);
+        return;
+      }
       if (req.kind === 'yesno' || req.kind === 'number') {
         if (req.card) {
           const e = cardFace(req.card.def, { inst: req.card });
