@@ -1145,6 +1145,40 @@
     return r;
   }
   $('#deck-text').addEventListener('input', checkDeck);
+  // よそのサイトからコピーした文章を読み込む
+  $('#deck-paste').addEventListener('click', () => {
+    const ta = el('textarea', { rows: 14, placeholder: 'Deck Makerなどのデッキのページで、カードの一覧を選んでコピーし、ここに貼り付けてください。\n（ページ全体をコピーしても大丈夫です。登録済みのカード名がある行だけを拾います）' });
+    ta.style.width = '100%';
+    const msg = el('div', { class: 'muted' });
+    const preview = () => {
+      const r = importDeckText(ta.value);
+      msg.textContent = ta.value.trim() ? `読み取れたカード：${r.count}枚` + (r.unknown.length ? `　／　登録されていない（かもしれない）カード：${r.unknown.join('、')}` : '') : '';
+    };
+    ta.addEventListener('input', preview);
+    openModal(
+      el('h3', { text: 'デッキを貼り付けて読み込む' }),
+      ta,
+      msg,
+      el(
+        'div',
+        { class: 'acts' },
+        el('button', { text: 'やめる', onclick: closeModal }),
+        el('button', {
+          class: 'primary',
+          text: 'デッキリストにする',
+          onclick: () => {
+            const r = importDeckText(ta.value);
+            if (!r.count) return alert('登録済みのカード名が見つかりませんでした。カードを先に登録してください。');
+            if ($('#deck-text').value.trim() && !confirm('今のカードリストを、読み込んだ内容で置きかえますか？')) return;
+            $('#deck-text').value = r.list + (r.unknown.length ? '\n' + r.unknown.map((u) => `# 未登録？ ${u}`).join('\n') : '');
+            closeModal();
+            checkDeck();
+          },
+        })
+      )
+    );
+    setTimeout(() => ta.focus(), 0);
+  });
 
   // ===== 一覧からデッキを組む =====
   // デッキのテキストを「枚数 カード名」の行にまとめ直して、枚数を増減する

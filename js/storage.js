@@ -101,7 +101,23 @@
         }
         this._nameIdxLen = this.cards.length;
       }
-      return this._nameIdx.get(normName(name)) || null;
+      const hit = this._nameIdx.get(normName(name));
+      if (hit) return hit;
+      // ゆるい一致：記号・かっこの違いを無視。ツインパクトは「上の名前／下の名前」や下の名前だけでも探す
+      if (!this._looseIdx || this._looseLen !== this.cards.length) {
+        this._looseIdx = new Map();
+        for (const c of this.cards) {
+          const ks = [looseName(c.name)];
+          if (c.twin && c.twin.name) ks.push(looseName(c.name + c.twin.name), looseName(c.twin.name));
+          for (const k of ks) if (k && !this._looseIdx.has(k)) this._looseIdx.set(k, c);
+        }
+        this._looseLen = this.cards.length;
+      }
+      const lk = looseName(name);
+      if (this._looseIdx.has(lk)) return this._looseIdx.get(lk);
+      const parts = String(name).normalize('NFKC').split(/\s*[\/／]\s*/).filter(Boolean);
+      if (parts.length > 1) for (const pt of parts) if (this._looseIdx.has(looseName(pt))) return this._looseIdx.get(looseName(pt));
+      return null;
     },
     newId() {
       return 'c-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 7);
@@ -175,28 +191,49 @@
       .toLowerCase();
   }
 
-  // 「4 カード名」「4x カード名」「カード名 x4」「カード名 ×4」に対応
+  function looseName(s) {
+    return normName(s).replace(/[・･\-‐－−〈〉<>＜＞《》『』「」()（）\[\]【】{}!！?？:：.。,、'"“”‘’~〜]/g, '');
+  }
+  // 1行を「枚数」と「カード名」に分ける
+  //   「4 カード名」「4x カード名」「4枚 カード名」「カード名 x4」「カード名 ×4」「カード名 4枚」「カード名（4枚）」「カード名<TAB>4」
+  function splitDeckLine(line) {
+    let m;
+    if ((m = line.match(/^(\d{1,2})\s*(?:[x×]|枚)?\s+(.+)$/i)) || (m = line.match(/^(\d{1,2})\s*[x×枚](.+)$/i))) return { n: +m[1], name: m[2].trim() };
+    if ((m = line.match(/^(.+?)\s*[x×]\s*(\d{1,2})$/i)) || (m = line.match(/^(.+?)\s*[(（]?\s*(\d{1,2})\s*枚\s*[)）]?$/)) || (m = line.match(/^(.+?)\t+(\d{1,2})$/))) return { n: +m[2], name: m[1].trim() };
+    return null;
+  }
+  // 枚数だけの行（前の行のカード名につく）
+  const countOnly = (line) => {
+    const m = line.match(/^(?:[x×]\s*(\d{1,2})|(\d{1,2})\s*枚|(\d{1,2}))$/i);
+    return m ? +(m[1] || m[2] || m[3]) : null;
+  };
   function parseDeckList(text) {
     const entries = [];
     const unknown = [];
-    for (let line of String(text || '').split('\n')) {
-      line = line.normalize('NFKC').trim();
+    const lines = String(text || '')
+      .split('\n')
+      .map((l) => l.normalize('NFKC').trim());
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
       if (!line || line.startsWith('#') || line.startsWith('//')) continue;
-      let m = line.match(/^(\d+)\s*[x×枚]?\s+(.+)$/i) || line.match(/^(\d+)[x×](.+)$/i);
       let n, name;
-      if (m) {
-        n = +m[1];
-        name = m[2];
-      } else if ((m = line.match(/^(.+?)\s*[x×]\s*(\d+)$/i))) {
-        n = +m[2];
-        name = m[1];
+      const sp = splitDeckLine(line);
+      if (sp) {
+        n = sp.n;
+        name = sp.name;
       } else {
         n = 1;
         name = line;
+        // 次の行が枚数だけなら、それを使う
+        const nx = lines[i + 1] != null ? countOnly(lines[i + 1]) : null;
+        if (nx != null && Store.byName(name)) {
+          n = nx;
+          i++;
+        }
       }
       const def = Store.byName(name);
       if (def) entries.push({ n, def });
-      else unknown.push(name.trim());
+      else if (countOnly(line) == null) unknown.push(name.trim());
     }
     const defs = entries.flatMap((e) => Array(e.n).fill(e.def));
     return { entries, defs, unknown, count: defs.length };
@@ -204,5 +241,44 @@
 
   G.Store = Store;
   G.parseDeckList = parseDeckList;
+  // よそのサイト（Deck Makerなど）からコピーした文章を、このツールのデッキリスト（「枚数 カード名」）に直す
+  //   登録済みのカード名がある行だけを拾う（値段・ボタンなどの余計な行は捨てる）
+  G.importDeckText = function (text) {
+    const lines = String(text || '')
+      .split('\n')
+      .map((l) => l.normalize('NFKC').replace(/\s+/g, ' ').trim())
+      .filter(Boolean);
+    const out = new Map();
+    const unknown = [];
+    let section = '';
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (/^(超次元|超GR|GR|ゼロ|メイン|ドルマゲドン|禁断)/.test(line) && !Store.byName(line)) {
+        section = line;
+        continue;
+      }
+      let n = null;
+      let name = null;
+      const sp = splitDeckLine(line);
+      if (sp && Store.byName(sp.name)) ({ n, name } = sp);
+      else if (Store.byName(line)) {
+        name = line;
+        // 枚数は同じ行のあと・次の行・前の行から
+        const nx = lines[i + 1] != null ? countOnly(lines[i + 1]) : null;
+        const pv = lines[i - 1] != null ? countOnly(lines[i - 1]) : null;
+        if (nx != null) {
+          n = nx;
+          i++;
+        } else if (pv != null) n = pv;
+        else n = 1;
+      } else if (sp && sp.n >= 1 && sp.n <= 40 && !/円|コスト|枚数|合計|価格/.test(line)) unknown.push(sp.name);
+      if (name) {
+        const def = Store.byName(name);
+        out.set(def.name, (out.get(def.name) || 0) + n);
+      }
+    }
+    const list = [...out].map(([nm, k]) => `${k} ${nm}`).join('\n');
+    return { list, count: [...out.values()].reduce((a, b) => a + b, 0), unknown: [...new Set(unknown)] };
+  };
   G.normName = normName;
 })(window);
