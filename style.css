@@ -271,3 +271,71 @@ header nav button.on { background: var(--panel2); border-color: var(--line); }
 .modal .ansloop { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin: 0 0 6px; font-size: 12px; }
 .modal .ansloop button { font-size: 12px; padding: 2px 8px; }
 label.autochk { font-size: 12px; white-space: nowrap; cursor: pointer; }
+
+/* ===== スマホ ===== */
+.mobile-only { display: none; }
+#bar .more { display: contents; }
+#zoompop { position: fixed; inset: 0; z-index: 80; background: rgba(0, 0, 0, 0.6); display: flex; align-items: center; justify-content: center; padding: 10px; }
+#zoompop[hidden] { display: none; }
+#zoompop .zbox { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px; max-width: 94vw; max-height: 90vh; overflow: auto; }
+#zoompop .zbox .card { --cw: 150px; margin: 0 auto 8px; }
+#zoompop .ztext { white-space: pre-wrap; font-size: 12px; }
+#zoompop .zauto { color: #9fd8b5; font-size: 12px; }
+#zoompop .zman { color: #ffcf8a; font-size: 12px; }
+#zoompop .acts { display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px; }
+
+@media (max-width: 760px) {
+  body { font-size: 13px; }
+  header#top { gap: 6px; padding: 2px 6px; }
+  header h1 { display: none; }
+  header nav button { padding: 4px 10px; font-size: 13px; }
+  body.ingame header#top { display: none; }
+  .mobile-only { display: inline-block; }
+  #bar .more { display: none; }
+  body.showmore #bar .more { display: contents; }
+
+  #board { position: relative; }
+  #field { --cw: 50px; padding: 3px; gap: 3px; overflow: hidden; }
+  #sidebar { position: fixed; top: 0; right: 0; bottom: 0; width: 84vw; z-index: 35; transform: translateX(105%); transition: transform 0.2s; box-shadow: -4px 0 16px rgba(0, 0, 0, 0.5); }
+  body.showlog #sidebar { transform: none; }
+  #zoom { display: none; }
+
+  #bar { flex-wrap: wrap; gap: 4px; padding: 3px 6px; border-radius: 6px; font-size: 12px; }
+  #bar button { padding: 3px 8px; font-size: 12px; }
+  #bar .grow { display: none; }
+  #turninfo { flex: 1 1 100%; font-size: 12px; line-height: 1.3; }
+  #turninfo .pending-list { font-size: 11px; }
+
+  .side { gap: 2px; }
+  .zrow { gap: 3px; flex-wrap: nowrap; overflow-x: auto; }
+  #field .zone { padding: 1px 3px 3px; border-radius: 6px; min-height: 0; }
+  #field .zone > .zl { font-size: 10px; gap: 4px; white-space: nowrap; overflow: hidden; }
+  #field .zone > .zc { flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; }
+  #field .zone.battle { --cw: 58px; min-height: calc(var(--cw) * 1.4 + 16px); }
+  #field .zone.battle > .zc { gap: 4px; }
+  #field .zone.battle .card.tapped { margin: 0 calc(var(--cw) * 0.22); }
+  #field .zone.hand { min-height: 0; }
+  .side.me .zone.hand { --cw: 66px; }
+  .side.me .zone.hand > .zc { gap: 3px; }
+  .side.opp .zone.hand { --cw: 30px; }
+  .side.opp .zone.hand > .zc { gap: 2px; }
+  #field .zone.shields { flex: none; }
+  #field .zone.shields .card, #field .zone.shields .shstack .card { --cw: 24px !important; }
+  #field .zone.mana { min-width: 0; }
+  #field .zone.mana .card { --cw: 30px !important; margin-right: -16px; }
+  #field .zone.mana .card.tapped { margin: 0 -10px 0 4px; }
+  #field .zone.mana .card:last-child { margin-right: 0; }
+  #field .zone.pile { width: 40px; }
+  #field .zone.pile .card { --cw: 26px; }
+  #field .zone.pile .count { font-size: 12px; }
+  #field .zone.pile .muted { font-size: 9px; }
+
+  .modal-box { min-width: 0; width: 96vw; max-width: 96vw; max-height: 88vh; padding: 10px; }
+  .modal-box .opts .card { --cw: 64px; }
+  .modal-box .opts .opt { max-width: 72px; font-size: 10px; }
+  #menu button { padding: 8px 12px; }
+
+  #setup .row { flex-wrap: wrap; }
+  #setup select, #setup input[type="text"] { max-width: 100%; }
+  #setup-server { width: 100% !important; }
+}

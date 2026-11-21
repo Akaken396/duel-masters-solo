@@ -72,10 +72,14 @@
             <span id="turninfo"></span>
             <span class="grow"></span>
             <button id="btn-undo" title="自分の操作を1つ戻す">↶ 戻す</button>
+            <button id="btn-log" class="mobile-only" title="ログを見る">ログ</button>
+            <button id="btn-more" class="mobile-only" title="ほかのボタン">⋯</button>
+            <span class="more">
             <button id="btn-loop-rec" title="1周分の操作と選択を記録します">⏺ ループ記録</button>
             <button id="btn-loop-play" title="記録した操作をN回くり返します" disabled>▶ ループ再生</button>
             <label class="autochk" title="オフにすると「このターン、同じ質問には同じ答え」を使わず毎回聞きます"><input type="checkbox" id="chk-auto" checked> 同じ答えを自動で</label>
             <button id="btn-auto-clear" title="このターンに覚えた答えを全部忘れます" disabled>自動の答えを解除（0）</button>
+            </span>
             <button id="btn-end" class="primary">ターン終了</button>
             <span id="online-status" class="warn"></span>
             <button id="btn-quit">対戦をやめる</button>
@@ -260,6 +264,7 @@
     <div id="menu" class="menu" hidden></div>
     <div id="modal" class="modal" hidden><div class="modal-box"></div></div>
 
+    <div id="zoompop" hidden></div>
     <script src="js/keywords.js"></script>
     <script src="js/textparse.js"></script>
     <script src="js/samples.js"></script>

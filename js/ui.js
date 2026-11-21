@@ -370,6 +370,7 @@
   }
   function launch(g0) {
     game = g0;
+    document.body.classList.add('ingame');
     $('#log').innerHTML = '';
     $('#setup').hidden = true;
     $('#board').hidden = false;
@@ -385,6 +386,95 @@
   }
 
   $('#btn-end').addEventListener('click', () => game && game.endTurn());
+  $('#btn-log').addEventListener('click', (e) => {
+    e.stopPropagation();
+    document.body.classList.toggle('showlog');
+  });
+  $('#btn-more').addEventListener('click', (e) => {
+    e.stopPropagation();
+    document.body.classList.toggle('showmore');
+  });
+  // ログを開いているとき、ログの外をタップしたら閉じる
+  document.addEventListener('click', (e) => {
+    if (document.body.classList.contains('showlog') && !e.target.closest('#sidebar') && !e.target.closest('#btn-log')) document.body.classList.remove('showlog');
+  });
+
+  // ===== スマホ：長押しでカードを大きく見る =====
+  {
+    let timer = null;
+    let fired = false;
+    let lastTouch = 0;
+    let bypass = false;
+    const pop = $('#zoompop');
+    const closePop = () => (pop.hidden = true);
+    pop.addEventListener('click', (e) => {
+      if (e.target === pop) closePop();
+    });
+    const openPop = (cardEl, x, y) => {
+      cardEl.dispatchEvent(new MouseEvent('mouseenter'));
+      const z = $('#zoom');
+      pop.innerHTML = '';
+      const box = el('div', { class: 'zbox' });
+      for (const k of [...z.childNodes]) box.append(k.cloneNode(true));
+      box.append(
+        el(
+          'div',
+          { class: 'acts' },
+          el('button', {
+            text: '手動の操作',
+            onclick: () => {
+              closePop();
+              bypass = true;
+              cardEl.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: x, clientY: y }));
+              bypass = false;
+            },
+          }),
+          el('button', { class: 'primary', text: '閉じる', onclick: closePop })
+        )
+      );
+      pop.append(box);
+      pop.hidden = false;
+    };
+    document.addEventListener(
+      'touchstart',
+      (e) => {
+        lastTouch = Date.now();
+        const c = e.target.closest && e.target.closest('.card');
+        clearTimeout(timer);
+        fired = false;
+        if (!c || c.closest('#zoompop')) return;
+        const t = e.touches[0];
+        timer = setTimeout(() => {
+          fired = true;
+          openPop(c, t.clientX, t.clientY);
+        }, 450);
+      },
+      { passive: true }
+    );
+    for (const ev of ['touchend', 'touchmove', 'touchcancel']) document.addEventListener(ev, () => clearTimeout(timer), { passive: true });
+    document.addEventListener(
+      'click',
+      (e) => {
+        if (fired) {
+          fired = false;
+          e.stopPropagation();
+          e.preventDefault();
+        }
+      },
+      true
+    );
+    // タッチの長押しで出る右クリックメニューは止める（手動の操作はボタンから）
+    document.addEventListener(
+      'contextmenu',
+      (e) => {
+        if (!bypass && Date.now() - lastTouch < 1500 && e.target.closest && e.target.closest('.card')) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      },
+      true
+    );
+  }
   $('#btn-undo').addEventListener('click', () => {
     if (!game || mode === 'online' || !game.undo()) return;
     // ログを表示し直す
@@ -441,6 +531,7 @@
     }
     game = null;
     closeModal();
+    document.body.classList.remove('ingame', 'showlog', 'showmore');
     $('#board').hidden = true;
     $('#setup').hidden = false;
     refreshSetup();
