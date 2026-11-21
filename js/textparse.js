@@ -511,6 +511,7 @@
     if (/^その(Jトルネードされた)?クリーチャーの「このクリーチャーが(バトルゾーンに)?出た時」で始まる能力を1つ使(う|ってもよい)$/.test(s)) return { act: 'useTrigger', from: 'last', when: 'summon', optional: /もよい/.test(s) };
     if ((m = s.match(/^Jack-Potカードまたはコスト(\d+)以下の呪文を1枚、自分の手札からコストを支払わずに実行してもよい$/))) return { act: 'useFromHand', maxCost: 99, n: 1, cond: { any: [{ nameHas: 'Jack-Pot' }, { types: ['spell'], maxCost: +m[1] }] } };
     if ((m = s.match(/^コスト(\d+)以下のオーラを1つ、自分の墓地からこのクリーチャーに付ける$/))) return { act: 'attachAuraFromGrave', maxCost: +m[1] };
+    if ((m = s.match(/^((光|水|闇|火|自然)(か|または))?(光|水|闇|火|自然)のコスト(\d+)以下の呪文を1枚、コストを支払わずに自分のマナゾーンから唱え(る|てもよい)$/))) return { act: 'castFromMana', civs: [m[2], m[4]].filter(Boolean).map((x) => ({ 光: 'light', 水: 'water', 闇: 'darkness', 火: 'fire', 自然: 'nature' }[x])), maxCost: +m[5], optional: m[6] !== 'る' };
     if (/^シールドを1つ選び、ブレイクしてもよい$/.test(s)) return { act: 'breakAnyOne', optional: true };
     if (/^このクリーチャーに含まれるカードと同じ枚数の?カードを引く$/.test(s)) return { act: 'drawSelfCards' };
     if (/^その「このクリーチャーが(バトルゾーンに)?出た時」で始まる能力を1つ使(う|ってもよい)$/.test(s)) return { act: 'useTrigger', from: 'event', when: 'summon', optional: true };
@@ -1550,6 +1551,12 @@
     if (/^相手の手札を見てクリーチャーを1体選ぶ。相手はそれを出してもよい。?$/.test(body)) return [{ act: 'oppHandPickPut' }];
     if (/それがすべてジョーカーズなら、その中からクリーチャーを1体/.test(body)) return [{ act: 'slottonCreature' }];
     if (/^相手は自身の山札の上から3枚を表向きにし、自分はその中から1枚を選ぶ。その選んだカードとコストが同じ相手のクリーチャー/.test(body)) return [{ act: 'slottonSpell' }];
+    if (/^自分のシールドから好きな枚数を裏向きのまま選び、自分の手札に加える。ただし、その「S(\(シールド\))?・トリガー」は使えない。?$/.test(body)) return [{ act: 'shieldsToHandNoTrigger' }];
+    if (/^自分のクリーチャーを1体破壊する。その後、それよりコストが1大きいクリーチャーを1体、自分の墓地からバトルゾーンに出す。?$/.test(body)) return [{ act: 'destroyOwnRevivePlus', plus: 1 }];
+    if (/^相手は自身の山札の上から1枚目を墓地に置く。そのカード以下のコストを持つ相手のエレメントを1つ選び、持ち主の手札に戻す。?$/.test(body)) return [{ act: 'oppMillBounceLE' }];
+    if (/^コスト3以下の呪文を合計2枚まで、両プレイヤーの墓地から選ぶ。/.test(body)) return [{ act: 'castFromBothGraves', maxCost: 3, n: 2 }];
+    if (/^数字を1つ選ぶ。その数字と同じコストを持つ相手のクリーチャーをすべて、持ち主の手札に戻す。?$/.test(body)) return [{ act: 'chooseNumber' }];
+    if (/^数字を1つ選ぶ。次の自分のターンのはじめまで、相手はその数字と同じコストを持つクリーチャーと呪文を召喚したり唱えたりできない。?$/.test(body)) return [{ act: 'chooseNumber', lock: true }];
     if (/^相手のクリーチャーを1体選び、タップする。それが「ブロッカー」を持つなら、破壊する。?$/.test(body)) return [{ act: 'tap', side: 'opp', all: false, n: 1, optional: false }, { act: 'destroyLastIf', hasKw: 'blocker' }];
     if (/^ジョーカーズ・クリーチャーを2体まで自分の手札から出し、それらに「スピードアタッカー」を与える。このターンの終わりに、それらを好きな順序で山札の下に置き、こうして下に置いたクリーチャー1体につき、カードを1枚引く。?$/.test(body)) return [{ act: 'melaVenture' }];
     if (/^相手のシールドを2つ選ぶ。このクリーチャーは、相手のそれ以外のシールドをすべてブレイクする。その後、自分の手札を1枚捨ててもよい。そうしたら、次のターン、相手は2体以上クリーチャーを(バトルゾーンに)?出せない。?$/.test(body)) return [{ act: 'manhattan' }];
@@ -2440,6 +2447,10 @@
       const fdc = line.match(/^相手のクリーチャーが攻撃する時、自分のシールドゾーンにある表向きのカードを(\d+)枚裏向きにしてもよい。そうしたら、この呪文をコストを支払わずに唱える。?$/);
       if (fdc) {
         A.push({ when: 'oppAttack', fromHand: true, acts: [{ act: 'faceDownCostCast', n: +fdc[1] }], text: raw });
+        continue;
+      }
+      if (/^自分の手札から呪文を唱えた時、その呪文を自分の墓地からもう(1|一)度、コストを支払わずに唱えてもよい。この能力は各ターン(1|一)度しか使えない。?$/.test(line)) {
+        A.push({ when: 'allyCast', acts: [{ act: 'recastEventFromGrave' }], cond: { oncePerTurn: true }, text: raw });
         continue;
       }
       if (/^ブレイクボーナス〔〕、/.test(line)) {

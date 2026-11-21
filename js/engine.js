@@ -2001,6 +2001,8 @@
 
     // ロック（一音の妖精など）で使えないか
     locked(pi, def) {
+      const cl = this.p[pi].costLock;
+      if (cl && cl.until >= this.turn && (+def.cost || 0) === cl.n && (def.type === 'spell' || !NON_CREATURE.includes(def.type))) return true;
       if (def.type === 'spell' && this.permanents(1 - pi).some((s2) => this.kw(s2).oppSpellOnce) && (this.spellsThisTurn || [0, 0])[pi] >= 1 && this.active === pi) return true;
       if (parsed(def).kw.ignoreLock) return false;
       if ((def.races || []).some((r) => /^裁きの紋章/.test(r)) && this.permanents(pi).some((s) => this.kw(s).ignoreCrestLock)) return false;
@@ -2158,6 +2160,21 @@
         await this.pay(pi, card, card.def);
         if (ek === 'deck') {
           const me = this.p[pi];
+          if (k.deckEvo.mpick) {
+            const look = me.deck.slice(0, k.deckEvo.n);
+            this.log(`Mデッキ進化：山札の上から${look.length}枚を表向きにした：${look.map((c) => c.def.name).join('、')}`);
+            await this.revealShow(look, `${me.name}が表向きにしたカード（Mデッキ進化）`);
+            const pool = look.filter((c) => this.isCreatureDef(c));
+            if (!pool.length) {
+              for (const c of look) this.moveTo(c, 'grave');
+              this.log(`クリーチャーがないので「${card.def.name}」は手札に戻り、表向きにしたカードは墓地に置かれた`);
+              return true;
+            }
+            const pk = (await this.pickCards(pi, pool, 1, false, `Mデッキ進化：「${card.def.name}」を重ねるクリーチャー`, 'recover'))[0] || pool[0];
+            for (const c of look) if (c !== pk) this.moveTo(c, 'grave');
+            await this.putIntoPlay(pi, card, false, card.def, { underCards: [pk] });
+            return true;
+          }
           if (k.deckEvo.reveal) {
             const top = me.deck[0];
             this.log(`デッキ進化：山札の上の「${top ? top.def.name : 'なし'}」を表向きにした`);
@@ -2363,11 +2380,16 @@
         }
         await this.notifyAll('onAnyCast', card, def);
         await this.fireAll(1 - pi, 'oppPlay', card);
-        await this.fireAll(pi, 'allyCast');
+        card._castFrom = castFrom;
+        await this.fireAll(pi, 'allyCast', card);
         if (this.isSabakiCrest(card)) for (const s2 of this.permanents(pi)) if (this.isOnField(s2) && this.hasAbility(s2, 'allyCastCrest')) await this.trigger(s2, 'allyCastCrest', pi, s2.def, card, { defer: true });
         for (const src of this.permanents(pi)) if (this.isOnField(src) && this.hasAbility(src, 'selfPlay')) await this.trigger(src, 'selfPlay', pi, src.def, card, { defer: true });
         await this.fireAll(1 - pi, 'oppCast');
         await this.resolvePending();
+        if (castFrom === 'grave' && this.zoneOf(card) === 'grave' && this.permanents(pi).some((x) => this.isOnField(x) && this.kw(x).graveCastBottom)) {
+          this.moveTo(card, 'deck', { top: false });
+          this.log(`「${def.name}」は墓地から唱えた後、山札の下に置かれた`);
+        }
         if (parsed(def).kw.cyclone && this.zoneOf(card) === 'grave' && (this.creaturesThisTurn || [0, 0])[pi] > 0) {
           this.moveTo(card, 'hand');
           this.log(`サイクロン：「${def.name}」は唱えた後、手札に戻った`);
@@ -4363,6 +4385,78 @@
           r[0].enteredTurn = this.turn;
           this.log(`${me.name}は墓地のオーラ「${r[0].def.name}」を「${src.def.name}」に付けた`);
           await this.trigger(r[0], 'summon', pi);
+          break;
+        }
+        case 'shieldsToHandNoTrigger': {
+          if (!me.shields.length) break;
+          const r = await this.pickCards(pi, me.shields.slice(), me.shields.length, true, `${nm}: 手札に加えるシールド（好きな数・S・トリガーは使えない）`, 'shield');
+          for (const c of r) this.moveTo(c, 'hand');
+          if (r.length) this.log(`${me.name}はシールドを${r.length}つ手札に加えた（S・トリガーは使えない）`);
+          if (r.length) await this.shieldsLeft(pi);
+          break;
+        }
+        case 'destroyOwnRevivePlus': {
+          const pool = me.battle.filter((c) => this.isCreature(c));
+          const r = await this.pickCards(pi, pool, 1, false, `${nm}: 破壊する自分のクリーチャー`, 'recover');
+          if (!r[0]) break;
+          const cs = +r[0].def.cost || 0;
+          await this.destroyMany([r[0]], { byOpp: false });
+          const gp = me.grave.filter((c) => this.isCreatureDef(c) && (+c.def.cost || 0) === cs + a.plus);
+          const g2 = await this.pickCards(pi, gp, 1, false, `${nm}: 墓地から出すコスト${cs + a.plus}のクリーチャー`, 'recover');
+          if (g2[0]) await this.enterBattle(g2[0], pi, 'other');
+          else this.log(`${nm}: コスト${cs + a.plus}のクリーチャーが墓地にない`);
+          break;
+        }
+        case 'oppMillBounceLE': {
+          const top = op.deck[0];
+          if (!top) break;
+          this.moveTo(top, 'grave');
+          this.log(`${op.name}は山札の上の「${top.def.name}」（コスト${+top.def.cost || 0}）を墓地に置いた`);
+          const pool = op.battle.filter((c) => !c.attachedTo && (+c.def.cost || 0) <= (+top.def.cost || 0) && this.selectable(c, pi));
+          const r = await this.pickCards(pi, pool, 1, false, `${nm}: 手札に戻す相手のエレメント（コスト${+top.def.cost || 0}以下）`, 'target', 'bounce');
+          for (const c of r) if (await this.leave(c, 'hand', { byOpp: true })) this.log(`「${c.def.name}」は持ち主の手札に戻った`);
+          break;
+        }
+        case 'castFromMana': {
+          const pool = me.mana.filter((c) => c.def.type === 'spell' && (+c.def.cost || 0) <= a.maxCost && (!a.civs || (c.def.civs || []).some((x) => a.civs.includes(x))) && !this.locked(pi, c.def));
+          const r = await this.pickCards(pi, pool, 1, !!a.optional, `${nm}: マナゾーンからコストなしで唱える呪文`, 'recover');
+          if (r[0]) await this.putIntoPlay(pi, r[0], true);
+          break;
+        }
+        case 'recastEventFromGrave': {
+          const c = this._eventCard;
+          if (!c || c._castFrom !== 'hand' || this.zoneOf(c) !== 'grave' || this.locked(pi, c.def)) break;
+          if (!(await this.yesNo(pi, `${nm}: 「${c.def.name}」を墓地からもう一度コストを支払わずに唱えますか？`, c))) break;
+          await this.putIntoPlay(pi, c, true);
+          break;
+        }
+        case 'castFromBothGraves': {
+          const pool = [...me.grave, ...op.grave].filter((c) => c.def.type === 'spell' && (+c.def.cost || 0) <= a.maxCost && !this.locked(pi, c.def));
+          const r = await this.pickCards(pi, pool, Math.min(a.n, pool.length), true, `${nm}: 両方の墓地から唱える呪文（コスト${a.maxCost}以下を${a.n}枚まで）`, 'recover');
+          for (const c of r) {
+            await this.putIntoPlay(pi, c, true);
+            if (this.zoneOf(c) === 'grave') {
+              this.moveTo(c, 'deck', { top: false });
+              this.log(`「${c.def.name}」を持ち主の山札の一番下に置いた`);
+            }
+          }
+          break;
+        }
+        case 'chooseNumber': {
+          const cnt = {};
+          for (const c of [...op.battle, ...(a.lock ? op.hand : [])]) cnt[+c.def.cost || 0] = (cnt[+c.def.cost || 0] || 0) + 1;
+          const best = +(Object.keys(cnt).sort((x, y) => cnt[y] - cnt[x])[0] || 3);
+          const ids = await this.chooseModes(pi, `${nm}: 数字を1つ選んでください`, Array.from({ length: 16 }, (_, i) => ({ id: String(i), label: String(i) })), { min: 1, max: 1, aiPick: [String(best)] });
+          const n = +(ids[0] != null ? ids[0] : best);
+          this.log(`${me.name}は数字「${n}」を選んだ`);
+          if (a.lock) {
+            op.costLock = { n, until: this.nextTurnOf(pi) - 1 };
+            this.log(`次の${me.name}のターンのはじめまで、${op.name}はコスト${n}のクリーチャーを召喚できず、呪文も唱えられない`);
+          } else {
+            const tg = op.battle.filter((c) => this.isCreature(c) && (+c.def.cost || 0) === n);
+            for (const c of tg) await this.leave(c, 'hand', { byOpp: true });
+            this.log(`コスト${n}の${op.name}のクリーチャー${tg.length}体を手札に戻した`);
+          }
           break;
         }
         case 'useDyn': {

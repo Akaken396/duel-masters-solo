@@ -417,6 +417,8 @@
         k.evolution = 'grave';
         k.graveEvo = { n, any: !!m[1], civs: civsIn(what), what: what.replace(/^自分の墓地にある、?/, '') };
       }, desc: '自分の墓地のクリーチャーの上に重ねて出す' },
+    { name: 'Mデッキ進化', re: /^Mデッキ進化\s*[：:\-－―]\s*自分の山札の上から(\d+)枚を表向きにする。/, auto: true, set: (k, m) => { k.evolution = 'deck'; k.deckEvo = { n: +m[1], mpick: true, reveal: true }; }, desc: '山札の上から表向きにしたクリーチャーの上に重ねて出す（残りは墓地）' },
+    { name: '墓地から唱えた呪文は山札の下へ', re: /^自分の墓地から呪文を唱えた時、唱えた後で、墓地のかわりに山札の下に置く。?$/, auto: true, set: (k) => (k.graveCastBottom = true), desc: '自分が墓地から唱えた呪文は、唱えた後に山札の下に置く' },
     { name: 'デッキ進化', re: /^デッキ進化(GV|V)?\s*[：:\-－―]\s*(.+)$/, auto: true,
       set: (k, m) => {
         k.evolution = 'deck';
