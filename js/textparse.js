@@ -1550,6 +1550,9 @@
     {
       const bt = String(body || '').trim();
       if (/^シールドを1つ見る。そのシールドに含まれるカードを1枚、表向きまたは裏向きにしてもよい。?$/.test(bt)) return [{ act: 'peekShieldFlip' }];
+      if (/^「S・トリガー」を持つカードを1枚、自分の墓地からコストを支払わずに実行する。こうして呪文を唱えたなら、それを唱えた後、墓地のかわりに山札の下に置く。?$/.test(bt)) return [{ act: 'useFromGraveST', bottomAfter: true }];
+      const jb = bt.match(/^Jビッグ(\d+)する。?(（[^）]*）)?$/);
+      if (jb) return [{ act: 'jBig', n: +jb[1] }];
       const lcs = bt.match(/^自分の山札の上から(\d+)枚を見る。その中から「S・トリガー」付きの呪文を1枚選んでもよい。残りを好きな順序で山札の一番下に戻し、選んだ呪文があればコストを支払わずに唱える。?$/);
       if (lcs) return [{ act: 'lookCastST', n: +lcs[1] }];
       if (/^自分の手札を好きな枚数、.*シールド[^。]*。その後、同じ数のシールドを自分の手札に加える。?$/.test(bt)) return [{ act: 'handShieldSwap' }];

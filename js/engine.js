@@ -4887,6 +4887,55 @@
           me.noLeaveUntil = this.nextTurnOf(1 - pi);
           this.log(`次の${op.name}のターン中、${me.name}のクリーチャーは離れない`);
           break;
+        case 'useFromGraveST': {
+          // 「S・トリガー」を持つカードを墓地からコストなしで実行。呪文なら唱えた後、山札の下へ
+          const stDefs = (c) => [c.def, this.twin(c)].filter((dd) => dd && parsed(dd).kw.shieldTrigger && !this.locked(pi, dd));
+          const pool = me.grave.filter((c) => c !== src && stDefs(c).length);
+          const [c] = await this.pickCards(pi, pool, 1, false, `${nm}: 墓地から実行する「S・トリガー」を持つカード`, 'recover');
+          if (!c) break;
+          const ds = stDefs(c);
+          let dd = ds[0];
+          if (ds.length > 1) {
+            const r = await this.chooseModes(pi, `「${c.def.name}」のどちらを使いますか？`, ds.map((x, i) => ({ id: String(i), label: x.name })), { min: 1, max: 1, aiPick: ['0'] });
+            dd = ds[+r[0]] || ds[0];
+          }
+          this.log(`${me.name}は墓地の「${dd.name}」をコストを支払わずに使う`);
+          if (dd.type === 'spell' && a.bottomAfter) c._afterCast = 'deckBottom';
+          await this.putIntoPlay(pi, c, true, dd);
+          break;
+        }
+        case 'jBig': {
+          // Jビッグ：自分の他のジョーカーズの、Jビッグ以外の「出た時」の能力を1つ使う
+          const hasJ = (acts) => (acts || []).some((x) => x.act === 'jBig');
+          const opts = [];
+          for (const c of me.battle) {
+            if (c === src || !this.isCreature(c) || !this.isOnField(c) || !/ジョーカーズ/.test((c.def.races || []).join('/')) || this.abilitiesOff(c, 'summon')) continue;
+            const sc = this.script(c.def);
+            if (sc && sc.summon) {
+              opts.push({ c, sc, label: `「${c.def.name}」の出た時の能力` });
+              continue;
+            }
+            for (const ab of this.abilities(c)) {
+              if (ab.when !== 'summon') continue;
+              if (ab.cond && !this.condOk2(pi, ab.cond, c)) continue;
+              if (ab.modal) {
+                const mo = ab.modal.options.filter((o) => !hasJ(o.acts));
+                if (mo.length) opts.push({ c, ab, modal: { ...ab.modal, options: mo }, label: `「${c.def.name}」: ${String(ab.text || '').replace(/^このクリーチャーが(バトルゾーンに)?出た時、/, '').slice(0, 40)}` });
+              } else if (ab.acts && ab.acts.length && !hasJ(ab.acts)) opts.push({ c, ab, label: `「${c.def.name}」: ${String(ab.text || '').replace(/^このクリーチャーが(バトルゾーンに)?出た時、/, '').slice(0, 40)}` });
+            }
+          }
+          if (!opts.length) {
+            this.log(`${nm}: Jビッグで使える能力がない`);
+            break;
+          }
+          const r = await this.chooseModes(pi, `${nm}: Jビッグ${a.n || 1}で使う「出た時」の能力`, opts.map((o, i) => ({ id: String(i), label: o.label })), { min: 1, max: 1, aiPick: ['0'] });
+          const o = opts[+r[0]] || opts[0];
+          this.log(`${nm}: Jビッグで「${o.c.def.name}」の出た時の能力を使う`);
+          if (o.sc) await o.sc.summon(this, o.c, pi);
+          else if (o.modal) await this.runModal(o.modal, o.c, pi, o.c.def);
+          else for (const x of o.ab.acts) await this.doAction(x, o.c, pi);
+          break;
+        }
         case 'ownGraveToBottom': {
           const g2 = me.grave.slice();
           shuffle(g2, this.rng);
