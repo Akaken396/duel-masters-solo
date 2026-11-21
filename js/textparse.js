@@ -304,6 +304,8 @@
     if ((mm = rest.match(/^相手がジャンケンで「?(グー|チョキ|パー)」?を出した(時|とき)、/))) return { whens: ['oppJanken'], rest: rest.slice(mm[0].length), cond: { ...cond, jankenHand: mm[1] } };
     if ((mm = rest.match(/^(各ターン、)?(自分が)?(はじめて)?(自分の)?コスト(\d+)以上のクリーチャーを(自分の手札から)?召喚した(時|とき)、/))) return { whens: ['selfPlay'], rest: rest.slice(mm[0].length), cond: { ...cond, evMinCost: +mm[5], evCreature: true, ...(mm[3] ? { firstPerTurn: true } : {}) } };
     if ((mm = rest.match(/^このクリーチャーが「D・D・D」によって(バトルゾーンに)?出た(時|とき)、/))) return { whens: ['summon'], rest: rest.slice(mm[0].length), cond: { ...cond, viaDDD: true } };
+    if ((mm = rest.match(/^相手のターン中、相手がコスト(\d+)以下のクリーチャーを召喚した(時|とき)またはコスト(\d+)以下の呪文を唱えた(時|とき)、/))) return { whens: ['oppPlay'], rest: rest.slice(mm[0].length), cond: { ...cond, oppTurn: true, evMaxCost: +mm[1] } };
+    if ((mm = rest.match(/^ジョラゴン・ビッグ1[：:]ジョーカーズを自分の手札から捨てた(時|とき)、/))) return { whens: ['selfDiscarded'], rest: rest.slice(mm[0].length), cond: { ...cond, evRace: 'ジョーカーズ' } };
     if ((mm = rest.match(/^ツインパクトカードを自分のマナゾーンに置いた(時|とき)、/))) return { whens: ['manaPut'], rest: rest.slice(mm[0].length), cond: { ...cond, evTwin: true } };
     if ((mm = rest.match(/^各ターンのはじめに、/))) return { whens: ['turnStart', 'oppTurnStart'], rest: rest.slice(mm[0].length), cond };
     if ((mm = rest.match(/^スペースチャージ〔([a-z/]+)(\|1)?〕、/))) return { whens: ['manaPut'], rest: rest.slice(mm[0].length), cond: { ...cond, evCivAny: mm[1].split('/'), askUse: true, ...(mm[2] ? { oncePerTurn: true } : {}) } };
@@ -500,8 +502,13 @@
     }
     if ((m = s.match(/^(\d+)枚までカードを引(く|いてもよい)$/))) return { act: 'draw', n: +m[1], optional: true };
     if (/^自分の山札の上から1枚目を裏向きのまま、自分のシールドいずれかの下に置(く|いてもよい)$/.test(s)) return { act: 'deckUnderAnyShield', optional: /もよい/.test(s) };
+    if (/^(その|この)ターン、そのクリーチャーは相手プレイヤーを攻撃できる$/.test(s)) return { act: 'lastCanAttackPlayer' };
+    if ((m = s.match(/^(この|その)ターン、そのクリーチャーの能力をすべて無視する$/))) return { act: 'lastIgnoreAbilities' };
+    if (/^次の自分のターンのはじめまで、相手のクリーチャーの能力をすべて無視する$/.test(s)) return { act: 'oppIgnoreAllNext' };
+    if ((m = s.match(/^そのクリーチャーのコスト以下の、?((光|水|闇|火|自然)(または|か)?)*の?クリーチャーを1体、自分の(手札|手札または超次元ゾーン)から(バトルゾーンに)?出(す|してもよい)$/))) return { act: 'putEventCostLE', civs: (s.split('コスト以下の')[1].split('クリーチャー')[0].match(/光|水|闇|火|自然/g) || []).map((x) => ({ 光: 'light', 水: 'water', 闇: 'darkness', 火: 'fire', 自然: 'nature' }[x])), zones: /超次元/.test(m[4]) ? ['hand', 'hyper'] : ['hand'] };
     if (/^シールドを1つ選び、ブレイクしてもよい$/.test(s)) return { act: 'breakAnyOne', optional: true };
     if (/^このクリーチャーに含まれるカードと同じ枚数の?カードを引く$/.test(s)) return { act: 'drawSelfCards' };
+    if (/^その「このクリーチャーが(バトルゾーンに)?出た時」で始まる能力を1つ使(う|ってもよい)$/.test(s)) return { act: 'useTrigger', from: 'event', when: 'summon', optional: true };
     if (/^このクリーチャーの「このクリーチャーが出た時」で始まる能力を1つ使(う|ってもよい)$/.test(s)) return { act: 'useTrigger', from: 'self', when: 'summon', optional: /もよい/.test(s) };
     if ((m = s.match(/^このクリーチャーのコストと同じ枚数、自分の山札の上から(カードを)?墓地に置(く|いてもよい)$/))) return { act: 'mill', n: 0, nFrom: 'selfCost', optional: /もよい/.test(s) };
     if ((m = s.match(/^自分の手札を(\d+)枚タップしてマナゾーンに置(く|いてもよい)$/))) return { act: 'handToMana', n: +m[1], tapped: true, optional: /もよい/.test(s) };
@@ -1528,6 +1535,11 @@
     if (/^次の自分のターンのはじめまで、相手は(、)?自身のマナゾーン(にある|の)カードの枚数よりコストが大きいクリーチャーを(バトルゾーンに)?出した(時|とき)、そのクリーチャーを(自身の)?山札の(一番)?下に置く。?$/.test(body)) return [{ act: 'tempBigBottom' }];
     if (/^プレイヤーを1人選んでもよい。そのプレイヤーは自身の墓地をシャッフルし、山札の下に置く。?$/.test(body)) return [{ act: 'graveToDeckBottomPlayer' }];
     if (/^相手の手札を見てクリーチャーを1体選ぶ。相手はそれを出してもよい。?$/.test(body)) return [{ act: 'oppHandPickPut' }];
+    if (/それがすべてジョーカーズなら、その中からクリーチャーを1体/.test(body)) return [{ act: 'slottonCreature' }];
+    if (/^相手は自身の山札の上から3枚を表向きにし、自分はその中から1枚を選ぶ。その選んだカードとコストが同じ相手のクリーチャー/.test(body)) return [{ act: 'slottonSpell' }];
+    if (/^相手のクリーチャーを1体選び、タップする。それが「ブロッカー」を持つなら、破壊する。?$/.test(body)) return [{ act: 'tap', side: 'opp', all: false, n: 1, optional: false }, { act: 'destroyLastIf', hasKw: 'blocker' }];
+    if (/^ジョーカーズ・クリーチャーを2体まで自分の手札から出し、それらに「スピードアタッカー」を与える。このターンの終わりに、それらを好きな順序で山札の下に置き、こうして下に置いたクリーチャー1体につき、カードを1枚引く。?$/.test(body)) return [{ act: 'melaVenture' }];
+    if (/^相手のシールドを2つ選ぶ。このクリーチャーは、相手のそれ以外のシールドをすべてブレイクする。その後、自分の手札を1枚捨ててもよい。そうしたら、次のターン、相手は2体以上クリーチャーを(バトルゾーンに)?出せない。?$/.test(body)) return [{ act: 'manhattan' }];
     const gj = body.match(/^相手とガチンコ・ジャッジ(する|してもよい)。自分が勝ったら、(.+?)。?$/);
     if (gj) {
       const win = parseEffects(gj[2].replace(/。$/, ''));
@@ -2402,6 +2414,20 @@
           A.push({ when: 'kizunaP', acts: pa, text: raw });
           continue;
         }
+      }
+      const fjs = line.match(/^自分のターンの終わりに、このクリーチャーが自分の手札にあれば、自分の(.+?)・クリーチャーをコストの合計が(\d+)以上になるように好きな数手札に戻してもよい。そうしたら、このクリーチャーを出す。?$/);
+      if (fjs) {
+        A.push({ when: 'turnEnd', fromHand: true, acts: [{ act: 'fujisan', race: fjs[1], n: +fjs[2] }], text: raw });
+        continue;
+      }
+      if (/^このクリーチャーを召喚する時、ジョーカーズを好きな数バトルゾーンから自分の手札に戻し、その数だけ、召喚コストを1少なくしてもよい。?$/.test(line)) {
+        kw.returnJokersDiscount = 'ジョーカーズ';
+        continue;
+      }
+      const fdc = line.match(/^相手のクリーチャーが攻撃する時、自分のシールドゾーンにある表向きのカードを(\d+)枚裏向きにしてもよい。そうしたら、この呪文をコストを支払わずに唱える。?$/);
+      if (fdc) {
+        A.push({ when: 'oppAttack', fromHand: true, acts: [{ act: 'faceDownCostCast', n: +fdc[1] }], text: raw });
+        continue;
       }
       if (/^ブレイクボーナス〔〕、/.test(line)) {
         const bba = parseEffects(line.replace(/^ブレイクボーナス〔〕、/, '').replace(/。$/, ''));
