@@ -265,8 +265,10 @@
       }
       return out;
     }
-    abilitiesOff(card) {
-      if (!card || this.zoneOf(card) !== 'battle') return false;
+    abilitiesOff(card, when) {
+      if (!card) return false;
+      // 場を離れた時の能力は、場にあった時の状態で判断する（能力が無視されていたら誘発しない）
+      if (this.zoneOf(card) !== 'battle') return !!when && card._abOffLeft === this.turn && ['destroyed', 'left', 'toGrave', 'selfOrAllyDestroyed', 'battleLose'].includes(when);
       if ((card._abOffUntil || 0) >= this.turn) return true;
       return (this.p[1 - card.owner].oppAbOffUntil || 0) >= this.turn;
     }
@@ -768,6 +770,7 @@
       return S.get(def.name);
     }
     sc(card) {
+      if (this.zoneOf(card) === 'battle' && this.abilitiesOff(card)) return null;
       return this.script(card.def);
     }
     // 場で効果を持つカード（バトルゾーン＋表向きシールド）
@@ -1124,6 +1127,8 @@
         }
       }
       if (from === 'battle' && zone !== 'battle') {
+        if (f && this.p[card.owner] && ((card._abOffUntil || 0) >= this.turn || (this.p[1 - card.owner].oppAbOffUntil || 0) >= this.turn)) card._abOffLeft = this.turn;
+        else delete card._abOffLeft;
         // 残っている封印は墓地へ
         if (card.sealCards && card.sealCards.length) {
           const rest = card.sealCards.splice(0);
@@ -3236,6 +3241,7 @@
       if (!o.defer) await this.resolvePending();
     }
     hasAbility(card, when, def = card.def) {
+      if (card && this.abilitiesOff(card, when)) return false;
       const sc = this.script(def);
       if (sc && sc[when]) return true;
       return this.abilities(card, def).some((ab) => ab.when === when);
@@ -3338,6 +3344,10 @@
     }
 
     async runAbility(card, when, controller = card.owner, def = card.def, extra) {
+      if (when !== 'cast' && this.abilitiesOff(card, when)) {
+        this.log(`「${def.name}」の能力は無視されている`);
+        return;
+      }
       if (extra && extra.uid != null) this._eventCard = extra;
       const sc = this.script(def);
       if (sc && sc[when]) {
