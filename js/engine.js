@@ -502,6 +502,7 @@
       if (c.not) return !this.condOk2(pi, c.not, card);
       if (c.and) return c.and.every((x) => this.condOk2(pi, x, card));
       if (c.superBonus && !(card && card._superBonus)) return false;
+      if (c.enteredAnyGE != null && (this.creaturesThisTurn || [0, 0])[0] + (this.creaturesThisTurn || [0, 0])[1] < c.enteredAnyGE) return false;
       if (c.wonBattleThisTurn && me.battleWonTurn !== this.turn) return false;
       if (c.notExtraTurn && this.inExtraTurn) return false;
       if (c.graveCountGE != null && me.grave.length < c.graveCountGE) return false;
@@ -1618,6 +1619,7 @@
           for (const c of this.permanents(this.active)) if (this.isOnField(c)) await this.trigger(c, 'turnEnd', c.owner, c.def, null, { defer: true });
           await this.fireGrave(this.active, 'turnEnd');
           await this.fireHand(this.active, 'turnEnd');
+          await this.fireHand(1 - this.active, 'oppTurnEnd');
           for (const q of [this.active, 1 - this.active]) for (const c of this.permanents(q)) if (this.isOnField(c)) {
             if (this.hasAbility(c, 'eachTurnEnd')) await this.trigger(c, 'eachTurnEnd', c.owner, c.def, null, { defer: true });
             if (q !== this.active && this.hasAbility(c, 'oppTurnEnd')) await this.trigger(c, 'oppTurnEnd', c.owner, c.def, null, { defer: true });
@@ -1884,6 +1886,11 @@
         const dc = pl.deck[0];
         this.moveTo(dc, 'hand');
         drawn++;
+        // 「自分の山札の最後の1枚を引く時、ゲームに負けるかわりに勝つ」
+        if (this.started && !pl.deck.length) {
+          const sk = this.permanents(pi).find((x) => this.isOnField(x) && this.kw(x).shakoWin);
+          if (sk) this.win(pi, `「${sk.def.name}」の効果（山札の最後の1枚を引いた）`);
+        }
         if (pl.drawTurnMark !== this.turn) (pl.drawTurnMark = this.turn), (pl.drawsThisTurn = 0);
         pl.drawsThisTurn++;
         // ビビッドロー：自分のターンの攻撃前に引いたら、表向きにしてもよい
@@ -4880,6 +4887,62 @@
           me.noLeaveUntil = this.nextTurnOf(1 - pi);
           this.log(`次の${op.name}のターン中、${me.name}のクリーチャーは離れない`);
           break;
+        case 'ownGraveToBottom': {
+          const g2 = me.grave.slice();
+          shuffle(g2, this.rng);
+          for (const c of g2) this.moveTo(c, 'deck', { top: false });
+          this.log(`${me.name}は墓地${g2.length}枚をシャッフルして山札の下に置いた`);
+          break;
+        }
+        case 'castSelfFreeOpt':
+          if (this.zoneOf(src) !== 'hand' || this.locked(pi, src.def)) break;
+          if (!(await this.yesNo(pi, `${nm}: この呪文をコストを支払わずに唱えますか？`, src))) break;
+          await this.putIntoPlay(pi, src, true);
+          break;
+        case 'peekShieldFlip': {
+          const pool = [...me.shields, ...op.shields];
+          if (!pool.length || me.isAI) break;
+          const [sh] = await this.pickCards(pi, pool, 1, false, `${nm}: 見るシールド`, 'shield');
+          if (!sh) break;
+          const parts = [sh, ...(sh.under || [])];
+          const opts = [{ id: 'none', label: 'そのまま' }];
+          for (const x of parts) opts.push({ id: 'u' + x.uid, label: `「${x.def.name}」を${x.faceUp ? '裏向き' : '表向き'}にする` });
+          const r = await this.choose(pi, { kind: 'mode', prompt: `${nm}: シールドの中身は「${parts.map((x) => x.def.name).join('」「')}」。表向き・裏向きを変えますか？`, options: opts, min: 1, max: 1 });
+          const t = parts.find((x) => 'u' + x.uid === r[0]);
+          if (t) {
+            t.faceUp = !t.faceUp;
+            this.log(`${me.name}はシールドを1つ見て、${t.faceUp ? `「${t.def.name}」を表向きにした` : '1枚を裏向きにした'}`);
+          } else this.log(`${me.name}はシールドを1つ見た`);
+          break;
+        }
+        case 'lookCastST': {
+          const top = me.deck.slice(0, a.n);
+          if (!top.length) break;
+          const stDef = (c) => (parsed(c.def).kw.shieldTrigger && c.def.type === 'spell' ? c.def : c.def.twin && c.def.twin.type === 'spell' && parsed(c.def.twin).kw.shieldTrigger ? this.twin(c) : null);
+          const pool = top.filter((c) => stDef(c) && !this.locked(pi, stDef(c)));
+          this.log(`${me.name}は山札の上から${top.length}枚を見た`);
+          const r = pool.length ? await this.pickCards(pi, pool, 1, true, `${nm}: 唱える「S・トリガー」付きの呪文（選ばなくてもよい）`, 'recover') : [];
+          for (const c of top) if (!r.includes(c)) this.moveTo(c, 'deck', { top: false });
+          if (r[0]) {
+            this.log(`「${r[0].def.name}」をコストを支払わずに唱える`);
+            await this.putIntoPlay(pi, r[0], true, stDef(r[0]));
+          }
+          break;
+        }
+        case 'handShieldSwap': {
+          if (!me.hand.length) break;
+          const put = await this.pickCards(pi, me.hand.filter((c) => c !== src), me.hand.length, true, `${nm}: シールドにする手札（好きな枚数）`, 'recover');
+          if (!put.length) break;
+          for (const c of put) this.moveTo(c, 'shields');
+          this.log(`${me.name}は手札を${put.length}枚シールドにした`);
+          await this.shieldAdded(pi);
+          const back = await this.pickCards(pi, me.shields, Math.min(put.length, me.shields.length), false, `${nm}: 手札に加えるシールド（${put.length}つ）`, 'shield');
+          for (const c of back) this.moveTo(c, 'hand');
+          this.log(`${me.name}はシールドを${back.length}つ手札に加えた`);
+          await this.shieldsLeft(pi);
+          await this.offerShieldTriggers(pi, back, 1 - pi);
+          break;
+        }
         case 'oppGraveToBottom': {
           const g2 = op.grave.slice();
           shuffle(g2, this.rng);
@@ -7202,6 +7265,12 @@
       if (src && this.zoneOf(src) === 'battle') await this.notifyAll('onBreak', src);
       await this.shieldsLeft(op.idx);
       await this.sabakiZ(op.idx);
+      await this.offerShieldTriggers(op.idx, picked, pi);
+    }
+
+    // シールドから手札に来たカードの S・トリガー／G・ストライク／S・バック（ブレイク以外で手札に来た時も）
+    async offerShieldTriggers(ownerIdx, picked, pi = 1 - ownerIdx) {
+      const op = this.p[ownerIdx];
       // 手札に加わったシールドの中から、使うS・トリガー／G・ストライクを先に宣言し、選んだ順に使う
       const cands = [];
       for (const sh of picked) {

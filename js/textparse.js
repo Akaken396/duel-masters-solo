@@ -44,6 +44,8 @@
       .replace(/自分の墓地からコストが(\d+)以下の呪文を(\d+)枚まで選び、コストを支払わずに唱える/g, 'コスト$1以下の呪文を$2枚、自分の墓地からコストを支払わずに唱えてもよい')
       .replace(/クリーチャーを好きな数、自分の墓地からバトルゾーンに出す/g, 'クリーチャーを好きな数、自分の墓地から出す')
       .replace(/そのターン中、自分はゲームに負けず/g, 'このターン、自分はゲームに負けず')
+      .replace(/コストを支払わずに自分の手札から唱え/g, '自分の手札からコストを支払わずに唱え')
+      .replace(/((?:光|水|闇|火|自然)(?:または(?:光|水|闇|火|自然))*のコスト\d+以下の呪文)を(\d+)枚、自分の手札からコストを支払わずに唱え/g, '自分の手札から$1を$2枚、コストを支払わずに唱え')
       .replace(/バトルゾーンにある相手のカードを(\d+)枚選び、持ち主の手札に戻す/g, '相手のカードを$1枚選び、持ち主の手札に戻す')
       .replace(/^\{x\+\}\s*/gm, 'S・トリガー・プラスの条件を満たしていれば、')
       .replace(/\{[^}]{1,6}\}\s*/g, '') // 公式ページのアイコン記号 {GS} {x+} など
@@ -395,6 +397,7 @@
   function parseEffect(body) {
     const s = body.replace(/。$/, '').replace(/^自分は(、)?(?=カードを)/, '').replace(/\s+/g, '');
     if (/^自分の山札の一番下のカードを手札に加える$/.test(s)) return { act: 'deckBottomToHand' };
+    if (/^(自分)?のシールドをすべてブレイクする$/.test(s)) return { act: 'breakOwn', n: 99 };
     const m0 = s.match(/^(バトルゾーンにある)?相手のカードを(\d+)枚選び、(持ち主の)?手札に戻す$/);
     if (m0) return { act: 'bounceAnyCard', n: +m0[2] };
     const optional = /てもよい|まで/.test(s);
@@ -1544,6 +1547,14 @@
   }
   function parseEffects(body) {
     if (/^自分の山札の一番下のカードを手札に加える。?$/.test(String(body || '').trim())) return [{ act: 'deckBottomToHand' }];
+    {
+      const bt = String(body || '').trim();
+      if (/^シールドを1つ見る。そのシールドに含まれるカードを1枚、表向きまたは裏向きにしてもよい。?$/.test(bt)) return [{ act: 'peekShieldFlip' }];
+      const lcs = bt.match(/^自分の山札の上から(\d+)枚を見る。その中から「S・トリガー」付きの呪文を1枚選んでもよい。残りを好きな順序で山札の一番下に戻し、選んだ呪文があればコストを支払わずに唱える。?$/);
+      if (lcs) return [{ act: 'lookCastST', n: +lcs[1] }];
+      if (/^自分の手札を好きな枚数、.*シールド[^。]*。その後、同じ数のシールドを自分の手札に加える。?$/.test(bt)) return [{ act: 'handShieldSwap' }];
+      if (/^自分の墓地のカードを(裏向きにして)?シャッフルし、(自分の)?山札の(一番)?下に置く。?$/.test(bt)) return [{ act: 'ownGraveToBottom' }];
+    }
     const r = parseEffectsCore(body);
     if ((!r || r.some((x) => x.act === 'manualNote')) && /山札/.test(String(body || ''))) {
       const ls = parseLookSeq(String(body || '').trim().replace(/。$/, ''));
@@ -2477,6 +2488,10 @@
       }
       if (/^このクリーチャーを召喚する時、ジョーカーズを好きな数バトルゾーンから自分の手札に戻し、その数だけ、召喚コストを1少なくしてもよい。?$/.test(line)) {
         kw.returnJokersDiscount = 'ジョーカーズ';
+        continue;
+      }
+      if (/^相手のターンの終わりに、そのターン、クリーチャーが(\d+)体以上出ていれば、この呪文をコストを支払わずに唱えてもよい。?$/.test(line)) {
+        A.push({ when: 'oppTurnEnd', fromHand: true, cond: { enteredAnyGE: +line.match(/(\d+)体以上/)[1] }, acts: [{ act: 'castSelfFreeOpt' }], text: raw });
         continue;
       }
       const fdc = line.match(/^相手のクリーチャーが攻撃する時、自分のシールドゾーンにある表向きのカードを(\d+)枚裏向きにしてもよい。そうしたら、この呪文をコストを支払わずに唱える。?$/);
