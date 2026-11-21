@@ -2384,8 +2384,14 @@
         const castFrom = this.zoneOf(card);
         this._lastCast = card;
         this.spellsThisTurn[pi]++;
-        // 解決中は墓地へ（DMでは唱えた後に墓地）
-        this.moveTo(card, 'grave');
+        // 唱えた時に場にあったカード（「呪文を唱えた時」はこれらだけが誘発する）
+        const witness = new Set([...this.permanents(0), ...this.permanents(1)].map((x) => x.uid));
+        // 解決中の呪文はどのゾーンにもない（解決が終わってから墓地へ）
+        {
+          const f0 = this.find(card.uid);
+          if (f0) (f0.arr || f0.player[f0.zone]).splice(f0.index, 1);
+        }
+        card._resolvingSpell = true;
         this.noteManual(card, def);
         this.resolving = (this.resolving || 0) + 1;
         try {
@@ -2397,15 +2403,24 @@
           }
         } finally {
           this.resolving--;
+          delete card._resolvingSpell;
+          if (!this.find(card.uid)) {
+            const ac = card._afterCast;
+            delete card._afterCast;
+            if (ac === 'deckBottom') {
+              this.moveTo(card, 'deck', { top: false });
+              this.log(`「${def.name}」は唱えた後、山札の下に置かれた`);
+            } else this.moveTo(card, 'grave');
+          }
         }
         await this.notifyAll('onAnyCast', card, def);
-        await this.fireAll(1 - pi, 'oppPlay', card);
+        await this.fireAll(1 - pi, 'oppPlay', card, witness);
         card._castFrom = castFrom;
         card._castDef = def;
-        await this.fireAll(pi, 'allyCast', card);
+        await this.fireAll(pi, 'allyCast', card, witness);
         if (this.isSabakiCrest(card)) for (const s2 of this.permanents(pi)) if (this.isOnField(s2) && this.hasAbility(s2, 'allyCastCrest')) await this.trigger(s2, 'allyCastCrest', pi, s2.def, card, { defer: true });
         for (const src of this.permanents(pi)) if (this.isOnField(src) && this.hasAbility(src, 'selfPlay')) await this.trigger(src, 'selfPlay', pi, src.def, card, { defer: true });
-        await this.fireAll(1 - pi, 'oppCast');
+        await this.fireAll(1 - pi, 'oppCast', card, witness);
         await this.resolvePending();
         if (castFrom === 'grave' && this.zoneOf(card) === 'grave' && this.permanents(pi).some((x) => this.isOnField(x) && this.kw(x).graveCastBottom)) {
           this.moveTo(card, 'deck', { top: false });
@@ -2762,8 +2777,8 @@
     }
 
     // pi の場のカードで、when の能力を持つものをすべて待機させて解決
-    async fireAll(pi, when, extra) {
-      for (const c of this.permanents(pi)) if (this.isOnField(c) && this.hasAbility(c, when)) await this.trigger(c, when, pi, c.def, extra || null, { defer: true });
+    async fireAll(pi, when, extra, onlyUids) {
+      for (const c of this.permanents(pi)) if (this.isOnField(c) && (!onlyUids || onlyUids.has(c.uid)) && this.hasAbility(c, when)) await this.trigger(c, when, pi, c.def, extra || null, { defer: true });
       await this.resolvePending();
     }
 
@@ -4597,6 +4612,10 @@
           break;
         }
         case 'lastCastToBottom':
+          if (this._lastCast && this._lastCast._resolvingSpell) {
+            this._lastCast._afterCast = 'deckBottom';
+            break;
+          }
           if (this._lastCast && this.zoneOf(this._lastCast) === 'grave') {
             this.moveTo(this._lastCast, 'deck', { top: false });
             this.log(`「${this._lastCast.def.name}」は唱えた後、山札の下に置かれた`);
