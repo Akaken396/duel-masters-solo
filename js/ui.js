@@ -184,6 +184,8 @@
     }
     updateSetupCounts();
     for (const k of ['first', 'speed', 'mode']) if (Store.prefs[k]) $('#setup-' + k).value = Store.prefs[k];
+    if (Store.prefs.server) $('#setup-server').value = Store.prefs.server;
+    $('#setup-server-row').hidden = $('#setup-mode').value !== 'host';
   }
   function updateSetupCounts() {
     for (const [sel, out] of [
@@ -195,6 +197,12 @@
       $(out).textContent = `${r.count}枚` + (r.unknown.length ? `（未登録 ${r.unknown.length}）` : '');
       $(out).className = r.count === 40 && !r.unknown.length ? 'muted' : 'warn';
     }
+  }
+  $('#setup-mode').addEventListener('change', () => ($('#setup-server-row').hidden = $('#setup-mode').value !== 'host'));
+  // 招待URL（?join=部屋）で開いたとき
+  {
+    const jr = new URLSearchParams(location.search).get('join');
+    if (jr && /^https?:/.test(location.protocol)) setTimeout(() => joinOnline(jr.toUpperCase()), 0);
   }
   $('#setup-my').addEventListener('change', updateSetupCounts);
   $('#setup-ai').addEventListener('change', updateSetupCounts);
@@ -239,8 +247,105 @@
     });
     Store.savePrefs();
     lastSetup = { my, ai, a, b };
+    if ($('#setup-mode').value === 'host') return hostOnline();
     startGame();
   });
+
+  // ===== 友人と対戦 =====
+  let net = null;
+  let me = 0;
+  const onlineStatus = (t) => {
+    const e = $('#online-status');
+    if (e) e.textContent = t || '';
+  };
+  async function hostOnline() {
+    const { my, a, b } = lastSetup;
+    const base = $('#setup-server').value.trim().replace(/\/+$/, '');
+    Store.prefs.server = base;
+    Store.savePrefs();
+    let room;
+    try {
+      room = await Online.Net.createRoom(base);
+    } catch (e) {
+      return alert(`サーバー（${base}）につながりません。\n先に「node server/online-server.js」を起動してください。`);
+    }
+    if (net) net.stop();
+    net = new Online.Net(base, room, 0);
+    net.onStatus = onlineStatus;
+    const isLocal = /localhost|127\.0\.0\.1/.test(base);
+    $('#online-wait').hidden = false;
+    $('#online-wait').innerHTML = '';
+    $('#online-wait').append(
+      el('div', { text: `部屋 ${room} を作りました。相手の参加を待っています…` }),
+      el('div', { class: 'muted', text: isLocal ? `相手に送るURL：トンネルのURLの後ろに「/?join=${room}」をつけたもの（例: https://xxxx.trycloudflare.com/?join=${room}）` : `相手に送るURL：${base}/?join=${room}` }),
+      el('button', { text: 'やめる', onclick: () => (net && net.stop(), (net = null), ($('#online-wait').hidden = true)) })
+    );
+    net.onMessage = (m) => {
+      if (m.t !== 'hello' || game) return;
+      const guestDefs = Array.isArray(m.deck) && m.deck.length ? m.deck : b.defs;
+      const f = $('#setup-first').value;
+      const first = f === 'me' ? 0 : f === 'ai' ? 1 : Math.random() < 0.5 ? 0 : 1;
+      const seed = (Math.random() * 4294967296) >>> 0;
+      const names = [`ホスト（${my.name}）`, `${m.name || 'ゲスト'}`];
+      const st = { t: 'start', seed, first, decks: [a.defs, guestDefs], names };
+      net.send(st);
+      $('#online-wait').hidden = true;
+      beginOnline(st, 0);
+    };
+    net.start();
+  }
+  function joinOnline(room) {
+    $('#join').hidden = false;
+    $('#join-room').textContent = room;
+    const s = $('#join-deck');
+    s.innerHTML = '';
+    s.append(el('option', { value: '', text: 'ホストが選んだデッキを使う' }));
+    for (const d of Store.decks) s.append(el('option', { value: d.id, text: d.name }));
+    $('#join-go').onclick = () => {
+      const d = Store.decks.find((x) => x.id === s.value);
+      const defs = d ? parseDeckList(d.list).defs : null;
+      if (net) net.stop();
+      net = new Online.Net(location.origin, room, 1);
+      net.onStatus = (t) => ($('#join-status').textContent = t || '接続しました。ホストが始めるのを待っています…');
+      net.onMessage = (m) => {
+        if (m.t === 'start' && !game) {
+          $('#join').hidden = true;
+          beginOnline(m, 1);
+        }
+      };
+      net.start();
+      net.send({ t: 'hello', name: $('#join-name').value.trim() || 'ゲスト', deck: defs });
+      $('#join-status').textContent = '接続しました。ホストが始めるのを待っています…';
+      $('#join-go').disabled = true;
+    };
+  }
+  function beginOnline(st, myIdx) {
+    me = myIdx;
+    mode = 'online';
+    const n = net;
+    n.onMessage = (m) => {
+      if (m.t === 'quit' && game && game.net === n) {
+        game.log('相手が対戦をやめました');
+        alert('相手が対戦をやめました');
+      }
+    };
+    launch(
+      new Game({
+        decks: st.decks,
+        names: st.names,
+        ai: [false, false],
+        first: st.first,
+        aiDelay: 0,
+        rng: Online.seededRng(st.seed),
+        net: n,
+        chooser: humanChoose,
+        onChange: queueRender,
+        onLog: addLog,
+      })
+    );
+    n.game = game;
+    n.pump();
+  }
 
   function startGame() {
     const { my, ai, a, b } = lastSetup;
@@ -250,16 +355,22 @@
     $('#log').innerHTML = '';
     $('#zoom').innerHTML = '<div class="muted">カードにマウスを乗せると、ここに大きく表示されます</div>';
     const names = mode === 'solo' ? [`自分（${my.name}）`, `相手（${ai.name}）`] : mode === 'watch' ? [`AI-1（${my.name}）`, `AI-2（${ai.name}）`] : ['あなた', 'AI'];
-    game = new Game({
-      decks: [a.defs, b.defs],
-      names,
-      ai: [mode === 'watch', mode !== 'solo'],
-      first,
-      aiDelay: +$('#setup-speed').value,
-      chooser: humanChoose,
-      onChange: queueRender,
-      onLog: addLog,
-    });
+    launch(
+      new Game({
+        decks: [a.defs, b.defs],
+        names,
+        ai: [mode === 'watch', mode !== 'solo'],
+        first,
+        aiDelay: +$('#setup-speed').value,
+        chooser: humanChoose,
+        onChange: queueRender,
+        onLog: addLog,
+      })
+    );
+  }
+  function launch(g0) {
+    game = g0;
+    $('#log').innerHTML = '';
     $('#setup').hidden = true;
     $('#board').hidden = false;
     const g = game;
@@ -275,7 +386,7 @@
 
   $('#btn-end').addEventListener('click', () => game && game.endTurn());
   $('#btn-undo').addEventListener('click', () => {
-    if (!game || !game.undo()) return;
+    if (!game || mode === 'online' || !game.undo()) return;
     // ログを表示し直す
     $('#log').innerHTML = '';
     for (const m of game.logs) addLog(m);
@@ -317,6 +428,12 @@
     quitGame();
   });
   function quitGame() {
+    if (net) {
+      net.send({ t: 'quit' });
+      const n0 = net;
+      setTimeout(() => n0.stop(), 1500);
+      net = null;
+    }
     if (game) {
       game.opts.onChange = null;
       game.opts.onLog = null;
@@ -331,7 +448,7 @@
 
   function showResult() {
     if (!game || game.winner == null) return;
-    const humanWon = mode === 'vsai' ? game.winner === 0 : null;
+    const humanWon = mode === 'vsai' ? game.winner === 0 : mode === 'online' ? game.winner === me : null;
     openModal(
       el(
         'div',
@@ -341,7 +458,7 @@
         el(
           'div',
           { class: 'acts', style: { justifyContent: 'center', marginTop: '14px' } },
-          el('button', { class: 'primary', text: 'もう一度', onclick: () => (closeModal(), startGame()) }),
+          mode === 'online' ? null : el('button', { class: 'primary', text: 'もう一度', onclick: () => (closeModal(), startGame()) }),
           el('button', { text: '盤面を見る', onclick: closeModal }),
           el('button', { text: '準備画面へ', onclick: quitGame })
         )
@@ -365,9 +482,9 @@
     });
   }
 
-  const isHuman = (pi) => game && !game.p[pi].isAI;
+  const isHuman = (pi) => game && (mode === 'online' ? pi === me : !game.p[pi].isAI);
   const canAct = (pi) => game && game.winner == null && isHuman(pi) && game.active === pi && !game.busy && modal.hidden;
-  const visibleHand = (pi) => mode !== 'vsai' || pi === 0;
+  const visibleHand = (pi) => (mode === 'online' ? pi === me : mode !== 'vsai' || pi === 0);
 
   function render() {
     if (!game) return;
@@ -385,7 +502,7 @@
       $('#turninfo').append(el('div', { class: 'pending-list', text: '待機中：' + g.pendSummary(g.pending) }));
     }
     $('#btn-end').disabled = !(isHuman(g.active) && g.winner == null);
-    $('#btn-undo').disabled = !g.canUndo() || g.p[g.history[g.history.length - 1].active].isAI;
+    $('#btn-undo').disabled = mode === 'online' || !g.canUndo() || g.p[g.history[g.history.length - 1].active].isAI;
     {
       const n = Object.values(g.autoAnswers || {}).filter((x) => x.turn === g.turn).length;
       $('#btn-auto-clear').textContent = `自動の答えを解除（${n}）`;
@@ -401,7 +518,7 @@
   function renderSide(pi) {
     const g = game;
     const pl = g.p[pi];
-    const root = $('#side-' + pi);
+    const root = $('#side-' + (mode === 'online' && me === 1 ? 1 - pi : pi));
     root.innerHTML = '';
     root.classList.toggle('active', g.active === pi);
 
@@ -564,8 +681,8 @@
     const pi = c.owner;
     const ts = g.attackTargets(c);
     const extra = g.canTapAbility(c) ? [{ label: '攻撃するかわりに、タップして能力を使う', run: () => g.actRec({ t: 'tapAbility', pi, uid: c.uid, label: 'タップ能力' }) }] : [];
-    if (g.canHyperize(pi, c)) extra.push({ label: `ハイパー化する（自分の他のクリーチャーを${g.kw(c).hyperize.tapOthers}体タップ）`, run: () => g.act(() => g.hyperize(pi, c.uid)) });
-    if (g.canCross(pi, c)) extra.push({ label: `クリーチャーにクロスする（コスト${c.def.cost}）`, run: () => g.act(() => g.crossGear(pi, c.uid)) });
+    if (g.canHyperize(pi, c)) extra.push({ label: `ハイパー化する（自分の他のクリーチャーを${g.kw(c).hyperize.tapOthers}体タップ）`, run: () => g.actRec({ t: 'hyperize', pi, uid: c.uid, label: 'ハイパー化' }) });
+    if (g.canCross(pi, c)) extra.push({ label: `クリーチャーにクロスする（コスト${c.def.cost}）`, run: () => g.actRec({ t: 'cross', pi, uid: c.uid, label: 'クロス' }) });
     openMenu(
       ev.clientX,
       ev.clientY,
@@ -588,9 +705,9 @@
     const g = game;
     const owner = g.p[c.owner].name;
     const items = [];
-    const mv = (zone, opt, label) => ({ label, disabled: z === zone && !opt, run: () => g.manualMove(c.uid, zone, opt) });
-    if (z === 'battle' || z === 'mana') items.push({ label: c.tapped ? 'アンタップする' : 'タップする', run: () => g.manualTap(c.uid) });
-    if (z === 'shields') items.push({ label: '表を見る', run: () => showZoom(c.def, c) });
+    const mv = (zone, opt, label) => ({ label, disabled: z === zone && !opt, run: () => g.actRec({ t: 'mMove', pi: c.owner, uid: c.uid, zone, opt: opt || {} }) });
+    if (z === 'battle' || z === 'mana') items.push({ label: c.tapped ? 'アンタップする' : 'タップする', run: () => g.actRec({ t: 'mTap', pi: c.owner, uid: c.uid }) });
+    if (z === 'shields' && mode !== 'online') items.push({ label: '表を見る', run: () => showZoom(c.def, c) });
     items.push(
       mv('hand', null, '手札へ'),
       mv('battle', null, 'バトルゾーンへ'),
@@ -613,13 +730,13 @@
     const pl = g.p[pi];
     const top = pl.deck[0];
     openMenu(ev.clientX, ev.clientY, `${pl.name}の山札（${pl.deck.length}）`, [
-      { label: '1枚引く', disabled: !top, run: () => g.manualDraw(pi) },
-      { label: 'シャッフル', run: () => g.manualShuffle(pi) },
-      { label: '上の1枚を見る', disabled: !top, run: () => showZoom(top.def, top) },
-      { label: '上の1枚をマナへ', disabled: !top, run: () => g.manualMove(top.uid, 'mana') },
-      { label: '上の1枚をシールドへ', disabled: !top, run: () => g.manualMove(top.uid, 'shields') },
-      { label: '上の1枚を墓地へ', disabled: !top, run: () => g.manualMove(top.uid, 'grave') },
-      { label: '山札をすべて見る', run: () => pileModal(pi, 'deck') },
+      { label: '1枚引く', disabled: !top, run: () => g.actRec({ t: 'mDraw', pi }) },
+      { label: 'シャッフル', run: () => g.actRec({ t: 'mShuffle', pi }) },
+      { label: '上の1枚を見る', disabled: !top || mode === 'online', run: () => showZoom(top.def, top) },
+      { label: '上の1枚をマナへ', disabled: !top, run: () => g.actRec({ t: 'mMove', pi, uid: top.uid, zone: 'mana', opt: {} }) },
+      { label: '上の1枚をシールドへ', disabled: !top, run: () => g.actRec({ t: 'mMove', pi, uid: top.uid, zone: 'shields', opt: {} }) },
+      { label: '上の1枚を墓地へ', disabled: !top, run: () => g.actRec({ t: 'mMove', pi, uid: top.uid, zone: 'grave', opt: {} }) },
+      { label: '山札をすべて見る', disabled: mode === 'online', run: () => pileModal(pi, 'deck') },
       ...(top && isHuman(pi) && g.active === pi && g.canPlayFromGrave(pi, top) ? [{ label: `上の1枚「${top.def.name}」を使う（能力）`, run: () => g.actRec({ t: 'graveUse', pi, uid: top.uid, label: '墓地から使う' }) }] : []),
     ]);
   }

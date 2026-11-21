@@ -20,6 +20,13 @@
 
     <!-- 対戦 -->
     <section id="tab-battle" class="tab on">
+      <div id="join" class="panel" hidden>
+        <h2>友人と対戦：部屋 <span id="join-room"></span> に参加</h2>
+        <div class="row"><label>名前</label><input id="join-name" type="text" value="ゲスト" /></div>
+        <div class="row"><label>デッキ</label><select id="join-deck"></select></div>
+        <button id="join-go" class="primary">参加する</button>
+        <div id="join-status" class="muted"></div>
+      </div>
       <div id="setup" class="panel">
         <h2>対戦の準備</h2>
         <div class="row"><label>自分のデッキ</label><select id="setup-my"></select><span id="setup-my-n" class="muted"></span></div>
@@ -46,8 +53,14 @@
             <option value="vsai">AIと対戦</option>
             <option value="solo">一人回し（相手も自分で操作）</option>
             <option value="watch">AI同士を観戦</option>
+            <option value="host">友人と対戦（部屋を作る）</option>
           </select>
         </div>
+        <div class="row" id="setup-server-row" hidden>
+          <label>サーバー</label><input id="setup-server" type="text" value="http://localhost:8787" style="width: 22em" />
+          <span class="muted">「AIのデッキ」は、相手がデッキを選ばなかったときに相手が使うデッキです</span>
+        </div>
+        <div id="online-wait" class="panel" hidden></div>
         <div class="row"><label>ルール</label><label class="chk"><input id="setup-strict" type="checkbox" checked /> 競技ルール（40枚ちょうど・同名カードは4枚まで）</label></div>
         <button id="setup-start" class="primary">対戦開始</button>
       </div>
@@ -64,6 +77,7 @@
             <label class="autochk" title="オフにすると「このターン、同じ質問には同じ答え」を使わず毎回聞きます"><input type="checkbox" id="chk-auto" checked> 同じ答えを自動で</label>
             <button id="btn-auto-clear" title="このターンに覚えた答えを全部忘れます" disabled>自動の答えを解除（0）</button>
             <button id="btn-end" class="primary">ターン終了</button>
+            <span id="online-status" class="warn"></span>
             <button id="btn-quit">対戦をやめる</button>
           </div>
           <div class="side me" id="side-0"></div>
@@ -254,6 +268,7 @@
     <script src="js/ai.js"></script>
     <script src="js/storage.js"></script>
     <script src="js/official.js"></script>
+    <script src="js/online.js"></script>
     <script src="js/ui.js"></script>
   </body>
 </html>

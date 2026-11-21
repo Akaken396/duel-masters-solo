@@ -81,6 +81,7 @@
 
   let uidSeq = 1;
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const MANUAL_STEPS = ['mMove', 'mTap', 'mDraw', 'mShuffle'];
 
   function shuffle(a, rng) {
     for (let i = a.length - 1; i > 0; i--) {
@@ -109,6 +110,7 @@
     constructor(opts) {
       this.opts = opts;
       this.rng = opts.rng || Math.random;
+      this.net = opts.net || null;
       this.AI = opts.AI || G.AI;
       this.logs = [];
       this.turn = 0;
@@ -1259,6 +1261,19 @@
     }
 
     async choose(pi, req) {
+      // 友人対戦：相手の選択は通信で受け取る。自分の選択は相手に送る
+      if (this.net && !this.p[pi].isAI) {
+        if (pi !== this.net.me) {
+          this.changed();
+          return this.net.recvAns(req);
+        }
+        const ids = await this.chooseLocal(pi, req);
+        this.net.send({ t: 'ans', ids });
+        return ids;
+      }
+      return this.chooseLocal(pi, req);
+    }
+    async chooseLocal(pi, req) {
       if (this.p[pi].isAI) return this.AI.choose(this, pi, req);
       const key = this.answerKey(req);
       // ループの再生中：記録した答えを使う
@@ -1311,12 +1326,12 @@
       if (res && res.ctl === 'ansRecStart') {
         this.ansRec = [];
         this.log('選択の記録を開始した（1周分を選んで、同じ質問に戻ったら「くり返す」）');
-        return this.choose(pi, req);
+        return this.chooseLocal(pi, req);
       }
       if (res && res.ctl === 'ansRecStop') {
         this.ansRec = null;
         this.log('選択の記録をやめた');
-        return this.choose(pi, req);
+        return this.chooseLocal(pi, req);
       }
       if (res && res.ctl === 'ansRepeat') {
         const cyc = this.ansRec || [];
@@ -1328,7 +1343,7 @@
           this.loopPlay = { mode: 'answers', answers: q, n, broken: null };
           this.log(`選択のループ（${cyc.length}回の選択）を${n}回くり返す`);
         }
-        return this.choose(pi, req);
+        return this.chooseLocal(pi, req);
       }
       const ids = Array.isArray(res) ? res : res && res.ids ? res.ids : res;
       const rec = { key, kind: req.kind, prompt: req.prompt, ids: (ids || []).slice(), labels: (ids || []).map((id) => { const o = (req.options || []).find((x) => String(x.id) === String(id)); return o ? this.optDesc(o) : String(id); }) };
@@ -1381,6 +1396,13 @@
     }
     // 人間の操作（記録できる形）
     async actRec(step) {
+      if (!MANUAL_STEPS.includes(step.t) && (this.busy || this.winner != null)) return;
+      if (this.net && !step._remote) this.net.send({ t: 'step', via: 'act', step, h: this.stateHash() });
+      // 手動の操作は、処理中でなくてもそのまま行う
+      if (MANUAL_STEPS.includes(step.t)) {
+        if (this.loopRec) this.loopRec.steps.push({ ...step, answers: [] });
+        return this.runStep(step);
+      }
       const run = () => this.runStep(step);
       if (this.loopRec) {
         const st = { ...step, answers: [] };
@@ -1403,6 +1425,12 @@
         case 'tapAbility': return this.useTapAbility(pi, step.uid);
         case 'attack': return this.attack(pi, step.uid, step.target);
         case 'graveUse': return this.playFromGrave(pi, step.uid);
+        case 'hyperize': return this.hyperize(pi, step.uid);
+        case 'cross': return this.crossGear(pi, step.uid);
+        case 'mMove': return this.manualMove(step.uid, step.zone, step.opt);
+        case 'mTap': return this.manualTap(step.uid);
+        case 'mDraw': return this.manualDraw(pi);
+        case 'mShuffle': return this.manualShuffle(pi);
         case 'freePlay':
         case 'freeTwin': {
           const f = this.find(step.uid);
@@ -1412,6 +1440,37 @@
         }
         default: return false;
       }
+    }
+    // 友人対戦：相手から届いた操作を実行する
+    async runRemoteStep(step, via) {
+      const st = { ...step, _remote: true };
+      if (via === 'loop') {
+        this.busy = true;
+        try {
+          await this.runStep(st);
+        } catch (e) {
+          if (!(e instanceof GameOver)) {
+            console.error(e);
+            this.log('エラー: ' + e.message);
+          }
+        } finally {
+          this.busy = false;
+        }
+        this.changed();
+        return;
+      }
+      await this.actRec(st);
+    }
+    // 両者の盤面が同じかを確かめるための値
+    stateHash() {
+      let h = 2166136261;
+      const add = (x) => {
+        const t = String(x);
+        for (let i = 0; i < t.length; i++) h = Math.imul(h ^ t.charCodeAt(i), 16777619) >>> 0;
+      };
+      add(this.turn + ':' + this.active);
+      for (const pl of this.p) for (const z of ['hand', 'mana', 'battle', 'shields', 'grave', 'deck']) add(z + (pl[z] || []).map((c) => c.uid + (c.tapped ? 't' : '')).join(','));
+      return h.toString(36);
     }
     // 記録したループをN回くり返す。手順が取れなくなったら止める
     async loopReplay(n) {
@@ -1430,6 +1489,7 @@
             break;
           }
           this.loopPlay = { answers: st.answers.map((x) => ({ ...x })), broken: null };
+          if (this.net) this.net.send({ t: 'step', via: 'loop', step: { ...st, answers: undefined }, h: this.stateHash() });
           this.busy = true;
           let r;
           try {
@@ -1721,8 +1781,12 @@
     }
 
     // 人間側のターン終了ボタン
-    endTurn() {
+    endTurn(remote) {
       if (this.busy || this.p[this.active].isAI || !this._endTurnResolve) return;
+      if (this.net && !remote) {
+        if (this.active !== this.net.me) return;
+        this.net.send({ t: 'end', h: this.stateHash() });
+      }
       const r = this._endTurnResolve;
       this._endTurnResolve = null;
       this.log(`${this.p[this.active].name}はターンを終了した`);
