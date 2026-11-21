@@ -501,6 +501,7 @@
       if (!c) return true;
       if (c.not) return !this.condOk2(pi, c.not, card);
       if (c.and) return c.and.every((x) => this.condOk2(pi, x, card));
+      if (c.superBonus && !(card && card._superBonus)) return false;
       if (c.wonBattleThisTurn && me.battleWonTurn !== this.turn) return false;
       if (c.notExtraTurn && this.inExtraTurn) return false;
       if (c.graveCountGE != null && me.grave.length < c.graveCountGE) return false;
@@ -934,6 +935,8 @@
       const pph = parsed(card.def).kw.powerPerHand;
       const pphv = pph && (!pph.oppTurn || this.active !== card.owner) ? Math.floor(this.p[pph.opp ? 1 - card.owner : card.owner].hand.length / pph.per) * pph.n : 0;
       let aura = pohv + pphv + spw + hun;
+      // 「次の自分のターンのはじめまで、自分の〇〇すべてのパワーをバトル中+N」
+      if (card.inBattle) for (const bb of this.p[card.owner]._battleBuffs || []) if (bb.until >= this.turn && (!bb.race || ((card.def.races || []).join('/') + card.def.name).includes(bb.race))) aura += bb.n;
       for (const s2 of this.p[1 - card.owner].battle) if (this.isOnField(s2)) aura += parsed(s2.def).kw.oppPowerAura || 0;
       return pcv + psv + ptv + aura + this.powerExtra3(card);
     }
@@ -2749,7 +2752,7 @@
               this.log(`「${r[0].def.name}」を「${host.def.name}」の下に置いた`);
             }
           }
-        } else if (kd.castAgain && !card._castAgain && !free && this.zoneOf(card) === 'grave' && (await this.yesNo(pi, `「${def.name}」をもう一度、墓地からコストを支払わずに唱えますか？`, card))) {
+        } else if (((kd.castAgain && !free) || (kd.castAgainSB && card._superBonus)) && !card._castAgain && this.zoneOf(card) === 'grave' && (await this.yesNo(pi, `「${def.name}」をもう一度、墓地からコストを支払わずに唱えますか？`, card))) {
           card._castAgain = true;
           try {
             await this.putIntoPlay(pi, card, true, def);
@@ -4902,6 +4905,63 @@
           if (pool.length) this.log(`${op.name}のマナより重いクリーチャー${pool.length}体を山札の下に置いた`);
           break;
         }
+        case 'bounceAnyCard': {
+          const pool = op.battle.filter((c) => this.selectable(c, pi));
+          const r = await this.pickCards(pi, pool, a.n, false, `${nm}: 手札に戻す相手のカード`, 'target', 'bounce');
+          for (const c of r) {
+            await this.leave(c, 'hand');
+            this.log(`「${c.def.name}」を手札に戻した`);
+          }
+          break;
+        }
+        case 'teamBattlePowerNext':
+          (me._battleBuffs = me._battleBuffs || []).push({ until: this.nextTurnOf(pi) - 1, race: a.race, n: a.n });
+          this.log(`次の${me.name}のターンのはじめまで、${me.name}の${a.race || 'クリーチャー'}はバトル中パワー+${a.n}`);
+          break;
+        case 'allNoAttackPlayerTurn':
+          this.noPlayerAttackTurn = this.turn;
+          this.log('このターン、クリーチャーはプレイヤーを攻撃できない');
+          break;
+        case 'oppTeamLockNextEnd':
+          for (const c of op.battle) if (this.isCreature(c)) c.lockedUntil = Math.max(c.lockedUntil || 0, this.nextTurnOf(pi));
+          this.log(`次の${me.name}のターンの終わりまで、${op.name}のクリーチャーは攻撃もブロックもできない`);
+          break;
+        case 'teamNoLeaveTurn':
+          me.noLeaveUntil = Math.max(me.noLeaveUntil || 0, this.turn);
+          this.log(`このターン、${me.name}のクリーチャーは離れない`);
+          break;
+        case 'deckBottomToHand': {
+          const c = me.deck[me.deck.length - 1];
+          if (!c) break;
+          this.moveTo(c, 'hand');
+          this.log(`${me.name}は山札の一番下のカードを手札に加えた`);
+          break;
+        }
+        case 'oppSacMixed': {
+          // 相手は、バトルゾーンと手札にある自身のカードを合計N枚選び、墓地に置く
+          const pool = [...op.battle, ...op.hand];
+          const n = Math.min(a.n, pool.length);
+          const r = op.isAI ? pool.slice().sort((x, y) => (+x.def.cost || 0) - (+y.def.cost || 0)).slice(0, n) : await this.pickCards(op.idx, pool, n, false, `${nm}: 墓地に置く自分のカード（バトルゾーンと手札から合計${n}枚）`, 'discard');
+          for (const c of r) {
+            if (this.zoneOf(c) === 'battle') await this.leave(c, 'grave');
+            else this.moveTo(c, 'grave');
+          }
+          this.log(`${op.name}はバトルゾーンと手札のカードを${r.length}枚墓地に置いた`);
+          break;
+        }
+        case 'destroyCostLECount': {
+          // コストが「自分の〇〇の数」以下のクリーチャーをすべて破壊
+          let lim = 0;
+          for (const z of a.zones) lim += me[z].filter((c) => this.fitLook(c, a.what)).length;
+          const targets = [...me.battle, ...op.battle].filter((c) => this.isCreature(c) && (+c.def.cost || 0) <= lim && (!a.side || a.side === 'all' || (a.side === 'opp' ? c.owner !== pi : c.owner === pi)));
+          this.log(`${nm}: コスト${lim}以下のクリーチャーをすべて破壊`);
+          await this.destroyMany(targets, { byOpp: true, src, pi });
+          break;
+        }
+        case 'oppDestroyedShieldBurn':
+          me._oppDestroyBurn = { turn: this.turn, name: src ? src.def.name : '' , uid: src && src.uid };
+          this.log(`このターン、${op.name}のクリーチャーが破壊された時、シールドを1つ墓地に置ける`);
+          break;
         case 'allNoAttackTurn':
           for (const pl of [me, op]) for (const c of pl.battle) c.noAttackTurn = this.turn;
           this.log('このターン、クリーチャーは攻撃できない');
@@ -5278,6 +5338,7 @@
           const pool = me.grave.filter((c) => c !== src && (+c.def.cost || 0) <= lim && (!a.civ || (c.def.civs || []).includes(a.civ)) && !this.locked(pi, c.def));
           const r = await this.pickCards(pi, pool, a.n, true, `${nm}: 墓地からコストなしで使うカード（コスト${lim}以下）`, 'recover');
           for (const c of r) {
+            if (a.superBonus && parsed(c.def).kw.superTrigger && (await this.yesNo(pi, `${nm}: 「${c.def.name}」のスーパーボーナスも使いますか？（シールドがないものとして）`, c))) c._superBonus = true;
             this._castDepth = (this._castDepth || 0) + 1;
             try {
               await this.putIntoPlay(pi, c, true);
@@ -6491,6 +6552,23 @@
         }, { defer: true });
       }
       for (const c of gone) if (c.def.type === 'creature') await this.allyEvent(c, c.owner, 'allyDestroyed');
+      // 「このターン、相手のクリーチャーが破壊された時、シールドを1つ選び、持ち主の墓地に置いてもよい」
+      for (const c of gone) {
+        const w = this.p[1 - c.owner];
+        const bt = w._oppDestroyBurn;
+        if (!bt || bt.turn !== this.turn || !(c.def.type === 'creature' || this.isCreatureDef(c))) continue;
+        await this.queueFn(c, w.idx, `「${bt.name}」の能力（相手のクリーチャーが破壊された時）`, async () => {
+          const pool = [...w.shields, ...this.p[1 - w.idx].shields];
+          if (!pool.length) return;
+          const r = await this.pickCards(w.idx, pool, 1, true, `「${bt.name}」: 墓地に置くシールド（置かなくてもよい）`, 'target');
+          for (const sh of r) {
+            const ow = sh.owner;
+            this.moveTo(sh, 'grave');
+            this.log(`${this.p[ow].name}のシールドを1つ墓地に置いた`);
+            await this.shieldsLeft(ow);
+          }
+        }, { defer: true });
+      }
       for (const c of gone) if (this.isCreature(c) || c.def.type === 'creature') {
         if (this.hasAbility(c, 'selfOrAllyDestroyed')) await this.trigger(c, 'selfOrAllyDestroyed', c.owner, c.def, null, { defer: true });
         for (const q of [0, 1]) for (const src of [...this.permanents(q).filter((x) => !gone.includes(x)), ...gone.filter((x) => x.owner === q)]) {
@@ -6576,7 +6654,7 @@
         return t;
       }
       const guard = op.battle.some((s) => this.isCreature(s) && this.kw(s).playerGuardPower && this.power(card) < this.power(s)) || this.permanents(1 - pi).some((s) => this.kw(s).noPlayerAttack);
-      const noPlayer = guard || needNoPlayer || k.cantAttackPlayer || lackCreatures || (k.playerAttackNeedShieldAdded && this.p[pi].shieldAddedTurn !== this.turn);
+      const noPlayer = guard || needNoPlayer || k.cantAttackPlayer || this.noPlayerAttackTurn === this.turn || lackCreatures || (k.playerAttackNeedShieldAdded && this.p[pi].shieldAddedTurn !== this.turn);
       if (!noPlayer && !(card.enteredTurn === this.turn && this.permanents(1 - pi).some((s) => this.kw(s).oppSickNoPlayer)) && !op.battle.some((s) => s.tapped && this.kw(s).noPlayerAttackIfTapped)) t.push('player');
       if (!k.cantAttackCreature && !(card.sick && card.abyssTurn === this.turn) && !sickP) t.push(...op.battle.filter((c) => canHit(c) && !(this.kw(c).flying && !k.flying) && (c.tapped || k.attackUntapped || (k.attackUntappedCiv && (c.def.civs || []).includes(k.attackUntappedCiv)))));
       if (forced.length) return t.filter((x) => x !== 'player' && forced.includes(x));
@@ -7160,6 +7238,11 @@
           } else {
             this.log(`${op.name}: S・トリガー発動！`);
             c.card._viaSTTurn = this.turn;
+            // スーパー・S・トリガー：使う時に自分のシールドが1つもなければ、スーパーボーナスがつく
+            if (parsed(c.def).kw.superTrigger && !op.shields.length) {
+              c.card._superBonus = true;
+              this.log(`スーパー・S・トリガー：シールドが0なので「${c.def.name}」にスーパーボーナスがつく`);
+            }
             await this.putIntoPlay(op.idx, c.card, true, c.def);
           }
         }

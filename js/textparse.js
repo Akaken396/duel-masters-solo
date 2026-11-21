@@ -33,6 +33,18 @@
       .replace(/そのクリーチャーは「([^」]+)」を得る。/g, 'そのクリーチャーに「$1」を与える。')
       .replace(/\r/g, '')
       .replace(/^(\{O[A-Z]?\}|\[O[A-Z]?\])\s*/gm, '〔バズ〕') // バズレンダで使う能力の印
+      // 行の途中の「…。xB〜」は改行して分ける。トリガーのない続きは、前の文の「出た時」に続ける
+      .replace(/^(このクリーチャーが(?:バトルゾーンに)?出た時、)?([^\n]*?[。）)])\s*(\{[xo]B\}|[xo]B)(?![A-Za-z])\s*([^\n]+)$/gm, (x, head, pre, mk, rest) => `${head || ''}${pre}\n${mk} ${head && !/^このクリーチャーが|時、/.test(rest) ? head : ''}${rest}`)
+      .replace(/^(\{[xo]B\}|[xo]B(?![A-Za-z])|[（(]S[）)](?=\S))\s*/gm, '〔SB〕') // スーパーボーナスの印
+      // 1行に続いたキーワードを分ける（「…）ブロッカー（…）」）
+      .replace(/([）)])(?=(ブロッカー|スピードアタッカー|スレイヤー|パワーアタッカー|W・ブレイカー|T・ブレイカー|マッハファイター|ジャストダイバー)[（(\n]|〔SB〕)/g, '$1\n')
+      // スーパーボーナスの言い回し
+      .replace(/(^|。|〔SB〕)このターン、クリーチャーはすべて攻撃できない/gm, '$1このターン、クリーチャーは攻撃できない')
+      .replace(/相手のクリーチャーは、次の相手のターンのはじめにアンタップしない/g, '相手のクリーチャーはすべて、次の相手のターンのはじめにアンタップしない')
+      .replace(/自分の墓地からコストが(\d+)以下の呪文を(\d+)枚まで選び、コストを支払わずに唱える/g, 'コスト$1以下の呪文を$2枚、自分の墓地からコストを支払わずに唱えてもよい')
+      .replace(/クリーチャーを好きな数、自分の墓地からバトルゾーンに出す/g, 'クリーチャーを好きな数、自分の墓地から出す')
+      .replace(/そのターン中、自分はゲームに負けず/g, 'このターン、自分はゲームに負けず')
+      .replace(/バトルゾーンにある相手のカードを(\d+)枚選び、持ち主の手札に戻す/g, '相手のカードを$1枚選び、持ち主の手札に戻す')
       .replace(/^\{x\+\}\s*/gm, 'S・トリガー・プラスの条件を満たしていれば、')
       .replace(/\{[^}]{1,6}\}\s*/g, '') // 公式ページのアイコン記号 {GS} {x+} など
       .replace(/^[a-z]{1,2}[A-Z]?(?=この|自分|相手|各ターン)/gm, '') // 行頭に残ったアイコンの文字
@@ -382,6 +394,9 @@
   // 一つの効果文（トリガー部分は除去済み）を action に変換。読めなければ null
   function parseEffect(body) {
     const s = body.replace(/。$/, '').replace(/^自分は(、)?(?=カードを)/, '').replace(/\s+/g, '');
+    if (/^自分の山札の一番下のカードを手札に加える$/.test(s)) return { act: 'deckBottomToHand' };
+    const m0 = s.match(/^(バトルゾーンにある)?相手のカードを(\d+)枚選び、(持ち主の)?手札に戻す$/);
+    if (m0) return { act: 'bounceAnyCard', n: +m0[2] };
     const optional = /てもよい|まで/.test(s);
     let m;
     if ((m = s.match(/^自分の山札の上から(\d+)枚(目)?を(、)?シールド化(する|してもよい)$/))) return { act: 'shieldAdd', n: +m[1], optional: m[4] !== 'する' };
@@ -605,6 +620,15 @@
     if ((m = s.match(/^自分の手札を(\d+)枚、好きな順序で山札の(上|下)に置く$/))) return { act: 'handToDeck', n: +m[1], top: m[2] === '上' };
     if ((m = s.match(/^攻撃しているクリーチャーよりコストが小さい([^、。]*?)クリーチャーを(\d+)体、自分の手札から(バトルゾーンに)?出(す|してもよい)$/))) return { act: 'putFromHand', cond: lookCond((m[1] || '') + 'クリーチャー'), kinds: ['creature'], n: +m[2], optional: m[4] !== 'す', costLtEvent: true };
     if (/^(その|この)ターン、相手のクリーチャーは攻撃もブロックもできない$/.test(s)) return { act: 'oppTeamLockTurn' };
+    if (/^次の自分のターンの終わりまで、相手のクリーチャーは攻撃もブロックもできない$/.test(s)) return { act: 'oppTeamLockNextEnd' };
+    if (/^(その|この)ターン、クリーチャーはプレイヤーを攻撃できない$/.test(s)) return { act: 'allNoAttackPlayerTurn' };
+    if (/^(その|この)ターン、自分のクリーチャーはバトルゾーンを離れず、次の自分のターンのはじめまで「ブロッカー」を得る$/.test(s))
+      return { act: 'seq', acts: [{ act: 'teamNoLeaveTurn' }, { act: 'teamBuff', until: 'next', all: true, n: 0, others: false, who: null, power: 0, names: ['ブロッカー'] }] };
+    if ((m = s.match(/^次の自分のターンのはじめまで、自分の([^、。]+?)すべてのパワーをバトル中\+(\d+)する$/))) return { act: 'teamBattlePowerNext', race: m[1] === 'クリーチャー' ? null : m[1].replace(/・?クリーチャー$/, ''), n: +m[2] };
+    if ((m = s.match(/^相手は、?バトルゾーンまたは手札にある自身のカードを合計(\d+)枚選び、墓地に置く$/))) return { act: 'oppSacMixed', n: +m[1] };
+    if ((m = s.match(/^バトルゾーンとマナゾーンにある自分の([^、。]+?)の合計枚数以下のコストを持つクリーチャーをすべて破壊する$/))) return { act: 'destroyCostLECount', zones: ['battle', 'mana'], what: lookCond(m[1]), side: 'all' };
+    if ((m = s.match(/^((光|水|闇|火|自然)の)?(進化ではない)?クリーチャーを(\d+)体まで、自分のマナゾーンから(バトルゾーンに)?出す$/))) return { act: 'putFromMana', cond: lookCond(`${m[1] || ''}${m[3] || ''}クリーチャー`), n: +m[4], optional: true };
+    if (/^(その|この)ターン、相手のクリーチャーが破壊された時、シールドを1つ選び、持ち主の墓地に置いてもよい$/.test(s)) return { act: 'oppDestroyedShieldBurn' };
     if (/^(このクリーチャーとそのクリーチャー|そのクリーチャーとこのクリーチャー)をバトルさせ(る|てもよい)$/.test(s)) return { act: 'fightEvent', optional: /もよい/.test(s) };
     if (/^プレイヤーを1人選んでもよい。そのプレイヤーは自身の墓地をシャッフルし、山札の下に置く$/.test(s)) return { act: 'graveToDeckBottomPlayer' };
     if ((m = s.match(/^(その|この)ターン、そのクリーチャーのパワーを0にする$/))) return { act: 'eventPowerZero' };
@@ -1519,6 +1543,7 @@
     return [{ act: 'lookSeq', n, whole, optional, reveal, steps, restTo, shuffleAfter: shuffleAfter || whole }, ...after];
   }
   function parseEffects(body) {
+    if (/^自分の山札の一番下のカードを手札に加える。?$/.test(String(body || '').trim())) return [{ act: 'deckBottomToHand' }];
     const r = parseEffectsCore(body);
     if ((!r || r.some((x) => x.act === 'manualNote')) && /山札/.test(String(body || ''))) {
       const ls = parseLookSeq(String(body || '').trim().replace(/。$/, ''));
@@ -1610,7 +1635,7 @@
     if (brp) return [{ act: 'bottomRevealPut', n: +brp[1], cond: { ...lookCond(brp[3]), maxCost: +brp[2] }, k: +brp[4] }];
     if (/^自分の山札をシャッフルし、上から自分のエレメントの数だけ見る。その中からカードを1枚、コストを支払わずに実行してもよい。残りを好きな順序で山札の下に置く。?$/.test(body)) return [{ act: 'lookElementsUse' }];
     const ugl = body.match(/^自分の墓地にあるカードの枚数以下のコストを持つ(光|水|闇|火|自然)?(の)?カードを(\d+)枚、自分の墓地からコストを支払わずに(実行し|使っ|唱え)てもよい。(それが「スーパー・S・トリガー」を持つなら、[^。]+。)?(こうして呪文を唱えたなら、それを唱えた後、墓地のかわりに山札の下に置く。?)?$/);
-    if (ugl) return [{ act: 'useFromGraveLE', civ: ugl[1] ? { 光: 'light', 水: 'water', 闇: 'darkness', 火: 'fire', 自然: 'nature' }[ugl[1]] : null, n: +ugl[3], bottomAfter: !!ugl[6] }];
+    if (ugl) return [{ act: 'useFromGraveLE', civ: ugl[1] ? { 光: 'light', 水: 'water', 闇: 'darkness', 火: 'fire', 自然: 'nature' }[ugl[1]] : null, n: +ugl[3], bottomAfter: !!ugl[6], superBonus: !!ugl[5] }];
     const tsd = body.match(/^相手のパワー(\d+)以下のクリーチャーをすべて(表向きに)?シールド化する。こうしてシールド化したカード1枚につき、自分はカードを1枚引く。?$/);
     if (tsd) return [{ act: 'toShieldAllDraw', maxPower: +tsd[1], faceUp: !!tsd[2] }];
     if (/^自分と相手のシールドを1つずつ選ぶ。このクリーチャーは選ばれたそれらのシールドをブレイクする。?$/.test(body)) return [{ act: 'breakBothOne' }];
@@ -2011,6 +2036,16 @@
         const vm = raw.match(/\[([a-z]+)(\d+)\]/) || raw.match(/〔代替([a-z]+)(\d+)〕/);
         (inHyper ? hyper.kw : kw).buzz = { cost: vm ? +vm[2] : 2 };
         continue;
+      }
+      // スーパーボーナス：スーパー・S・トリガーで、使う時にシールドが0なら使える
+      if (/^〔SB〕/.test(line)) {
+        line = line.replace(/^〔SB〕\s*/, '');
+        if (/^この呪文を(自分の)?手札から唱えた後、この呪文を(自分の)?墓地からコストを支払わずに唱えてもよい。?$/.test(line)) {
+          (inHyper ? hyper.kw : kw).castAgainSB = true;
+          continue;
+        }
+        linkFrom = abilities.length;
+        linkCond = { superBonus: true };
       }
       if (/^〔バズ〕/.test(line)) {
         const body = parseEffects(line.replace(/^〔バズ〕\s*/, '').replace(/。$/, ''));
