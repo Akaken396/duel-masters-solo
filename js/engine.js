@@ -5274,17 +5274,31 @@
           const worth = (c) => +c.def.cost || 0;
           for (const st0 of a.steps) {
             let st = st0;
+            let prePicked = null;
             if (st.dest === 'choice') {
-              const opts = st.choices.map((d) => ({ id: d, label: { hand: '手札に加える', mana: 'マナゾーンに置く', grave: '墓地に置く', battle: '出す', shields: 'シールド化する', deckTop: '山札の上に置く', deckBottom: '山札の下に置く' }[d] || d }));
-              const r = await this.choose(pi, { kind: 'mode', prompt: `${nm}: どこに置きますか？`, options: opts, min: 1, max: 1, aiPick: [st.choices.includes('hand') ? 'hand' : st.choices[0]] });
-              st = { ...st, dest: r[0] || st.choices[0] };
+              const DL = { hand: '手札に加える', mana: 'マナゾーンに置く', grave: '墓地に置く', battle: '出す', shields: 'シールド化する', deckTop: '山札の上に置く', deckBottom: '山札の下に置く' };
+              let choices = st.choices;
+              // 人が選ぶ時は、先にカードを選んでから置き場所を決める（見てから決める）
+              if (!me.isAI) {
+                const pool0 = left.filter((c) => !st.cond || this.fitLook(c, st.cond));
+                if (!pool0.length) continue;
+                const max0 = st.n === 'any' ? pool0.length : st.n === 'all' ? pool0.length : Math.min(st.n, pool0.length);
+                const opt0 = st.n === 'any' || st.upTo;
+                prePicked = st.n === 'all' ? pool0 : await this.pickCards(pi, pool0, max0, opt0, `${nm}: 選ぶカード${st.cond ? '（' + st.cond.text + '）' : ''}（このあと「${choices.map((d) => DL[d] || d).join('」か「')}」を選びます）`, 'recover');
+                if (!prePicked.length) continue;
+                if (prePicked.some((c) => NON_CREATURE.includes(c.def.type) && !['tamaseed', 'field'].includes(c.def.type))) choices = choices.filter((d) => d !== 'battle');
+              }
+              const opts = choices.map((d) => ({ id: d, label: DL[d] || d }));
+              const r = await this.choose(pi, { kind: 'mode', prompt: prePicked ? `${nm}: 「${prePicked.map((c) => c.def.name).join('」「')}」をどこに置きますか？` : `${nm}: どこに置きますか？`, options: opts, min: 1, max: 1, aiPick: [choices.includes('hand') ? 'hand' : choices[0]] });
+              st = { ...st, dest: r[0] || choices[0] };
             }
             let pool = left.filter((c) => !st.cond || this.fitLook(c, st.cond));
             if (st.dest === 'battle') pool = pool.filter((c) => !NON_CREATURE.includes(c.def.type) || ['tamaseed', 'field'].includes(c.def.type));
             if (st.dest === 'use') pool = pool.filter((c) => !this.locked(pi, c.def));
             if (!pool.length) continue;
             let picked;
-            if (st.n === 'all') picked = pool;
+            if (prePicked) picked = prePicked.filter((c) => pool.includes(c));
+            else if (st.n === 'all') picked = pool;
             else {
               const max = st.n === 'any' ? pool.length : Math.min(st.n, pool.length);
               const opt = st.n === 'any' || st.upTo;
