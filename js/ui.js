@@ -187,6 +187,7 @@
     if (Store.prefs.server) $('#setup-server').value = Store.prefs.server;
     for (const [k, id] of [['llmUrl', '#setup-llm-url'], ['llmModel', '#setup-llm-model'], ['llmMemo', '#setup-llm-memo']]) if (Store.prefs[k] != null) $(id).value = Store.prefs[k];
     if (Store.prefs.llmChoices != null) $('#setup-llm-choices').checked = !!Store.prefs.llmChoices;
+    if (typeof LLMAI !== 'undefined') memoInfo();
     $('#setup-server-row').hidden = $('#setup-mode').value !== 'host';
     $('#setup-llm').hidden = $('#setup-mode').value !== 'vsllm';
   }
@@ -206,6 +207,21 @@
     $('#setup-llm').hidden = $('#setup-mode').value !== 'vsllm';
   };
   $('#setup-mode').addEventListener('change', setupModeRows);
+  // 作戦メモ：長さと、AIに渡す量
+  function memoInfo() {
+    const t = $('#setup-llm-memo').value;
+    const c = LLMAI.compactMemo(t);
+    $('#setup-llm-memo-info').textContent = t ? (c.length < t.length ? `${t.length}文字 → 長いので作戦の部分だけ約${c.length}文字をAIに渡します` : `${t.length}文字`) : '';
+  }
+  $('#setup-llm-memo').addEventListener('input', memoInfo);
+  $('#setup-llm-memo-load').addEventListener('click', () => $('#setup-llm-memo-file').click());
+  $('#setup-llm-memo-file').addEventListener('change', async (e) => {
+    const f = e.target.files[0];
+    if (!f) return;
+    $('#setup-llm-memo').value = await f.text();
+    e.target.value = '';
+    memoInfo();
+  });
   // Ollama：接続を確かめて、モデルの一覧を出す
   $('#setup-llm-test').addEventListener('click', async () => {
     const st = $('#setup-llm-status');

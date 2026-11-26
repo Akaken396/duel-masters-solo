@@ -70,6 +70,7 @@
           <div class="row"><label>モデル</label><input id="setup-llm-model" type="text" list="setup-llm-models" placeholder="例: qwen2.5:7b" style="width: 16em" /><datalist id="setup-llm-models"></datalist></div>
           <div class="row"><label>効果の選択</label><label class="chk"><input id="setup-llm-choices" type="checkbox" checked /> 効果の選択（破壊する相手など）も言語AIに聞く</label></div>
           <div class="row top"><label>作戦メモ</label><textarea id="setup-llm-memo" rows="3" placeholder="（任意）AIのデッキの回し方や狙いを書くと、それを参考にします"></textarea></div>
+          <div class="row"><label></label><button id="setup-llm-memo-load">TXTを読み込む</button><input id="setup-llm-memo-file" type="file" accept=".txt,text/plain" hidden /><span id="setup-llm-memo-info" class="muted"></span></div>
         </div>
         <div id="online-wait" class="panel" hidden></div>
         <div class="row"><label>ルール</label><label class="chk"><input id="setup-strict" type="checkbox" checked /> 競技ルール（40枚ちょうど・同名カードは4枚まで）</label></div>
