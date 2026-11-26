@@ -215,6 +215,17 @@
   }
   $('#setup-llm-memo').addEventListener('input', memoInfo);
   $('#setup-llm-memo-load').addEventListener('click', () => $('#setup-llm-memo-file').click());
+  $('#setup-llm-memo-save').addEventListener('click', () => {
+    const t = LLMAI.compactMemo($('#setup-llm-memo').value);
+    if (!t) return alert('作戦メモが空です');
+    const a = el('a', {
+      href: URL.createObjectURL(new Blob(['\ufeff' + t.replace(/\n/g, '\r\n')], { type: 'text/plain;charset=utf-8' })),
+      download: `ai-memo-${new Date().toISOString().slice(0, 10)}.txt`,
+    });
+    document.body.append(a);
+    a.click();
+    a.remove();
+  });
   $('#setup-llm-memo-file').addEventListener('change', async (e) => {
     const f = e.target.files[0];
     if (!f) return;
