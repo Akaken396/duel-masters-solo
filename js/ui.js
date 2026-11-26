@@ -185,7 +185,10 @@
     updateSetupCounts();
     for (const k of ['first', 'speed', 'mode']) if (Store.prefs[k]) $('#setup-' + k).value = Store.prefs[k];
     if (Store.prefs.server) $('#setup-server').value = Store.prefs.server;
+    for (const [k, id] of [['llmUrl', '#setup-llm-url'], ['llmModel', '#setup-llm-model'], ['llmMemo', '#setup-llm-memo']]) if (Store.prefs[k] != null) $(id).value = Store.prefs[k];
+    if (Store.prefs.llmChoices != null) $('#setup-llm-choices').checked = !!Store.prefs.llmChoices;
     $('#setup-server-row').hidden = $('#setup-mode').value !== 'host';
+    $('#setup-llm').hidden = $('#setup-mode').value !== 'vsllm';
   }
   function updateSetupCounts() {
     for (const [sel, out] of [
@@ -198,7 +201,26 @@
       $(out).className = r.count === 40 && !r.unknown.length ? 'muted' : 'warn';
     }
   }
-  $('#setup-mode').addEventListener('change', () => ($('#setup-server-row').hidden = $('#setup-mode').value !== 'host'));
+  const setupModeRows = () => {
+    $('#setup-server-row').hidden = $('#setup-mode').value !== 'host';
+    $('#setup-llm').hidden = $('#setup-mode').value !== 'vsllm';
+  };
+  $('#setup-mode').addEventListener('change', setupModeRows);
+  // Ollama：接続を確かめて、モデルの一覧を出す
+  $('#setup-llm-test').addEventListener('click', async () => {
+    const st = $('#setup-llm-status');
+    st.textContent = '確かめています…';
+    try {
+      const ms = await LLMAI.listModels($('#setup-llm-url').value.trim());
+      const dl = $('#setup-llm-models');
+      dl.innerHTML = '';
+      for (const m of ms) dl.append(el('option', { value: m }));
+      if (!$('#setup-llm-model').value && ms[0]) $('#setup-llm-model').value = ms[0];
+      st.textContent = ms.length ? `つながりました（モデル: ${ms.join('、')}）` : 'つながりましたが、モデルがありません（ollama pull で入れてください）';
+    } catch (e) {
+      st.textContent = 'つながりません。Ollama が起動しているか確かめてください（' + (e.message || e) + '）';
+    }
+  });
   // 招待URL（?join=部屋）で開いたとき
   {
     const jr = new URLSearchParams(location.search).get('join');
@@ -248,6 +270,11 @@
     Store.savePrefs();
     lastSetup = { my, ai, a, b };
     if ($('#setup-mode').value === 'host') return hostOnline();
+    if ($('#setup-mode').value === 'vsllm') {
+      if (!$('#setup-llm-model').value.trim()) return alert('使うモデルの名前を入れてください（「接続を確かめる」で一覧が出ます）');
+      Object.assign(Store.prefs, { llmUrl: $('#setup-llm-url').value.trim(), llmModel: $('#setup-llm-model').value.trim(), llmMemo: $('#setup-llm-memo').value, llmChoices: $('#setup-llm-choices').checked });
+      Store.savePrefs();
+    }
     startGame();
   });
 
@@ -354,14 +381,16 @@
     const first = f === 'me' ? 0 : f === 'ai' ? 1 : Math.random() < 0.5 ? 0 : 1;
     $('#log').innerHTML = '';
     $('#zoom').innerHTML = '<div class="muted">カードにマウスを乗せると、ここに大きく表示されます</div>';
-    const names = mode === 'solo' ? [`自分（${my.name}）`, `相手（${ai.name}）`] : mode === 'watch' ? [`AI-1（${my.name}）`, `AI-2（${ai.name}）`] : ['あなた', 'AI'];
+    const names = mode === 'solo' ? [`自分（${my.name}）`, `相手（${ai.name}）`] : mode === 'watch' ? [`AI-1（${my.name}）`, `AI-2（${ai.name}）`] : mode === 'vsllm' ? ['あなた', `Ollama（${$('#setup-llm-model').value.trim()}）`] : ['あなた', 'AI'];
+    const llm = mode === 'vsllm' ? LLMAI.make({ url: $('#setup-llm-url').value.trim(), model: $('#setup-llm-model').value.trim(), memo: $('#setup-llm-memo').value.trim(), choices: $('#setup-llm-choices').checked, player: 1 }) : null;
     launch(
       new Game({
         decks: [a.defs, b.defs],
         names,
         ai: [mode === 'watch', mode !== 'solo'],
         first,
-        aiDelay: +$('#setup-speed').value,
+        aiDelay: mode === 'vsllm' ? 150 : +$('#setup-speed').value,
+        ...(llm ? { AI: llm } : {}),
         chooser: humanChoose,
         onChange: queueRender,
         onLog: addLog,
@@ -539,7 +568,7 @@
 
   function showResult() {
     if (!game || game.winner == null) return;
-    const humanWon = mode === 'vsai' ? game.winner === 0 : mode === 'online' ? game.winner === me : null;
+    const humanWon = mode === 'vsai' || mode === 'vsllm' ? game.winner === 0 : mode === 'online' ? game.winner === me : null;
     openModal(
       el(
         'div',
@@ -575,7 +604,7 @@
 
   const isHuman = (pi) => game && (mode === 'online' ? pi === me : !game.p[pi].isAI);
   const canAct = (pi) => game && game.winner == null && isHuman(pi) && game.active === pi && !game.busy && modal.hidden;
-  const visibleHand = (pi) => (mode === 'online' ? pi === me : mode !== 'vsai' || pi === 0);
+  const visibleHand = (pi) => (mode === 'online' ? pi === me : (mode !== 'vsai' && mode !== 'vsllm') || pi === 0);
 
   function render() {
     if (!game) return;
@@ -589,6 +618,7 @@
       g.active === g.active && isHuman(g.active) ? `　マナ: ${g.manaCharged ? '置いた' : 'まだ置ける'}` : ''
     );
     // 待機中の能力（処理の順番待ち）
+    if (g.aiThinking) $('#turninfo').append(el('span', { class: 'warn', text: '　🤖 考え中…' }));
     if (g.pending && g.pending.length) {
       $('#turninfo').append(el('div', { class: 'pending-list', text: '待機中：' + g.pendSummary(g.pending) }));
     }

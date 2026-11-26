@@ -53,12 +53,23 @@
             <option value="vsai">AIと対戦</option>
             <option value="solo">一人回し（相手も自分で操作）</option>
             <option value="watch">AI同士を観戦</option>
+            <option value="vsllm">Ollama（言語AI）と対戦</option>
             <option value="host">友人と対戦（部屋を作る）</option>
           </select>
         </div>
         <div class="row" id="setup-server-row" hidden>
           <label>サーバー</label><input id="setup-server" type="text" value="http://localhost:8787" style="width: 22em" />
           <span class="muted">「AIのデッキ」は、相手がデッキを選ばなかったときに相手が使うデッキです</span>
+        </div>
+        <div id="setup-llm" hidden>
+          <div class="row">
+            <label>Ollama</label><input id="setup-llm-url" type="text" value="http://localhost:11434" style="width: 16em" />
+            <button id="setup-llm-test">接続を確かめる</button>
+            <span id="setup-llm-status" class="muted"></span>
+          </div>
+          <div class="row"><label>モデル</label><input id="setup-llm-model" type="text" list="setup-llm-models" placeholder="例: qwen2.5:7b" style="width: 16em" /><datalist id="setup-llm-models"></datalist></div>
+          <div class="row"><label>効果の選択</label><label class="chk"><input id="setup-llm-choices" type="checkbox" checked /> 効果の選択（破壊する相手など）も言語AIに聞く</label></div>
+          <div class="row top"><label>作戦メモ</label><textarea id="setup-llm-memo" rows="3" placeholder="（任意）AIのデッキの回し方や狙いを書くと、それを参考にします"></textarea></div>
         </div>
         <div id="online-wait" class="panel" hidden></div>
         <div class="row"><label>ルール</label><label class="chk"><input id="setup-strict" type="checkbox" checked /> 競技ルール（40枚ちょうど・同名カードは4枚まで）</label></div>
@@ -272,6 +283,7 @@
     <script src="js/cardscripts.js"></script>
     <script src="js/engine.js"></script>
     <script src="js/ai.js"></script>
+    <script src="js/llmai.js"></script>
     <script src="js/storage.js"></script>
     <script src="js/official.js"></script>
     <script src="js/online.js"></script>
