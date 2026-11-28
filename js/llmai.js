@@ -91,12 +91,15 @@
   function make(cfg) {
     const rule = G.AI;
     cfg = { ...cfg, memo: compactMemo(cfg.memo) };
+    // 基礎ルール（strategies/_基礎ルール.md）は毎回いっしょに渡す
+    const baseRules = cfg.baseRules != null ? cfg.baseRules : (G.STRATEGIES && G.STRATEGIES.base) || '';
+    const SYS = baseRules ? SYSTEM + '\n\n' + baseRules : SYSTEM;
     const base = String(cfg.url || 'http://localhost:11434').replace(/\/+$/, '');
     const stats = { asked: 0, failed: 0 };
 
     async function ask(g, pi, question, options, min, max) {
       const prompt = [
-        cfg.memo ? '【あなたのデッキの作戦】\n' + cfg.memo + '\n' : '',
+        cfg.memo ? '【あなたのデッキの回し方】\n' + cfg.memo + '\n' : '',
         '【盤面】',
         describe(g, pi),
         '',
@@ -117,9 +120,9 @@
         },
         required: ['reason', 'choice'],
       };
-      const numCtx = cfg.numCtx || Math.min(32768, Math.max(8192, Math.ceil(((SYSTEM.length + prompt.length) * 1.4 + 1500) / 1024) * 1024));
+      const numCtx = cfg.numCtx || Math.min(32768, Math.max(8192, Math.ceil(((SYS.length + prompt.length) * 1.4 + 1500) / 1024) * 1024));
       const messages = [
-        { role: 'system', content: SYSTEM },
+        { role: 'system', content: SYS },
         { role: 'user', content: prompt },
       ];
       let lastErr = null;

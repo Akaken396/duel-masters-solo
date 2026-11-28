@@ -119,6 +119,13 @@
             <textarea id="deck-text" rows="16" placeholder="4 カード名&#10;4 カード名&#10;…（1行に「枚数 カード名」）"></textarea>
           </div>
           <div id="deck-check" class="check"></div>
+          <div class="row top">
+            <label>AIの回し方</label>
+            <textarea id="deck-memo" rows="8" placeholder="（Markdownなど自由に）Ollamaがこのデッキを使う時に読む回し方。空なら、同じ名前の既定の回し方（strategies/デッキ名.md）を使います"></textarea>
+          </div>
+          <div class="row">
+            <label></label><button id="deck-memo-default">既定の回し方を入れる</button><button id="deck-memo-load">.mdを読み込む</button><button id="deck-memo-save">.mdで保存</button><input id="deck-memo-file" type="file" accept=".md,.txt,text/plain,text/markdown" hidden /><span id="deck-memo-info" class="muted"></span>
+          </div>
           <div class="row">
             <button id="deck-save" class="primary">保存</button>
             <button id="deck-dup">複製</button>
@@ -284,6 +291,7 @@
     <script src="js/cardscripts.js"></script>
     <script src="js/engine.js"></script>
     <script src="js/ai.js"></script>
+    <script src="js/strategies.js"></script>
     <script src="js/llmai.js"></script>
     <script src="js/storage.js"></script>
     <script src="js/official.js"></script>

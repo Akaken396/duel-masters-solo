@@ -185,7 +185,8 @@
     updateSetupCounts();
     for (const k of ['first', 'speed', 'mode']) if (Store.prefs[k]) $('#setup-' + k).value = Store.prefs[k];
     if (Store.prefs.server) $('#setup-server').value = Store.prefs.server;
-    for (const [k, id] of [['llmUrl', '#setup-llm-url'], ['llmModel', '#setup-llm-model'], ['llmMemo', '#setup-llm-memo']]) if (Store.prefs[k] != null) $(id).value = Store.prefs[k];
+    for (const [k, id] of [['llmUrl', '#setup-llm-url'], ['llmModel', '#setup-llm-model']]) if (Store.prefs[k] != null) $(id).value = Store.prefs[k];
+    fillLlmMemo();
     if (Store.prefs.llmChoices != null) $('#setup-llm-choices').checked = !!Store.prefs.llmChoices;
     if (typeof LLMAI !== 'undefined') memoInfo();
     $('#setup-server-row').hidden = $('#setup-mode').value !== 'host';
@@ -205,7 +206,15 @@
   const setupModeRows = () => {
     $('#setup-server-row').hidden = $('#setup-mode').value !== 'host';
     $('#setup-llm').hidden = $('#setup-mode').value !== 'vsllm';
+    fillLlmMemo();
   };
+  // Ollama の作戦メモ：AIのデッキの回し方を入れる
+  function fillLlmMemo() {
+    const d = Store.decks.find((x) => x.id === $('#setup-ai').value);
+    $('#setup-llm-memo').value = deckMemoOf(d);
+    if (typeof LLMAI !== 'undefined') memoInfo();
+  }
+  $('#setup-ai').addEventListener('change', fillLlmMemo);
   $('#setup-mode').addEventListener('change', setupModeRows);
   // 作戦メモ：長さと、AIに渡す量
   function memoInfo() {
@@ -299,7 +308,7 @@
     if ($('#setup-mode').value === 'host') return hostOnline();
     if ($('#setup-mode').value === 'vsllm') {
       if (!$('#setup-llm-model').value.trim()) return alert('使うモデルの名前を入れてください（「接続を確かめる」で一覧が出ます）');
-      Object.assign(Store.prefs, { llmUrl: $('#setup-llm-url').value.trim(), llmModel: $('#setup-llm-model').value.trim(), llmMemo: $('#setup-llm-memo').value, llmChoices: $('#setup-llm-choices').checked });
+      Object.assign(Store.prefs, { llmUrl: $('#setup-llm-url').value.trim(), llmModel: $('#setup-llm-model').value.trim(), llmChoices: $('#setup-llm-choices').checked });
       Store.savePrefs();
     }
     startGame();
@@ -1161,8 +1170,47 @@
     const d = Store.decks.find((x) => x.id === deckSel);
     $('#deck-name').value = d ? d.name : '';
     $('#deck-text').value = d ? d.list : '';
+    $('#deck-memo').value = d ? d.memo || '' : '';
+    deckMemoInfo();
     checkDeck();
   }
+  // デッキのAI用の回し方：デッキに書いたもの → なければ同じ名前の既定（strategies/*.md）
+  function deckMemoOf(d) {
+    if (!d) return '';
+    if (d.memo && d.memo.trim()) return d.memo;
+    const S = typeof STRATEGIES !== 'undefined' ? STRATEGIES.decks || {} : {};
+    return S[d.name] || '';
+  }
+  function deckMemoInfo() {
+    const d = Store.decks.find((x) => x.id === deckSel);
+    const S = typeof STRATEGIES !== 'undefined' ? STRATEGIES.decks || {} : {};
+    $('#deck-memo-info').textContent = $('#deck-memo').value.trim() ? `${$('#deck-memo').value.length}文字` : d && S[d.name] ? '空なので既定の回し方を使います' : '空です（既定の回し方もありません）';
+  }
+  $('#deck-memo').addEventListener('input', deckMemoInfo);
+  $('#deck-memo-default').addEventListener('click', () => {
+    const S = typeof STRATEGIES !== 'undefined' ? STRATEGIES.decks || {} : {};
+    const name = $('#deck-name').value.trim();
+    if (!S[name]) return alert(`「${name}」の既定の回し方はありません（あるもの：${Object.keys(S).join('、')}）`);
+    if ($('#deck-memo').value.trim() && !confirm('今の回し方を、既定の回し方で置きかえますか？')) return;
+    $('#deck-memo').value = S[name];
+    deckMemoInfo();
+  });
+  $('#deck-memo-load').addEventListener('click', () => $('#deck-memo-file').click());
+  $('#deck-memo-file').addEventListener('change', async (e) => {
+    const f = e.target.files[0];
+    if (!f) return;
+    $('#deck-memo').value = await f.text();
+    e.target.value = '';
+    deckMemoInfo();
+  });
+  $('#deck-memo-save').addEventListener('click', () => {
+    const t = $('#deck-memo').value.trim() || deckMemoOf(Store.decks.find((x) => x.id === deckSel));
+    if (!t) return alert('回し方が空です');
+    const a = el('a', { href: URL.createObjectURL(new Blob(['\ufeff' + t.replace(/\r?\n/g, '\r\n')], { type: 'text/markdown;charset=utf-8' })), download: 'deck-strategy.md' });
+    document.body.append(a);
+    a.click();
+    a.remove();
+  });
   function checkDeck() {
     const r = parseDeckList($('#deck-text').value);
     const out = $('#deck-check');
@@ -1334,13 +1382,14 @@
     if (!d) return;
     d.name = $('#deck-name').value.trim() || '無題のデッキ';
     d.list = $('#deck-text').value;
+    d.memo = $('#deck-memo').value;
     Store.saveDecks();
     renderDeckList();
   });
   $('#deck-dup').addEventListener('click', () => {
     const d = Store.decks.find((x) => x.id === deckSel);
     if (!d) return;
-    const n = { id: 'd-' + Date.now().toString(36), name: d.name + ' のコピー', list: $('#deck-text').value };
+    const n = { id: 'd-' + Date.now().toString(36), name: d.name + ' のコピー', list: $('#deck-text').value, memo: $('#deck-memo').value };
     Store.decks.push(n);
     Store.saveDecks();
     deckSel = n.id;
